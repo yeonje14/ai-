@@ -106,7 +106,7 @@ flowchart TD
 
 ### ① 출발점: 저수준 / 고수준 이분법
 
-패시브(콘텐츠 기반) 탐지는 크게 두 계층으로 나뉩니다. 딥페이크 이미지 탐지 종합 리뷰(ScienceDirect, 2026.3)는 공간·주파수 단서(저수준)와 의미·생리학 단서(고수준)로 분류하고, TriDF(arXiv:2512.10652)도 Quality Artifacts와 Semantic Artifacts로 같은 경계를 긋습니다. 경계의 조작적 정의는 Alpha Blending Hypothesis(arXiv:2605.10334)를 따릅니다. 저수준 아티팩트는 영상 내용과 무관하게 생기고, 고수준 오류는 장면 내용을 봐야 드러납니다.
+패시브(콘텐츠 기반) 탐지는 크게 두 계층으로 나뉩니다. 딥페이크 이미지 탐지 종합 리뷰(ScienceDirect, 2026.3)는 공간·주파수 단서(저수준)와 의미·생리학 단서(고수준)로 분류하고, [TriDF](https://arxiv.org/abs/2512.10652)도 Quality Artifacts와 Semantic Artifacts로 같은 경계를 긋습니다. 경계의 조작적 정의는 [Alpha Blending Hypothesis](https://arxiv.org/abs/2605.10334)를 따릅니다. 저수준 아티팩트는 영상 내용과 무관하게 생기고, 고수준 오류는 장면 내용을 봐야 드러납니다.
 
 | | 저수준 | 고수준 |
 |---|---|---|
@@ -154,18 +154,18 @@ flowchart TD
 
 | 항목 | 내용 |
 |---|---|
-| 근거 논문 | Corvi et al., *Seeing What Matters*, arXiv:2506.16802 |
+| 근거 논문 | Corvi et al., [*Seeing What Matters*](https://arxiv.org/abs/2506.16802) (arXiv:2506.16802) |
 | 입력 | 말하는 구간에서 추출한 프레임 |
 | 방법 | 프레임 단위 탐지기(논문 기준 DINOv2) + 학습 시 포렌식 증강 — 진짜 영상을 오토인코더로 재구성한 가짜 추가, 웨이블릿 대역 중 기저·가로·세로 대역을 진짜 영상 것으로 교체(대각선 중~고주파 대역은 유지) |
 | 출력 | 구간별 점수 |
 | 결정 필요 | 공개 코드 fine-tune vs 직접 학습 (라이선스·학습 자원 확인 필요) |
-| 주의 | 강한 압축(H.264 CRF 32)에서 성능 저하 보고. 다른 벤치마크(AIGVDBench, TRACE 논문 재현)에서 무작위 수준 결과가 보고되어 원인 확인 필요 |
+| 주의 | 강한 압축(H.264 CRF 32)에서 성능 저하 보고. 다른 벤치마크(AIGVDBench, [TRACE 논문](https://arxiv.org/abs/2609.25775)의 재현 결과)에서 무작위 수준 결과가 보고되어 원인 확인 필요 |
 
 ### 5.2 축2 · 물리 — MotionPhys
 
 | 항목 | 내용 |
 |---|---|
-| 근거 논문 | He et al., *MotionPhys*, arXiv:2608.20770 |
+| 근거 논문 | He et al., [*MotionPhys*](https://arxiv.org/abs/2608.20770) (arXiv:2608.20770) |
 | 입력 | 말하는 구간 클립 |
 | 방법 | Shi-Tomasi 코너 + 격자점 → 피라미드 Lucas-Kanade 추적 → 8·12·24프레임 스케일 궤적 → 곡률·각속도·jerk 통계 504차원 → LightGBM |
 | 출력 | 클립별 점수 + 이상이 큰 특징군(곡률/각속도/jerk) |
@@ -176,7 +176,7 @@ flowchart TD
 
 | 항목 | 내용 |
 |---|---|
-| 근거 논문 | Smeu et al., *Circumventing Shortcuts in Audio-visual Deepfake Detection Datasets with Unsupervised Learning*, CVPR 2025 |
+| 근거 논문 | Smeu et al., [*Circumventing Shortcuts in Audio-visual Deepfake Detection Datasets with Unsupervised Learning*](https://arxiv.org/abs/2412.00175), CVPR 2025 ([CVPR 페이지](https://openaccess.thecvf.com/content/CVPR2025/html/Smeu_Circumventing_Shortcuts_in_Audio-visual_Deepfake_Detection_Datasets_with_Unsupervised_Learning_CVPR_2025_paper.html), [코드](https://github.com/bit-ml/AVH-Align)) |
 | 입력 | 입 영역 crop + 음성 |
 | 방법 | AV-HuBERT 특징 위에서 프레임 단위 오디오-영상 정렬 점수 학습. **진짜 영상만으로 학습** |
 | 출력 | 시간축 정렬 점수 → 의심 구간 |
@@ -195,11 +195,11 @@ flowchart TD
 
 ### 6.1 YouTube 열화 에뮬레이터
 
-Montibeller et al.(arXiv:2508.08765)의 방식을 따릅니다. 소수의 영상을 실제로 업로드했다가 다시 받아 플랫폼의 압축·리사이즈 파라미터를 추정하고, 그 값으로 대량의 학습 데이터에 같은 열화를 로컬에서 재현합니다.
+Montibeller et al.([arXiv:2508.08765](https://arxiv.org/abs/2508.08765))의 방식을 따릅니다. 소수의 영상을 실제로 업로드했다가 다시 받아 플랫폼의 압축·리사이즈 파라미터를 추정하고, 그 값으로 대량의 학습 데이터에 같은 열화를 로컬에서 재현합니다.
 
 ### 6.2 평가 설계
 
-- 학습에 쓴 열화와 **다른 조건**으로 평가합니다(AV-Deepfake1M++의 학습/테스트 열화 분리 방식 참고).
+- 학습에 쓴 열화와 **다른 조건**으로 평가합니다([AV-Deepfake1M++](https://arxiv.org/abs/2507.20579)의 학습/테스트 열화 분리 방식 참고).
 - 계획: 학습은 에뮬레이터 열화, 평가는 실제 YouTube 업로드본
 - 지표: AUC, ACC@5% FPR, 위조 유형(a·b·c)별 성능, 압축 조건별 성능
 
@@ -207,7 +207,7 @@ Montibeller et al.(arXiv:2508.08765)의 방식을 따릅니다. 소수의 영상
 
 | 점검 항목 | 이유 |
 |---|---|
-| 앞부분 무음 제거·무작위화 | 기존 오디오-비주얼 데이터셋에서 가짜 영상 앞부분 무음만으로 진짜/가짜가 거의 구분되는 편향이 보고됨(AVH-Align 논문) |
+| 앞부분 무음 제거·무작위화 | 기존 오디오-비주얼 데이터셋에서 가짜 영상 앞부분 무음만으로 진짜/가짜가 거의 구분되는 편향이 보고됨([AVH-Align 논문](https://arxiv.org/abs/2412.00175)) |
 | 진짜/가짜의 인코딩·해상도·길이 맞추기 | 형식 차이를 탐지 단서로 학습하는 지름길 방지 |
 | 같은 내용끼리 짝짓기 | 내용 차이로 구분하는 지름길 방지(WaveRep의 프롬프트 짝짓기 방식) |
 | 도메인 편향 점검 | 특정 인물·촬영 환경·언어에 과적합 방지 |
@@ -373,22 +373,22 @@ flutter run -d android # Android
 
 **탐지 축**
 
-- Corvi et al. *Seeing What Matters: Generalizable AI-generated Video Detection with Forensic-Oriented Augmentation.* arXiv:2506.16802 (NeurIPS 2025) — 축1
-- He et al. *MotionPhys: Detecting AI-Generated Videos via Physical Consistency of Optical-Flow Trajectories.* arXiv:2608.20770 — 축2
-- Smeu et al. *Circumventing Shortcuts in Audio-visual Deepfake Detection Datasets with Unsupervised Learning.* CVPR 2025, arXiv:2412.00175 — 축3
+- Corvi et al. [*Seeing What Matters: Generalizable AI-generated Video Detection with Forensic-Oriented Augmentation.*](https://arxiv.org/abs/2506.16802) arXiv:2506.16802 (NeurIPS 2025) — 축1 · [코드](https://github.com/grip-unina/WaveRep-SyntheticVideoDetection)
+- He et al. [*MotionPhys: Detecting AI-Generated Videos via Physical Consistency of Optical-Flow Trajectories.*](https://arxiv.org/abs/2608.20770) arXiv:2608.20770 — 축2
+- Smeu et al. [*Circumventing Shortcuts in Audio-visual Deepfake Detection Datasets with Unsupervised Learning.*](https://arxiv.org/abs/2412.00175) CVPR 2025, arXiv:2412.00175 — 축3 · [CVPR 페이지](https://openaccess.thecvf.com/content/CVPR2025/html/Smeu_Circumventing_Shortcuts_in_Audio-visual_Deepfake_Detection_Datasets_with_Unsupervised_Learning_CVPR_2025_paper.html) · [코드](https://github.com/bit-ml/AVH-Align)
 
 **학습·평가**
 
-- Montibeller et al. *Bridging the Gap: A Framework for Real-World Video Deepfake Detection via Social Network Compression Emulation.* arXiv:2508.08765 — 열화 에뮬레이터
-- Cai et al. *AV-Deepfake1M++: A Large-Scale Audio-Visual Deepfake Benchmark with Real-World Perturbations.* ACM MM 2025, arXiv:2507.20579 — 평가 설계 참고
+- Montibeller et al. [*Bridging the Gap: A Framework for Real-World Video Deepfake Detection via Social Network Compression Emulation.*](https://arxiv.org/abs/2508.08765) arXiv:2508.08765 — 열화 에뮬레이터
+- Cai et al. [*AV-Deepfake1M++: A Large-Scale Audio-Visual Deepfake Benchmark with Real-World Perturbations.*](https://arxiv.org/abs/2507.20579) ACM MM 2025, arXiv:2507.20579 — 평가 설계 참고
 
 **분류 체계 (§4)**
 
-- *Alpha Blending Hypothesis.* arXiv:2605.10334 — 저수준/고수준 경계의 조작적 정의
-- *TriDF.* arXiv:2512.10652 — Quality Artifacts vs Semantic Artifacts
-- 딥페이크 이미지 탐지 종합 리뷰. ScienceDirect, 2026.3 — 공간·주파수 vs 의미·생리학 분류 (서지 정보 보완 필요)
+- [*Alpha Blending Hypothesis.*](https://arxiv.org/abs/2605.10334) arXiv:2605.10334 — 저수준/고수준 경계의 조작적 정의
+- [*TriDF.*](https://arxiv.org/abs/2512.10652) arXiv:2512.10652 — Quality Artifacts vs Semantic Artifacts
+- 딥페이크 이미지 탐지 종합 리뷰. ScienceDirect, 2026.3 — 공간·주파수 vs 의미·생리학 분류 (링크·서지 정보 보완 필요)
 
 **비교·참고**
 
-- Chang et al. *What Matters in Detecting AI-Generated Videos like Sora?* arXiv:2406.19568
-- Cao et al. *TRACE: Trajectory Representation and Consistency Estimation for AI-Generated Video Detection.* arXiv:2609.25775
+- Chang et al. [*What Matters in Detecting AI-Generated Videos like Sora?*](https://arxiv.org/abs/2406.19568) arXiv:2406.19568
+- Cao et al. [*TRACE: Trajectory Representation and Consistency Estimation for AI-Generated Video Detection.*](https://arxiv.org/abs/2609.25775) arXiv:2609.25775
