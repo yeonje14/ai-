@@ -1,15 +1,40 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-12 · 브랜치 `chore/env-check` (커밋함, push 전)
+마지막 갱신: 2026-11-12 · 브랜치 `spike/waverep-inference` (커밋함, push 전)
 
-## 백로그 2번: 환경 스모크 점검 (진행 중)
+## 백로그 5번: WaveRep 단독 추론 스파이크 (완료)
 
-- `scripts/check_env.py`를 만들었다. Python·아키텍처·Rosetta, ffmpeg/ffprobe/libx264, PyTorch CPU/MPS(실제 행렬곱), OpenCV, LightGBM을 점검하고 `docs/env-check.md`에 쓴다. 아무것도 설치하지 않는다. 없으면 `없음`, 있지만 동작하지 않으면 `실패`.
-- 실행: `conda activate trinity && python scripts/check_env.py`. 테스트는 `tests/test_check_env.py`, `pytest -q` 60개 통과.
-- 2026-11-12 conda `trinity` 환경 결과: Python 3.11.18 / arm64 / ffmpeg·ffprobe 8.0.1 / libx264는 정상. **PyTorch, OpenCV, LightGBM은 없음**. 따라서 CPU·MPS 장치 가용 여부는 아직 미검증이다.
-- 남은 일:
-  - PyTorch 등은 `trinity`(서버 환경)가 아니라 `research/<model>/.venv`에 설치한 뒤, 그 환경의 Python으로 이 스크립트를 다시 돌려 CPU/MPS 결과를 기록한다. `--output`으로 환경별 파일을 따로 쓸 수 있다.
-  - 백로그 2번의 "저장소/가중치 이용 조건 점검"은 하지 않았다. 스크립트로 확인할 수 없는 항목이라 별도 조사가 필요하다.
+실행 가능성 확인이다. 성능 검증이 아니며, 점수를 진위로 해석하지 않는다. 자세한 수치는 `docs/waverep-spike.md`.
+
+- **환경**: `research/waverep/.venv`(Python 3.11.18), torch 2.15.0 · timm 1.0.31 · opencv-python 5.0.0.93. 버전은 `research/waverep/requirements.lock.txt`에 고정.
+- **원본 코드·가중치**: `research/waverep/upstream/`에 clone(커밋 `0fd6010`, 수정하지 않음, Git 제외). `weights_dinov2_G4.ckpt`는 md5가 공개값과 일치.
+- **결과** (본인 촬영 영상 1개, 1080p 313프레임): CPU 성공(142초·190초, 최대 RSS 약 1.0 GiB), MPS 성공(122초, peak footprint 1.31 GiB). CPU 2회 점수 완전 일치, CPU↔MPS 프레임 점수 최대 차 0.00019. CUDA 전용 연산과 MPS fallback 경고 없음.
+- **가중치 키 대조**: missing 0, unexpected 0, 모양 불일치 0 (177개 키).
+- **이용 조건**: `docs/waverep-license.md`. GRIP-UNINA 자체 라이선스로 비영리·정보 목적만 허용, 원 고지 유지, 결과 공개 시 인용.
+- **만든 파일**: `research/waverep/run_spike.py`(데모를 서브프로세스로 실행하고 시간·메모리·점수 요약 기록), `research/waverep/check_state_dict.py`(키 대조), `tests/test_waverep_spike.py`. `.gitignore`에 `research/*/upstream/` 추가.
+- **실행**:
+  ```bash
+  research/waverep/.venv/bin/python research/waverep/check_state_dict.py
+  research/waverep/.venv/bin/python research/waverep/run_spike.py --video data/research/samples/<파일>.mp4 --device cpu --tag cpu-1
+  research/waverep/.venv/bin/python research/waverep/run_spike.py --video data/research/samples/<파일>.mp4 --device mps --tag mps-1
+  ```
+  환경을 새로 만드는 방법은 `docs/waverep-spike.md` "재현 방법". 출력은 `data/research/waverep-spike/`(Git 제외).
+- **검증**: `pytest -q` 72개 통과(conda `trinity`). 추론 4회(cpu-smoke, cpu-1, cpu-2, mps-1) 모두 종료 코드 0.
+- **확인 필요로 남긴 것**:
+  - 가중치 전용 이용 조건(저장소에 명시 없음), timm DINOv2 기반 가중치와 PyPI 의존성의 라이선스.
+  - MPS 최대 메모리: `/usr/bin/time -l` 값이 GPU 할당 전부를 포함하는지 미확인. 백로그 7번 어댑터에서 `torch.mps.driver_allocated_memory()`로 측정.
+  - MPS가 CPU보다 크게 빠르지 않은 원인, CPU 2회 실행 시간 차이의 원인(각 1회 측정).
+  - 원본 전처리는 가운데 504×504 crop뿐이다. 세로 영상·저해상도 입력에서의 동작은 실행하지 않았다.
+  - 원본 데모는 `pretrained=True`라 첫 실행 때 Hugging Face Hub에서 346MB를 받는다. 오프라인 서비스 실행을 위해 어댑터에서 `pretrained=False`로 바꿔도 결과가 같은지.
+- **백로그 의존성 메모**: 5번은 원래 3번(데이터셋 접근)에 의존한다. 이번에는 데이터셋 대신 본인 촬영 영상 1개로 실행 가능성만 확인했다.
+
+## 백로그 2번: 환경 스모크 점검 (완료)
+
+- `scripts/check_env.py`를 만들었다. Python·아키텍처·Rosetta, ffmpeg/ffprobe/libx264, PyTorch CPU/MPS(실제 행렬곱), OpenCV, LightGBM을 점검한다. 아무것도 설치하지 않는다. 없으면 `없음`, 있지만 동작하지 않으면 `실패`.
+- 실행: `conda activate trinity && python scripts/check_env.py`. 다른 환경은 그 환경의 Python과 `--output`으로 따로 기록한다. 테스트는 `tests/test_check_env.py`.
+- conda `trinity`(서버 환경) 결과는 `docs/env-check.md`: Python 3.11.18 / arm64 / ffmpeg·ffprobe 8.0.1 / libx264 정상. PyTorch·OpenCV·LightGBM은 이 환경에 없다(의도한 상태).
+- `research/waverep/.venv` 결과는 `docs/env-check-waverep.md`: PyTorch 2.15.0, **CPU·MPS 행렬곱 스모크 정상**, OpenCV 5.0.0 정상. LightGBM은 없음(WaveRep 환경의 설치 대상이 아니다. MotionPhys 환경을 만들 때 확인한다).
+- "저장소/가중치 이용 조건 점검"은 WaveRep에 대해서만 했다(`docs/waverep-license.md`). MotionPhys·SyncNet·`social_emulator`는 각 스파이크에서 점검한다.
 
 ## 한 일 (백로그 4번)
 
@@ -43,8 +68,8 @@ python scripts/smoke_slice.py         # 터미널 3
 
 ## 남은 일
 
-- 백로그 1·2·3번(권한 근거, 환경 스모크 테스트, 데이터셋 접근)은 기록이 없다. 4번은 원래 1·2번에 의존한다.
-- 백로그 5번: WaveRep 단독 추론 스파이크(`research/waverep/` 별도 환경).
+- 백로그 1·3번(권한 근거, 데이터셋 접근)은 기록이 없다. 4번은 원래 1번에, 5번은 3번에 의존한다.
+- 다음 순서: 백로그 6번(최소 발화 구간 Gate). 그 전에 1·3번 조사가 필요하다.
 - 백로그 14번으로 미룬 것: `DELETE /api/v1/analyses/{id}` 엔드포인트(큐의 `request_cancel`은 이미 있음), 정식 인증, rate limit, 비정상 종료 잔여 파일 24시간 정리.
 - 실제 모델을 연결하면(백로그 7번) heartbeat를 단계 경계가 아니라 주기적으로 보내야 한다. 지금은 stub이 즉시 끝나서 단계 경계 heartbeat로 충분하다.
 

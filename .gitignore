@@ -43,3 +43,6 @@ secrets/
 *.bin
 weights/
 checkpoints/
+
+# WaveRep 원본 저장소 clone (GRIP-UNINA 라이선스, 재배포하지 않음)
+research/*/upstream/
