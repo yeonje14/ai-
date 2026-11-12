@@ -1,6 +1,33 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-12 · 브랜치 `docs/backlog-1-3-access-records` (커밋함, push 전)
+마지막 갱신: 2026-11-12 · 브랜치 `feat/gate-speech-segments` (커밋함, push 전)
+
+## 백로그 6번: 최소 발화 구간 Gate (구현함, 다중 발화는 미검증)
+
+허가 미디어 파일 하나를 받아 적합 발화 구간과 원인 코드를 돌려주는 `server/gate` 모듈이다. 모델 추론은 하지 않는다. Worker에는 연결하지 않았다. 자세한 내용은 `docs/gate.md`.
+
+- **구성**: `probe.py`(ffprobe), `vad.py`(FFmpeg PCM 파이프 + `webrtcvad`), `faces.py`(MediaPipe Face Detector), `segments.py`(추적과 규칙, 순수 함수), `types.py`(자료형·원인 코드·임시 임계값). 진입점은 `server.gate.run_gate(media_path)`.
+- **규칙**: 음성 구간 동안 주된 얼굴이 정확히 하나일 때만 적합 구간이다. 둘 이상이면 `speaker_unconfirmed`.
+- **원인 코드**: `media_unreadable`, `audio_missing`, `no_speech_detected`, `no_face_detected`, `speaker_unconfirmed`, `low_resolution`, `face_too_small`, `too_blurry`, `segment_too_short`. README §10에 추가했다.
+- **coverage**: `video_duration_sec`와 `eligible_duration_sec`만 채운다. `analyzed_*`와 비율은 `null`(백로그 7번에서 채운다).
+- **의존성**: `requirements-gate.txt`(버전 고정)를 conda `trinity`에 설치했다. `mediapipe` 1.2.3, `webrtcvad-wheels` 2.0.14.post1, `opencv-contrib-python` 5.0.0.93, `numpy` 2.4.6 등. **torch는 없다**(설치 전 dry-run과 설치 후 모두 확인). 먼저 `research/gate/.venv`에서 스모크했고 lockfile은 `research/gate/requirements.lock.txt`.
+- **모델 파일**: `data/models/gate/blaze_face_short_range.tflite`(Git 제외). sha256은 `configs/gate_models.json`. 해시가 다르면 실행을 거부한다.
+- **실행**:
+  ```bash
+  conda activate trinity
+  pip install -r requirements-gate.txt
+  python scripts/run_gate.py data/research/samples/<허가 영상>.mp4
+  pytest -q
+  ```
+  모델 파일을 받는 방법은 `docs/gate.md` "재현 방법".
+- **검증**: `pytest -q` 96개 통과(conda `trinity`, 건너뛴 테스트 없음). 실제 영상 4종의 대표 원인 코드: 원본 `null`(적합 구간 0~10.433초), 오디오 제거본 `audio_missing`, 검은 화면본 `no_face_detected`, 무음 오디오본 `no_speech_detected`. 변형은 테스트 중 임시 폴더에 만들고 끝나면 지운다.
+- **미검증·확인 필요**:
+  - 여러 명이 말하는 영상(동의받은 영상 없음). `speaker_unconfirmed`는 합성 표본을 넣은 규칙 단위 테스트로만 확인했다.
+  - 임계값 전부(임시값). 품질 원인 코드는 실제 저품질 영상으로 실행하지 않았다.
+  - 화면 밖 발화자는 구분하지 못한다(보이는 얼굴이 말한다고 가정).
+  - VAD가 샘플 전체를 한 음성 구간으로 묶었다. 실제 발화와 맞는지 사람이 대조하지 않았다. `webrtcvad`의 정확도는 비교하지 않았다.
+  - MediaPipe 얼굴 검출 모델 파일의 이용 조건, 세로(회전) 영상에서의 프레임 방향.
+- **백로그 7번에서 할 일**: Gate를 Worker의 `preprocessing` 단계에 연결, 원인 코드를 `analysis_status`에 대응, `analyzed_*` coverage 채우기, Gate 실행 중 heartbeat, 서버가 발급한 작업 경로만 넘기기.
 
 ## 백로그 1·3번: 접근 기록 문서화 (둘 다 진행 중)
 
@@ -76,6 +103,7 @@
 
 ```bash
 conda activate trinity                # 없으면: conda create -n trinity python=3.11 -y && pip install -r requirements.txt
+pip install -r requirements-gate.txt  # Gate용(선택). torch 없음
 pytest -q
 uvicorn server.main:app --reload      # 터미널 1
 python -m server.jobs.worker          # 터미널 2
@@ -85,7 +113,7 @@ python scripts/smoke_slice.py         # 터미널 3
 ## 남은 일
 
 - 백로그 1·3번은 기록을 만들었고 둘 다 진행 중이다(`docs/media-access.md`, `docs/dataset-access.md`). 4번은 원래 1번에, 5번은 3번에 의존한다.
-- 다음 순서: 백로그 6번(최소 발화 구간 Gate). 1·3번의 확인 필요 항목은 병렬로 처리한다. 데이터셋 승인은 기다려야 한다.
+- 다음 순서: 백로그 7번(실제 WaveRep를 Worker에 연결). 6번 Gate는 구현했고 다중 발화만 미검증이다. 1·3번의 확인 필요 항목은 병렬로 처리한다. 데이터셋 승인은 기다려야 한다.
 - 백로그 14번으로 미룬 것: `DELETE /api/v1/analyses/{id}` 엔드포인트(큐의 `request_cancel`은 이미 있음), 정식 인증, rate limit, 비정상 종료 잔여 파일 24시간 정리.
 - 실제 모델을 연결하면(백로그 7번) heartbeat를 단계 경계가 아니라 주기적으로 보내야 한다. 지금은 stub이 즉시 끝나서 단계 경계 heartbeat로 충분하다.
 

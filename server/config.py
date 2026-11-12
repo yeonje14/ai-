@@ -12,6 +12,9 @@ class Settings:
     db_path: Path = Path("data/runtime/trinity.sqlite3")
     runtime_dir: Path = Path("data/runtime/jobs")
     authorized_media_path: Path = Path("configs/authorized_media.json")
+    # Gate 모델 파일은 Git 밖에 둔다. 해시는 configs/gate_models.json과 대조한다.
+    gate_model_dir: Path = Path("data/models/gate")
+    gate_models_config_path: Path = Path("configs/gate_models.json")
     # README §8 초기값: 동시 분석 1건(큐가 강제), 대기 3건. 실측 후 조정한다.
     max_queued: int = 3
     lease_seconds: float = 30.0
@@ -30,6 +33,10 @@ class Settings:
             runtime_dir=Path(env("TRINITY_RUNTIME_DIR", str(d.runtime_dir))),
             authorized_media_path=Path(
                 env("TRINITY_AUTHORIZED_MEDIA", str(d.authorized_media_path))
+            ),
+            gate_model_dir=Path(env("TRINITY_GATE_MODEL_DIR", str(d.gate_model_dir))),
+            gate_models_config_path=Path(
+                env("TRINITY_GATE_MODELS_CONFIG", str(d.gate_models_config_path))
             ),
             max_queued=int(env("TRINITY_MAX_QUEUED", d.max_queued)),
             lease_seconds=float(env("TRINITY_LEASE_SECONDS", d.lease_seconds)),
