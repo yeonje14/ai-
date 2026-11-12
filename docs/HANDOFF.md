@@ -1,8 +1,17 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-12 · 브랜치 `feat/url-only-slice` (커밋함, push 전)
+마지막 갱신: 2026-11-12 · 브랜치 `chore/env-check` (커밋함, push 전)
 
-## 한 일
+## 백로그 2번: 환경 스모크 점검 (진행 중)
+
+- `scripts/check_env.py`를 만들었다. Python·아키텍처·Rosetta, ffmpeg/ffprobe/libx264, PyTorch CPU/MPS(실제 행렬곱), OpenCV, LightGBM을 점검하고 `docs/env-check.md`에 쓴다. 아무것도 설치하지 않는다. 없으면 `없음`, 있지만 동작하지 않으면 `실패`.
+- 실행: `conda activate trinity && python scripts/check_env.py`. 테스트는 `tests/test_check_env.py`, `pytest -q` 60개 통과.
+- 2026-11-12 conda `trinity` 환경 결과: Python 3.11.18 / arm64 / ffmpeg·ffprobe 8.0.1 / libx264는 정상. **PyTorch, OpenCV, LightGBM은 없음**. 따라서 CPU·MPS 장치 가용 여부는 아직 미검증이다.
+- 남은 일:
+  - PyTorch 등은 `trinity`(서버 환경)가 아니라 `research/<model>/.venv`에 설치한 뒤, 그 환경의 Python으로 이 스크립트를 다시 돌려 CPU/MPS 결과를 기록한다. `--output`으로 환경별 파일을 따로 쓸 수 있다.
+  - 백로그 2번의 "저장소/가중치 이용 조건 점검"은 하지 않았다. 스크립트로 확인할 수 없는 항목이라 별도 조사가 필요하다.
+
+## 한 일 (백로그 4번)
 
 백로그 4번, URL-only 최소 수직 슬라이스를 만들었다. 모델과 다운로드는 stub이다.
 
