@@ -1,6 +1,12 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-12 · 브랜치 `docs/backlog-1-3-access-records` (커밋함, push 전)
+마지막 갱신: 2026-11-12 · 브랜치 `feat/waverep-adapter`
+
+## 백로그 7번: WaveRep 어댑터 (진행 중)
+
+- 프레임 샘플링, WaveRep 추론 어댑터, 벤치마크 및 테스트를 작성했다. 전체 테스트 124개 통과(실제 CPU 추론 포함).
+- 배터리 부족으로 벤치마크를 일시 중단했다. 중단 전 완료를 확인한 케이스: `cpu-all-b1-pretrained`, `cpu-all-b1`, `cpu-all-b8`. 결과는 `data/research/waverep-adapter/`에 있다(Git 제외).
+- 다음: 같은 영상으로 벤치마크를 재개하고 남은 결과와 오프라인 재현성을 확인한다. Gate와 Worker 통합은 남아 있다.
 
 ## 백로그 1·3번: 접근 기록 문서화 (둘 다 진행 중)
 
