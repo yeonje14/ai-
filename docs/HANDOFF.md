@@ -1,6 +1,22 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-12 · 브랜치 `spike/waverep-inference` (커밋함, push 전)
+마지막 갱신: 2026-11-12 · 브랜치 `docs/backlog-1-3-access-records` (커밋함, push 전)
+
+## 백로그 1·3번: 접근 기록 문서화 (둘 다 진행 중)
+
+문서만 만들었다. 코드는 바꾸지 않았다.
+
+- **`docs/media-access.md` (백로그 1번)**: 영상 ID·메타데이터 접근과 분석용 미디어 접근의 차이(README §3.1 기준), 임의 YouTube URL은 `analysis_unavailable`로 처리한다는 결정, 허가 미디어 범위(저장소 소유자가 직접 촬영한 본인 영상, 본인 얼굴·음성만, 제3자 없음), 압축 실험에는 휴대폰 원본을 쓴다는 메모.
+- **`docs/dataset-access.md` (백로그 3번)**: DeepSpeak v2와 Deepfake-Eval-2024는 접근 요청 후 승인 대기, TalkingHeadBench는 접근 방법 확인 필요. 데이터셋별 역할, 확인된 이용 조건, 확인 필요 항목을 나눠 적었다. Hugging Face 공개 API 메타데이터(접근 제한 여부, 라이선스 태그, Deepfake-Eval-2024 이용 조건 문구)를 2026-11-12에 조회해 근거로 썼다. 데이터셋 파일은 받지 않았다.
+- **README**: §14.1 백로그 1·3번 행에 상태를 적었다. §6.1 표의 DeepSpeak v2·Deepfake-Eval-2024 상태 칸을 "접근 요청함, 승인 대기"로 바꿨다.
+- **검증**: `pytest -q` 72개 통과(conda `trinity`). 문서 변경이라 새 테스트는 없다.
+- **확인 필요로 남긴 것**:
+  - 두 데이터셋의 신청 날짜(저장소 소유자가 알려 주면 반영), 승인 결과.
+  - DeepSpeak v2 라이선스 문서 본문(링크만 확인), TalkingHeadBench의 실제 접근 절차·분할·상위 영상 권리.
+  - 본인 채널 영상을 YouTube Studio에서 받을 수 있는지, 받은 파일이 플랫폼 처리본인지.
+  - 현재 샘플(`KakaoTalk_Video_…`)의 재압축 여부. 압축 실험(백로그 9번)에는 휴대폰 원본을 새로 옮겨 쓴다.
+- **백로그 1번에서 남은 것**: YouTube ID와 연결된 시연용 허가 미디어 등록. 레지스트리에는 여전히 가짜 ID `TRINITYtest`만 있다.
+- **백로그 3번에서 남은 것**: 최소 테스트 샘플, 공통 manifest/분할 규칙. 8번은 3번이 끝나야 시작할 수 있다.
 
 ## 백로그 5번: WaveRep 단독 추론 스파이크 (완료)
 
@@ -68,8 +84,8 @@ python scripts/smoke_slice.py         # 터미널 3
 
 ## 남은 일
 
-- 백로그 1·3번(권한 근거, 데이터셋 접근)은 기록이 없다. 4번은 원래 1번에, 5번은 3번에 의존한다.
-- 다음 순서: 백로그 6번(최소 발화 구간 Gate). 그 전에 1·3번 조사가 필요하다.
+- 백로그 1·3번은 기록을 만들었고 둘 다 진행 중이다(`docs/media-access.md`, `docs/dataset-access.md`). 4번은 원래 1번에, 5번은 3번에 의존한다.
+- 다음 순서: 백로그 6번(최소 발화 구간 Gate). 1·3번의 확인 필요 항목은 병렬로 처리한다. 데이터셋 승인은 기다려야 한다.
 - 백로그 14번으로 미룬 것: `DELETE /api/v1/analyses/{id}` 엔드포인트(큐의 `request_cancel`은 이미 있음), 정식 인증, rate limit, 비정상 종료 잔여 파일 24시간 정리.
 - 실제 모델을 연결하면(백로그 7번) heartbeat를 단계 경계가 아니라 주기적으로 보내야 한다. 지금은 stub이 즉시 끝나서 단계 경계 heartbeat로 충분하다.
 
@@ -87,4 +103,4 @@ python scripts/smoke_slice.py         # 터미널 3
 ## 막힌 점·확인이 필요한 것
 
 - **테스트 경고**: `starlette.testclient`가 `httpx` 대신 `httpx2`를 쓰라는 경고를 낸다. 테스트는 통과한다. 교체 여부는 확인 필요.
-- **허가 미디어**: 레지스트리에는 가짜 ID `TRINITYtest`만 있다. 실제 ID는 권한 근거(백로그 1번)를 기록한 뒤에만 넣는다.
+- **허가 미디어**: 레지스트리에는 가짜 ID `TRINITYtest`만 있다. 권한 근거는 `docs/media-access.md`에 기록했다. 실제 ID는 본인 채널 업로드 여부와 YouTube Studio 관련 미확인 사항을 정한 뒤에 넣는다.

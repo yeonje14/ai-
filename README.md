@@ -270,10 +270,10 @@ Logistic Regression이 내놓는 0–1 값은 **보정 여부와 무관하게 �
 
 | 데이터 | 주 역할 | 접근·제약 | 상태 |
 |---|---|---|---|
-| [DeepSpeak v2](https://huggingface.co/datasets/faridlab/deepspeak_v2) | 진짜 + (a) 아바타·(b) 립싱크·(c) 얼굴 교체를 이용한 **주 학습/내부 검증** | 사용 승인·동의 및 ID/원본 계보 확인 필요 | 접근 신청/확인 필요 |
+| [DeepSpeak v2](https://huggingface.co/datasets/faridlab/deepspeak_v2) | 진짜 + (a) 아바타·(b) 립싱크·(c) 얼굴 교체를 이용한 **주 학습/내부 검증** | 사용 승인·동의 및 ID/원본 계보 확인 필요 | 접근 요청함, 승인 대기 (`docs/dataset-access.md`) |
 | [TalkingHeadBench](https://huggingface.co/datasets/luchaoqi/TalkingHeadBench) | **우선 외부 생성 방식 일반화 평가**. 별도 허용된 학습 분할은 추후 선택 | 제공 분할, 상위 영상 권리, 라이선스 확인 | 평가 자료 확보 필요 |
 | 자체 생성 가상 인물 영상(약 20–50편 계획) | 최신 **영상+음성 동시 생성(a)**의 탐색적 평가 | 생성 도구 약관·비용·모델 버전·프롬프트 기록; 진짜 비교군 필요 | 계획 |
-| [Deepfake-Eval-2024](https://huggingface.co/datasets/nuriachandra/Deepfake-Eval-2024) | **최종 외부 실전 평가 전용** | 접근 승인·사용 조건 확인; 학습/튜닝/임계값 조정에 사용하지 않음 | 접근 신청/확인 필요 |
+| [Deepfake-Eval-2024](https://huggingface.co/datasets/nuriachandra/Deepfake-Eval-2024) | **최종 외부 실전 평가 전용** | 접근 승인·사용 조건 확인; 학습/튜닝/임계값 조정에 사용하지 않음 | 접근 요청함, 승인 대기 (`docs/dataset-access.md`) |
 | 직접 촬영한 권한 확보 진짜 영상 | 압축 기준 특성 추정 및 파이프라인 시험 | 플랫폼 출력본 사용 권한 별도 확인 | 계획 |
 | [AV-Deepfake1M++](https://arxiv.org/abs/2507.20579) | 분할·압축 평가 방식 참고 | 연구 EULA 확인 | 참조만 |
 
@@ -563,9 +563,9 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 
 | 순위 | 단계 / 우선도 | **가장 먼저 구현·확인할 작업** | 완료 조건(Definition of Done) | 의존성 |
 |---|---|---|---|---|
-| **1** | **P0-0 / BLOCKER** | **YouTube 미디어 접근 정책·허가 경로 조사, 승인 필요성 확인**. 영상 ID/메타데이터 API와 추론용 미디어의 차이를 문서화. | 적법하게 사용 가능한 **실험/시연 미디어** 1건 이상과 권한 근거 기록. 범용 URL 접근 불가 시 명시적 `Unavailable` 결정. | 없음 |
+| **1** | **P0-0 / BLOCKER** | **YouTube 미디어 접근 정책·허가 경로 조사, 승인 필요성 확인**. 영상 ID/메타데이터 API와 추론용 미디어의 차이를 문서화. | 적법하게 사용 가능한 **실험/시연 미디어** 1건 이상과 권한 근거 기록. 범용 URL 접근 불가 시 명시적 `Unavailable` 결정.<br>**상태(2026-11-12): 진행 중.** 차이 문서화, 임의 URL `analysis_unavailable` 결정, 본인 촬영 실험 영상 1건의 권한 근거를 기록함. YouTube ID와 연결된 시연용 등록과 YouTube Studio 다운로드 여부는 확인 필요. 기록: `docs/media-access.md` | 없음 |
 | **2** | **P0-1 / BLOCKER** | **맥북 ARM64 개발 환경 스모크 테스트:** Python 3.11, FFmpeg/ffprobe, PyTorch CPU/MPS, OpenCV/LightGBM, 저장소/가중치 이용 조건 점검. | 실제 콘솔 로그·버전·가용 장치·실패 목록을 문서화. | 없음 (1과 병렬 가능) |
-| **3** | **P0-2 / BLOCKER** | **데이터셋 접근 신청/라이선스·누수 구조 확인:** DeepSpeak, TalkingHeadBench, Deepfake-Eval. | 접근 상태·사용 조건, 최소 테스트 샘플, 공통 manifest/분할 규칙 확보. | 없음 (1·2와 병렬 가능) |
+| **3** | **P0-2 / BLOCKER** | **데이터셋 접근 신청/라이선스·누수 구조 확인:** DeepSpeak, TalkingHeadBench, Deepfake-Eval. | 접근 상태·사용 조건, 최소 테스트 샘플, 공통 manifest/분할 규칙 확보.<br>**상태(2026-11-12): 진행 중.** DeepSpeak v2·Deepfake-Eval-2024는 접근 요청 후 승인 대기, TalkingHeadBench는 접근 방법 확인 필요. 테스트 샘플과 manifest/분할 규칙은 없음. 기록: `docs/dataset-access.md` | 없음 (1·2와 병렬 가능) |
 | **4** | **P0-3 / 핵심** | **URL-only 최소 수직 슬라이스:** URL 검사·ID 추출 → `AuthorizedMediaRegistry` → FastAPI/SQLite 단일 Worker → 상태/보류 JSON. **모델은 임시 Stub**. | 등록된 허가 YouTube ID는 작업→결과 완료, 미등록/무권한 ID는 `analysis_unavailable`; 업로드 UI 없음. | 1·2 |
 | **5** | **P0-4 / 핵심** | **WaveRep 단독 추론 스파이크:** 공개 체크포인트·CPU 추론 → MPS 시험; 프레임 점수와 실행시간/메모리 기록. | 허가 테스트 클립에서 추론 반복 가능, 실패·장치 대안 문서화. **성능 검증과 구별**. | 2·3 |
 | **6** | **P1-1 / 핵심** | **최소 발화 구간 Gate:** ffprobe, 얼굴 추적, VAD, 발화자-얼굴 대응, 구간별 품질·coverage. | 단일 발화/무음/얼굴 없음/다중 발화 예시를 분리 처리하고 원인 코드 생성. | 4·5 |
