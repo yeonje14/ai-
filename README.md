@@ -376,7 +376,7 @@ Flutter — REST Polling으로 상태/결과 표시
 
 ## 9. API 계약
 
-기본 접두어 `/api/v1`; 모든 API의 예시는 **미구현 명세**입니다. 일반 사용자 미디어 파일 업로드 엔드포인트는 없습니다.
+기본 접두어 `/api/v1`; 모든 API의 예시는 **백로그 4번 기준 stub으로 구현됨**(모델·다운로드는 stub, `DELETE`는 미구현)입니다. 일반 사용자 미디어 파일 업로드 엔드포인트는 없습니다.
 
 | 메서드 | 경로 | 의미 | 접근 |
 |---|---|---|---|
@@ -437,7 +437,7 @@ Flutter — REST Polling으로 상태/결과 표시
 
 **접근 불가 결과:** `job_status=finished`, `analysis_status=analysis_unavailable`, `verdict_status=abstained`, `overall_score=null`, `reason_code=video_access_unavailable` 또는 `access_not_authorized`; 모든 축의 점수는 `null`. HTTP 요청 접수 성공과 분석/판정 성공은 다릅니다.
 
-**HTTP 실패:** 잘못된 URL 422, 인증 실패 401/403, 작업 접근권한 없음 403 또는 정책상 404, 대기열 포화 429/503, 없는 작업 404. 결과 대기 중에는 완료 결과를 꾸며내지 않고 명시적인 미완료 상태를 반환.
+**HTTP 실패:** 잘못된 URL 422, 인증 실패 401/403, 작업 접근권한 없음 403 또는 정책상 404, 대기열 포화 429/503, 없는 작업 404. 결과 대기 중(`queued`, `processing`)에는 완료 결과를 꾸며내지 않고 `GET /result`가 HTTP `202`와 함께 `job_status`·`stage`만 반환.
 
 ## 10. 상태, 실패, 부분 분석 및 보류
 
@@ -450,7 +450,7 @@ Flutter — REST Polling으로 상태/결과 표시
 | 판정 | `verdict_status` | `assessed`, `abstained`, `not_applicable` |
 | 축별 | `axes.*.status` | `completed`, `insufficient_input`, `unsupported_input`, `out_of_distribution`, `error` |
 
-**보류 원인:** `insufficient_evidence`, `unvalidated_condition`, `no_valid_fusion_model`, `video_access_unavailable`, `access_not_authorized`, `speaker_unconfirmed`. 축별 세부 원인 예: `tracking_failed`, `insufficient_motion`, `occluded_mouth`, `audio_missing`, `inference_error`.
+**보류 원인:** `insufficient_evidence`, `unvalidated_condition`, `no_valid_fusion_model`, `video_access_unavailable`, `access_not_authorized`, `speaker_unconfirmed`. 축별 세부 원인 예: `tracking_failed`, `insufficient_motion`, `occluded_mouth`, `audio_missing`, `inference_error`. 작업 실패 원인(`job_status=failed`의 `reason_code`): `timeout`, `worker_error`, `max_attempts_exceeded`.
 
 - 모델 오류·추적 실패·미실행 점수는 **`null`**, 진짜라고 해석될 `0`이 아님.
 - 입력이 분석 범위 밖이거나 영상에 접근할 수 없으면 **진위를 추정하지 않음**.
@@ -569,7 +569,7 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 | **4** | **P0-3 / 핵심** | **URL-only 최소 수직 슬라이스:** URL 검사·ID 추출 → `AuthorizedMediaRegistry` → FastAPI/SQLite 단일 Worker → 상태/보류 JSON. **모델은 임시 Stub**. | 등록된 허가 YouTube ID는 작업→결과 완료, 미등록/무권한 ID는 `analysis_unavailable`; 업로드 UI 없음. | 1·2 |
 | **5** | **P0-4 / 핵심** | **WaveRep 단독 추론 스파이크:** 공개 체크포인트·CPU 추론 → MPS 시험; 프레임 점수와 실행시간/메모리 기록. | 허가 테스트 클립에서 추론 반복 가능, 실패·장치 대안 문서화. **성능 검증과 구별**. | 2·3 |
 | **6** | **P1-1 / 핵심** | **최소 발화 구간 Gate:** ffprobe, 얼굴 추적, VAD, 발화자-얼굴 대응, 구간별 품질·coverage. | 단일 발화/무음/얼굴 없음/다중 발화 예시를 분리 처리하고 원인 코드 생성. | 4·5 |
-| **7** | **P1-2 / 핵심** | **실제 WaveRep를 Worker에 연결:** 모델 어댑터, 순차 실행·실패 격리, 원시 지표 JSON. | URL→허가 미디어→WaveRep 원시 지표까지 **진짜 계산**; `overall_score=null` 유지. | 4·5·6 |
+| **7** | **P1-2 / 핵심** | **실제 WaveRep를 Worker에 연결:** 모델 어댑터, 순차 실행·실패 격리, 원시 지표 JSON. | URL→허가 미디어→WaveRep 원시 지표까지 **진짜 계산**; `overall_score=null` 유지; 추론 중 주기적 heartbeat로 lease 연장. | 4·5·6 |
 | **8** | **P1-3 / 연구** | **데이터 위생·고정 평가 파이프라인:** 원본 계보 그룹 분할, 해시/편향, ROC-AUC/TPR/FPR/실패율 기록. | 누수 검사 자동화, 재현 가능한 단일축 기초 평가 리포트. | 3·5 |
 | **9** | **P1-4 / 연구** | **Montibeller `social_emulator` 설치·적용** + FFmpeg 범용 압축 프로파일; 원본 훼손·분할 누수 방지. | 실행 설정·해시·압축 출력 비교 리포트; 실제 YouTube 동등성은 미주장. | 2·3·8 |
 | **10** | **P2-1 / 연구** | **MotionPhys 기본→얼굴 ROI→Face Motion 비교**. | 유효 궤적 비율·AUC·TPR@5%FPR·추론 시간 비교, 축 유지/제거 결정. | 6·8·9 |
@@ -722,3 +722,48 @@ C2PA·콘텐츠 출처 증명, 구간별 조작 위치 추정, 모델 기반 설
 ---
 
 **문서 버전:** v6.0 · **문서 목적:** 개발·실험 우선순위를 가진 구현 기준안 · **현재 상태:** 구현/성능/YouTube 범용 접근 미검증
+
+---
+
+## 서버 실행 방법 (백로그 4번: URL-only 최소 수직 슬라이스)
+
+모델과 다운로드는 stub입니다. 실제 영상을 내려받거나 분석하지 않으며, 점수는 모두 `null`입니다.
+
+**1. 환경 준비** (Python 3.11)
+
+```bash
+conda create -n trinity python=3.11 -y
+conda activate trinity
+pip install -r requirements.txt
+```
+
+**2. 테스트**
+
+```bash
+pytest -q
+```
+
+**3. API 서버와 Worker 실행** (터미널 두 개, 저장소 루트에서)
+
+```bash
+uvicorn server.main:app --reload      # 터미널 1: API 서버 (http://127.0.0.1:8000)
+python -m server.jobs.worker          # 터미널 2: Worker (분석은 여기서만 실행)
+```
+
+**4. 요청해 보기**
+
+```bash
+python scripts/smoke_slice.py         # 등록 ID, 미등록 ID, 잘못된 URL, 없는 작업을 차례로 요청
+```
+
+직접 요청할 때는 `X-Client-Token` 헤더(16자 이상)가 필요합니다. 같은 토큰으로만 자기 작업을 조회할 수 있습니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/analyses \
+  -H 'Content-Type: application/json' -H 'X-Client-Token: local-dev-token-0001' \
+  -d '{"url":"https://www.youtube.com/watch?v=TRINITYtest"}'
+```
+
+**허가 미디어 등록:** `configs/authorized_media.json`에 등록된 video ID만 분석 대상으로 봅니다. 현재는 stub 검증용 가짜 ID(`TRINITYtest`)만 있습니다. 등록되지 않은 ID는 `analysis_unavailable` / `access_not_authorized`로 끝납니다.
+
+**환경 변수:** `TRINITY_DB_PATH`(기본 `data/runtime/trinity.sqlite3`), `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`, `TRINITY_MAX_QUEUED`(기본 3), `TRINITY_LEASE_SECONDS`, `TRINITY_MAX_ATTEMPTS`, `TRINITY_JOB_TIMEOUT_SECONDS`, `TRINITY_STUB_STAGE_DELAY_SECONDS`(단계 전이를 눈으로 볼 때만 사용).

@@ -21,11 +21,13 @@
 
 ## 명령
 
-아직 없다. 백로그 4번 작업에서 만들고 이 절을 갱신한다.
+저장소 루트에서, conda 환경 `trinity`(Python 3.11)를 켠 뒤 실행한다. 자세한 내용은 `README.md` 하단 "서버 실행 방법".
 
-- 테스트: `pytest -q` (예정)
-- API 서버: `uvicorn server.main:app --reload` (예정)
-- Worker: (예정)
+- 환경: `conda activate trinity` (없으면 `conda create -n trinity python=3.11 -y && pip install -r requirements.txt`)
+- 테스트: `pytest -q`
+- API 서버: `uvicorn server.main:app --reload`
+- Worker: `python -m server.jobs.worker` (`--drain`: 대기열이 비면 종료)
+- 실행 확인: `python scripts/smoke_slice.py` (서버와 Worker가 떠 있을 때)
 
 ## 절대 규칙: 입력과 미디어
 

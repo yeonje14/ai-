@@ -1,0 +1,10 @@
+{
+  "_comment": "허가 미디어 레지스트리. 여기에 등록된 YouTube video ID만 분석 대상으로 본다. 아래 ID는 stub 검증용 가짜 ID이며 실제 영상이 아니다. 실제 ID는 백로그 1번(권한 근거 기록) 이후에만 추가한다.",
+  "authorized_media": [
+    {
+      "youtube_video_id": "TRINITYtest",
+      "provenance": "registered_authorized_source",
+      "note": "stub 검증용 가짜 ID"
+    }
+  ]
+}

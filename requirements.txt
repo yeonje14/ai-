@@ -1,0 +1,6 @@
+# 서버와 테스트에 필요한 것만 둔다. 모델 의존성(torch 등)은 research/<model>/ 의 별도 환경에 둔다.
+# Python 3.11 (conda env: trinity)에서 테스트 통과를 확인한 버전.
+fastapi==0.162.5
+httpx==0.28.1
+pytest==9.2.0
+uvicorn==0.54.0

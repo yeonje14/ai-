@@ -1,0 +1,45 @@
+# 가상환경·캐시
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+
+# 데이터는 Git 밖에 둔다: 연구용 data/research, 서비스 임시 파일 data/runtime
+data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# 원본·변환 영상과 오디오, 얼굴 crop, 데이터셋 파일
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.m4a
+*.mp3
+*.wav
+*.flac
+*.aac
+*.opus
+crops/
+face_crops/
+
+# 비밀 키
+.env
+.env.*
+*.key
+*.pem
+secrets/
+
+# 사용 제한이 있는 가중치
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.bin
+weights/
+checkpoints/
