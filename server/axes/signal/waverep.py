@@ -47,7 +47,7 @@ class WaveRepConfig:
     weights: Path = WAVEREP_DIR / "upstream" / "demo" / "weights" / "weights_dinov2_G4.ckpt"
     device: str = "mps"                 # cpu 또는 mps. mps를 못 쓰면 추론 프로세스가 cpu로 대체한다
     sample_fps: Optional[float] = None  # None이면 구간 안 모든 프레임. 1, 2, 4 등은 초당 장수
-    batch_size: int = 8
+    batch_size: int = 1                 # MPS에서 1이 8·16보다 빠르고 메모리도 적었다 (1회 측정, docs/waverep-adapter.md)
     # False면 Hugging Face Hub에 접근하지 않는다. 체크포인트가 177개 키를 모두 덮어쓰므로
     # 점수가 같다는 것을 확인했다(docs/waverep-adapter.md).
     pretrained: bool = False

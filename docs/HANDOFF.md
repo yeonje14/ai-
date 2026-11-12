@@ -1,19 +1,49 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-12 · 브랜치 `feat/waverep-adapter`
+마지막 갱신: 2026-11-13 · 브랜치 `feat/waverep-adapter` (커밋함, push 전)
 
-## 백로그 7번: WaveRep 어댑터 (진행 중)
+## 백로그 7번: WaveRep 어댑터 (어댑터만 구현함. Gate·Worker 미연결)
 
-- 프레임 샘플링, WaveRep 추론 어댑터, 벤치마크 및 테스트를 작성했다. 전체 테스트 124개 통과(실제 CPU 추론 포함).
-- 배터리 부족으로 벤치마크를 일시 중단했다. 중단 전 완료를 확인한 케이스: `cpu-all-b1-pretrained`, `cpu-all-b1`, `cpu-all-b8`. 결과는 `data/research/waverep-adapter/`에 있다(Git 제외).
-- 다음: 같은 영상으로 벤치마크를 재개하고 남은 결과와 오프라인 재현성을 확인한다. Gate와 Worker 통합은 남아 있다.
+속도·재현성 확인이다. 성능 검증이 아니며 점수를 판정에 쓰지 않는다. 테스트 영상에는 발화가 없다. 자세한 수치는 `docs/waverep-adapter.md`.
+
+- **만든 파일**: `server/axes/signal/waverep.py`(`run_waverep`, torch 없음), `research/waverep/infer_frames.py`(추론 프로세스), `research/waverep/frame_sampling.py`(프레임 선택), `scripts/bench_waverep_adapter.py`, `tests/test_waverep_adapter.py`. 원본 코드(`research/waverep/upstream/`)는 수정하지 않았다. trinity 환경에 torch를 넣지 않았다.
+- **동작**: 영상과 `[(start, end), ...]` 구간을 받아 프레임별 원시 logit을 돌려준다. 샘플링(`sample_fps` 1·2·4 등, `None`이면 모든 프레임)과 배치(`batch_size`)를 지원한다. `research/waverep/.venv`의 Python을 인자 리스트로 실행하고 결과를 JSON으로 받는다. 실패는 `status=error`와 점수 `null`로 돌려준다. `raw_score`는 `null`(집계 방법 미정), `overall_score`는 다루지 않는다.
+- **벤치마크**: 2026-11-12에 CPU 3건을 잰 뒤 배터리 부족으로 중단했고, 2026-11-13에 전원을 연결하고 `--force` 없이 재개해 남은 11건을 끝냈다(저장된 3건은 건너뜀). 14건 모두 `completed`.
+- **결과** (본인 촬영 영상 1개, 1080p 313프레임, 10.43초):
+  - 어댑터 점수는 스파이크 `cpu-1`과 완전히 같다(최대 절대차 0.0).
+  - `pretrained=False`와 `True`의 점수가 완전히 같다(0.0). 빈 HF 캐시 + `HF_HUB_OFFLINE=1`에서 `False`는 동작, `True`는 실패. **기본값을 `pretrained=False`로 했다.**
+  - 반복 실행은 완전히 같다(CPU 배치 8, MPS 배치 8). 배치 1 대 8은 CPU 최대 0.000037, MPS 최대 0.00000095. CPU 대 MPS는 최대 0.00019.
+  - 샘플링한 프레임의 점수는 모든 프레임 실행의 같은 프레임과 같다(CPU 초당 4장에서만 최대 0.0000062).
+  - MPS 모든 프레임: 배치 1이 56.5초(6.2장/초, 드라이버 할당 0.70 GiB, peak footprint 1.10 GiB), 배치 8·16이 86~90초(3.8~4.0장/초, 드라이버 1.70 GiB, footprint 약 2.3 GiB). **기본 배치 크기를 1로 했다**(배치 1은 1회 측정).
+  - MPS 샘플링(배치 8) 전체 시간: 초당 1장 8.8초(11프레임), 2장 12.5초(21), 4장 18.0초(42). CPU는 9.0초, 14.7초, 28.6초.
+  - CPU 모든 프레임 배치 8(전원 연결): 126.6초, 최대 RSS 1.63 GiB.
+- **주의할 점**:
+  - 2026-11-12의 CPU 3건(`cpu-all-b1-pretrained` 305.6초, `cpu-all-b1` 223.6초, `cpu-all-b8` 388.8초)은 배터리 부족 상태의 값이다. 같은 설정의 재실행이 126.6초였다. 이 3건의 시간은 다른 실행과 비교하지 않는다(점수 비교에는 썼다). 전원 연결 상태의 CPU 배치 1 시간은 없다. 다시 재려면 `--only cpu-all-b1 --force`.
+  - 샘플링 설정에 따라 평균 logit이 -0.67 ~ -1.67로 달라진다. 고른 프레임이 달라서다. 샘플링 간격과 집계 방법은 영상 하나로 정하지 않는다(백로그 8번 이후).
+- **실행**:
+  ```bash
+  conda activate trinity
+  pytest -q
+  python scripts/bench_waverep_adapter.py --video data/research/samples/<허가 영상>.mp4   # 결과가 있는 실행은 건너뛴다
+  ```
+  출력은 `data/research/waverep-adapter/`(Git 제외).
+- **검증**: `pytest -q` 124개 통과(conda `trinity`, 2026-11-13, 실제 CPU 추론 1건 포함).
+- **미검증·확인 필요**: MPS에서 배치 8·16이 배치 1보다 느린 원인, 전원 상태가 CPU 시간에 준 영향, 가변 프레임률 영상의 프레임 시각, 504px 미만 영상의 `unsupported_input` 경로(실제 영상으로 실행 안 함), 발화가 있는 영상·합성 영상에서의 실행.
+- **7번에서 남은 일**: Gate 연결(Gate 브랜치 `feat/gate-speech-segments`는 알려진 문제로 main에 합치지 않은 상태), Worker의 `waverep` 단계에 연결, 추론 중 주기적 heartbeat(어댑터는 지금 끝날 때까지 막는다), `analyzed_*` coverage 채우기, stub 값(`stub_not_executed`) 제거, 프레임 logit을 `raw_score`로 집계하는 방법 결정.
+
+## 데이터셋 접근 상태 갱신 (2026-11-13, 저장소 소유자 확인)
+
+- **DeepSpeak v2**: 심사 대기.
+- **Deepfake-Eval-2024**: 접근 요청이 **거절됐다.** 거절 사유·통보 날짜·재신청 가능 여부는 확인 필요.
+- `docs/dataset-access.md`, README §6.1 표, §14.1 백로그 3번 행에 반영했다.
+- **막힌 점**: Deepfake-Eval-2024는 최종 외부 실전 평가 전용 자료였다(README §13.1, 백로그 15번). 지금은 그 자료가 없다. 다른 경로로 받지 않는다. 대체 자료를 정하거나 최종 평가 범위를 줄이려면 README §15.3 결정 6을 먼저 바꿔야 한다. 아직 결정하지 않았고 README의 설계 문구(§6.1 역할, §13)는 그대로 두었다.
 
 ## 백로그 1·3번: 접근 기록 문서화 (둘 다 진행 중)
 
 문서만 만들었다. 코드는 바꾸지 않았다.
 
 - **`docs/media-access.md` (백로그 1번)**: 영상 ID·메타데이터 접근과 분석용 미디어 접근의 차이(README §3.1 기준), 임의 YouTube URL은 `analysis_unavailable`로 처리한다는 결정, 허가 미디어 범위(저장소 소유자가 직접 촬영한 본인 영상, 본인 얼굴·음성만, 제3자 없음), 압축 실험에는 휴대폰 원본을 쓴다는 메모.
-- **`docs/dataset-access.md` (백로그 3번)**: DeepSpeak v2와 Deepfake-Eval-2024는 접근 요청 후 승인 대기, TalkingHeadBench는 접근 방법 확인 필요. 데이터셋별 역할, 확인된 이용 조건, 확인 필요 항목을 나눠 적었다. Hugging Face 공개 API 메타데이터(접근 제한 여부, 라이선스 태그, Deepfake-Eval-2024 이용 조건 문구)를 2026-11-12에 조회해 근거로 썼다. 데이터셋 파일은 받지 않았다.
+- **`docs/dataset-access.md` (백로그 3번)**: (2026-11-12 기준. 최신 상태는 위 "데이터셋 접근 상태 갱신") DeepSpeak v2와 Deepfake-Eval-2024는 접근 요청 후 승인 대기, TalkingHeadBench는 접근 방법 확인 필요. 데이터셋별 역할, 확인된 이용 조건, 확인 필요 항목을 나눠 적었다. Hugging Face 공개 API 메타데이터(접근 제한 여부, 라이선스 태그, Deepfake-Eval-2024 이용 조건 문구)를 2026-11-12에 조회해 근거로 썼다. 데이터셋 파일은 받지 않았다.
 - **README**: §14.1 백로그 1·3번 행에 상태를 적었다. §6.1 표의 DeepSpeak v2·Deepfake-Eval-2024 상태 칸을 "접근 요청함, 승인 대기"로 바꿨다.
 - **검증**: `pytest -q` 72개 통과(conda `trinity`). 문서 변경이라 새 테스트는 없다.
 - **확인 필요로 남긴 것**:
