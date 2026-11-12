@@ -1,0 +1,9 @@
+{
+  "_comment": "Gate가 쓰는 모델 파일. 파일 자체는 Git 밖(data/models/gate/)에 둔다. 해시가 다르면 Gate는 실행을 거부한다.",
+  "face_detector": {
+    "file": "blaze_face_short_range.tflite",
+    "sha256": "b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f",
+    "source": "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite",
+    "downloaded": "2026-11-12"
+  }
+}
