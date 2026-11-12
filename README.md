@@ -271,15 +271,16 @@ Logistic Regression이 내놓는 0–1 값은 **보정 여부와 무관하게 �
 | 데이터 | 주 역할 | 접근·제약 | 상태 |
 |---|---|---|---|
 | [DeepSpeak v2](https://huggingface.co/datasets/faridlab/deepspeak_v2) | 진짜 + (a) 아바타·(b) 립싱크·(c) 얼굴 교체를 이용한 **주 학습/내부 검증** | 사용 승인·동의 및 ID/원본 계보 확인 필요 | 접근 요청함, 심사 대기 (2026-11-13, `docs/dataset-access.md`) |
-| [TalkingHeadBench](https://huggingface.co/datasets/luchaoqi/TalkingHeadBench) | **우선 외부 생성 방식 일반화 평가**. 별도 허용된 학습 분할은 추후 선택 | 제공 분할, 상위 영상 권리, 라이선스 확인 | 평가 자료 확보 필요 |
+| [TalkingHeadBench](https://huggingface.co/datasets/luchaoqi/TalkingHeadBench) | **최종 외부 평가(토킹헤드 생성 방식 일반화)**. 별도 허용된 학습 분할은 추후 선택 | 제공 분할, 상위 영상 권리, 라이선스 확인 | 평가 자료 확보 필요 |
 | 자체 생성 가상 인물 영상(약 20–50편 계획) | 최신 **영상+음성 동시 생성(a)**의 탐색적 평가 | 생성 도구 약관·비용·모델 버전·프롬프트 기록; 진짜 비교군 필요 | 계획 |
-| [Deepfake-Eval-2024](https://huggingface.co/datasets/nuriachandra/Deepfake-Eval-2024) | **최종 외부 실전 평가 전용** | 접근 승인·사용 조건 확인; 학습/튜닝/임계값 조정에 사용하지 않음 | **접근 요청 거절됨** (2026-11-13, `docs/dataset-access.md`). 대체 방안 미정 |
+| [MAVOS-DD](https://huggingface.co/datasets/unibuc-cs/MAVOS-DD) | **최종 외부 평가(처음 보는 생성기)**: open-set model 테스트 분할만 사용. 학습/튜닝/임계값 조정에 사용하지 않음 | CC BY-NC-SA 4.0, 비상업, 접근 양식 동의; 분할 메타데이터·인물/원본 계보 확인 필요; 전체 약 308 GB라 표본 사용 시 추출 규칙을 사전 고정 | 접근 신청 전 (`docs/dataset-access.md`) |
+| [Deepfake-Eval-2024](https://huggingface.co/datasets/nuriachandra/Deepfake-Eval-2024) | **실전 유통본 평가(승인 시 추가)**. 평가 전용 | 접근 승인·사용 조건 확인; 학습/튜닝/임계값 조정에 사용하지 않음 | **접근 요청 거절됨** (2026-11-13, `docs/dataset-access.md`). 재신청 검토 |
 | 직접 촬영한 권한 확보 진짜 영상 | 압축 기준 특성 추정 및 파이프라인 시험 | 플랫폼 출력본 사용 권한 별도 확인 | 계획 |
 | [AV-Deepfake1M++](https://arxiv.org/abs/2507.20579) | 분할·압축 평가 방식 참고 | 연구 EULA 확인 | 참조만 |
 
 **위조 유형 관리:** A1 사진 기반, A2 아바타, A3 영상·음성 동시 생성; B1 음성 교체, B2 음성+립싱크; C1 얼굴 교체, C2 교체+보정으로 *평가용 메타데이터*를 관리한다. 이는 일곱 가지 다중분류 클래스를 새로 정의한 것이 아니다. 유형별 표본이 부족하면 성능 주장을 보류한다.
 
-**우선 접근 원칙:** 접근·이용 허가가 확인되지 않은 데이터를 이미 확보한 것처럼 표시하지 않는다. Deepfake-Eval-2024는 최종 홀드아웃으로 두며, 반복적인 모델 수정 피드백에 사용하지 않는다. TalkingHeadBench를 학습에 활용하는 경우 그 부분은 더 이상 독립적인 외부 평가 자료가 아님을 명시한다.
+**우선 접근 원칙:** 접근·이용 허가가 확인되지 않은 데이터를 이미 확보한 것처럼 표시하지 않는다. MAVOS-DD open-set model 분할과 TalkingHeadBench 평가 분할을 최종 홀드아웃으로 두며, 반복적인 모델 수정 피드백에 사용하지 않는다. Deepfake-Eval-2024는 접근이 거절되어(2026-11-13) 현재 계획에서 제외하고, 재신청이 승인되면 같은 조건의 최종 홀드아웃으로 추가한다. TalkingHeadBench를 학습에 활용하는 경우 그 부분은 더 이상 독립적인 외부 평가 자료가 아님을 명시한다. MAVOS-DD의 학습·검증 분할은 쓰지 않는다. MAVOS-DD의 "처음 보는 생성기"는 MAVOS-DD 학습 분할 기준이므로, DeepSpeak v2와 겹치는 생성기가 있는지 확인한 뒤에만 그렇게 부른다. MAVOS-DD의 가짜 영상은 연구진이 직접 만든 것이며 실제 SNS에서 유통된 조작 영상이 아니다.
 
 ### 6.2 사회관계망 압축 에뮬레이터 — Montibeller 기반 (결정 7)
 
@@ -302,7 +303,7 @@ Logistic Regression이 내놓는 0–1 값은 **보정 여부와 무관하게 �
 
 모든 평가에서 ROC-AUC, **TPR@5% FPR**, 실제 FPR, 유형별 성능, 압축 조건별 성능, 축별 실패율·latency·메모리를 보고한다. 보정된 확률을 제공하는 경우 Brier score/ECE 등도 별도 보고한다. 진짜 비교군이 없는 자체 생성 가짜 영상 집합에서는 ROC-AUC를 계산하지 않는다.
 
-**순서:** 내부 홀드아웃에서 성능을 확인한 뒤 모든 모델 선택·가중치·임계값을 고정하고, TalkingHeadBench 및 Deepfake-Eval-2024의 허용된 외부 평가로 일반화 성능을 측정한다. 최종 외부 평가 결과를 보고 다시 조정하면 그 결과를 더 이상 독립적인 최종 테스트라고 부르지 않는다. 최종 평가 프로토콜은 §13에 명시한다.
+**순서:** 내부 홀드아웃에서 성능을 확인한 뒤 모든 모델 선택·가중치·임계값을 고정하고, MAVOS-DD open-set model 분할과 TalkingHeadBench(승인 시 Deepfake-Eval-2024 추가)의 허용된 외부 평가로 일반화 성능을 측정한다. 외부 평가에 표본을 쓰면 추출 규칙을 결과를 보기 전에 고정한다(`docs/dataset-access.md`). 최종 외부 평가 결과를 보고 다시 조정하면 그 결과를 더 이상 독립적인 최종 테스트라고 부르지 않는다. 최종 평가 프로토콜은 §13에 명시한다.
 
 ### 6.4 데이터 위생 (`training/hygiene.py`) (결정 6)
 
@@ -324,7 +325,8 @@ Logistic Regression이 내놓는 0–1 값은 **보정 여부와 무관하게 �
 
 - 이 레포에는 어떤 데이터셋의 영상이나 파생물도 포함하지 않습니다. 데이터 로더와 사람(ID) 분할 목록만 둡니다.
 - DeepSpeak: 접근 양식과 이용 조건을 따르고, 사용 시 출처를 표기합니다(정확한 라이선스 조건 확인 필요).
-- Deepfake-Eval-2024: 접근 심사와 배포 조건을 준수하며, **평가 전용**으로 사용합니다. 구체적 신청 기한·사용 허가는 신청 시점에 재확인합니다.
+- MAVOS-DD: CC BY-NC-SA 4.0(비영리, 동일조건변경허락)과 접근 양식의 조건을 따르고, 사용 시 출처를 표기합니다. **평가 전용**으로 사용하며 영상과 파생물을 재배포하지 않습니다.
+- Deepfake-Eval-2024: 접근이 거절되었습니다(2026-11-13). 재신청이 승인되면 접근 심사와 배포 조건을 준수하며 **평가 전용**으로 사용합니다. 구체적 신청 기한·사용 허가는 신청 시점에 재확인합니다.
 - AV-Deepfake1M++: 연구 전용 EULA를 따릅니다.
 - SyncNet 코드/패키지의 MIT·Apache-2.0 고지와 **모델 가중치의 별도 이용 조건**을 각각 확인합니다. 코드 라이선스가 가중치까지 자동으로 허용하지는 않습니다.
 - 자체 생성 (a): 실존 인물의 얼굴·목소리는 쓰지 않고 가상 인물만 만들며, 생성 서비스 약관을 따르고 공개 게시하지 않습니다.
@@ -522,7 +524,9 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 | Latency/Memory | 장치, 클립 길이·해상도별 p50/p95 시간, 최대 RSS/메모리, 오류율 |
 | 불확실성 | 인물·원본 계보 그룹을 고려한 신뢰구간 및 대응 비교 |
 
-**데이터 역할:** DeepSpeak v2 내부 학습·검증·홀드아웃, TalkingHeadBench 우선 일반화 평가, 자체 생성 A유형 탐색적 평가, Deepfake-Eval-2024 허가 범위에서 **최종 평가 전용**. 데이터 접근 승인과 각 분할/원본 계보·라이선스를 먼저 확인합니다.
+**데이터 역할:** DeepSpeak v2 내부 학습·검증·홀드아웃. **최종 외부 평가**는 MAVOS-DD open-set model 분할(처음 보는 생성기)과 TalkingHeadBench(토킹헤드 생성 방식). 자체 생성 A유형은 탐색적 평가. Deepfake-Eval-2024는 접근이 거절되어(2026-11-13) 현재 계획에서 제외하며, 재신청이 승인되면 실전 유통본 평가로 추가합니다. 데이터 접근 승인과 각 분할/원본 계보·라이선스를 먼저 확인합니다.
+
+**유통본 평가의 한계:** MAVOS-DD의 가짜 영상은 연구진이 생성기로 직접 만든 것입니다. 실제 SNS 유통본으로 평가하지 못하면 결과 보고에 "실제 SNS에서 유통된 조작 영상에 대한 성능은 평가하지 못했다"는 한계를 명시합니다. MAVOS-DD 결과는 생성 방식별로 나눠 보고하고(음성만 바꾼 영상 포함), DeepSpeak v2와 겹치는 생성기는 "처음 보는 생성기"로 세지 않습니다.
 
 ### 13.2 사전 고정 실험 매트릭스
 
@@ -565,7 +569,7 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 |---|---|---|---|---|
 | **1** | **P0-0 / BLOCKER** | **YouTube 미디어 접근 정책·허가 경로 조사, 승인 필요성 확인**. 영상 ID/메타데이터 API와 추론용 미디어의 차이를 문서화. | 적법하게 사용 가능한 **실험/시연 미디어** 1건 이상과 권한 근거 기록. 범용 URL 접근 불가 시 명시적 `Unavailable` 결정.<br>**상태(2026-11-12): 진행 중.** 차이 문서화, 임의 URL `analysis_unavailable` 결정, 본인 촬영 실험 영상 1건의 권한 근거를 기록함. YouTube ID와 연결된 시연용 등록과 YouTube Studio 다운로드 여부는 확인 필요. 기록: `docs/media-access.md` | 없음 |
 | **2** | **P0-1 / BLOCKER** | **맥북 ARM64 개발 환경 스모크 테스트:** Python 3.11, FFmpeg/ffprobe, PyTorch CPU/MPS, OpenCV/LightGBM, 저장소/가중치 이용 조건 점검. | 실제 콘솔 로그·버전·가용 장치·실패 목록을 문서화. | 없음 (1과 병렬 가능) |
-| **3** | **P0-2 / BLOCKER** | **데이터셋 접근 신청/라이선스·누수 구조 확인:** DeepSpeak, TalkingHeadBench, Deepfake-Eval. | 접근 상태·사용 조건, 최소 테스트 샘플, 공통 manifest/분할 규칙 확보.<br>**상태(2026-11-13): 진행 중.** DeepSpeak v2는 접근 요청 후 심사 대기, Deepfake-Eval-2024는 접근 요청이 거절됨(최종 외부 평가 자료 대체 방안 미정), TalkingHeadBench는 접근 방법 확인 필요. 테스트 샘플과 manifest/분할 규칙은 없음. 기록: `docs/dataset-access.md` | 없음 (1·2와 병렬 가능) |
+| **3** | **P0-2 / BLOCKER** | **데이터셋 접근 신청/라이선스·누수 구조 확인:** DeepSpeak, TalkingHeadBench, MAVOS-DD, Deepfake-Eval. | 접근 상태·사용 조건, 최소 테스트 샘플, 공통 manifest/분할 규칙 확보.<br>**상태(2026-11-13): 진행 중.** DeepSpeak v2는 접근 요청 후 심사 대기, Deepfake-Eval-2024는 접근 요청이 거절됨(결정 6 변경: MAVOS-DD open-set model 분할과 TalkingHeadBench로 대체, 재신청 검토), MAVOS-DD는 접근 신청 전(메타데이터·표본 숫자 미정), TalkingHeadBench는 접근 방법 확인 필요. 테스트 샘플과 manifest/분할 규칙은 없음. 기록: `docs/dataset-access.md` | 없음 (1·2와 병렬 가능) |
 | **4** | **P0-3 / 핵심** | **URL-only 최소 수직 슬라이스:** URL 검사·ID 추출 → `AuthorizedMediaRegistry` → FastAPI/SQLite 단일 Worker → 상태/보류 JSON. **모델은 임시 Stub**. | 등록된 허가 YouTube ID는 작업→결과 완료, 미등록/무권한 ID는 `analysis_unavailable`; 업로드 UI 없음. | 1·2 |
 | **5** | **P0-4 / 핵심** | **WaveRep 단독 추론 스파이크:** 공개 체크포인트·CPU 추론 → MPS 시험; 프레임 점수와 실행시간/메모리 기록. | 허가 테스트 클립에서 추론 반복 가능, 실패·장치 대안 문서화. **성능 검증과 구별**. | 2·3 |
 | **6** | **P1-1 / 핵심** | **최소 발화 구간 Gate:** ffprobe, 얼굴 추적, VAD, 발화자-얼굴 대응, 구간별 품질·coverage. | 단일 발화/무음/얼굴 없음/다중 발화 예시를 분리 처리하고 원인 코드 생성. | 4·5 |
@@ -670,7 +674,7 @@ TRINITY/
 | 3 | MotionPhys 전체·얼굴 ROI·Face Motion 비교 | 실험안 확정 / 평가 전 |
 | 4 | WaveRep 전체·얼굴 ROI, 압축 증강·점수 보정 분리 | 실험안 확정 / 평가 전 |
 | 5 | 그룹 OOF Logistic Regression 기본, SyncNet 조건부, 부분 실패시 검증된 조합만 사용 | 설계 확정 / 학습 전 |
-| 6 | DeepSpeak 주 학습, TalkingHeadBench/Deepfake-Eval 외부 평가, 그룹 누수 방지 | 실험안 확정 / 접근 확인 전 |
+| 6 | DeepSpeak 주 학습. 최종 외부 평가는 **MAVOS-DD open-set model 분할 + TalkingHeadBench**. Deepfake-Eval-2024는 접근 거절(2026-11-13), 재신청을 검토하고 승인되면 실전 유통본 평가로 추가. 유통본 평가를 못 하면 결과 보고에 한계 명시. 그룹 누수 방지 | 실험안 변경(2026-11-13) / 접근 확인 전 |
 | 7 | Montibeller `social_emulator` 기반 압축 검증 + TRINITY 오디오 별도 실험 | 설계 확정 / 포팅 전 |
 | 8 | 작업·분석·판정 분리, 실패 `null`, 보류/coverage 필수 | 계약 확정 / 구현 전 |
 | 9 | macOS ARM64, MPS/CPU 대체, 순차 실행, 모델별 환경 | 설계 확정 / 기기 테스트 전 |
@@ -704,7 +708,8 @@ C2PA·콘텐츠 출처 증명, 구간별 조작 위치 추정, 모델 기반 설
 **데이터셋**
 
 - Barrington, Bohacek, Farid. [*The DeepSpeak Dataset.*](https://arxiv.org/abs/2408.05366) arXiv:2408.05366 — 주 학습 데이터 · [Hugging Face](https://huggingface.co/datasets/faridlab/deepspeak_v2)
-- Chandra et al. [*Deepfake-Eval-2024: A Multi-Modal In-the-Wild Benchmark of Deepfakes Circulated in 2024.*](https://arxiv.org/abs/2503.02857) arXiv:2503.02857 — 실전 평가
+- Chandra et al. [*Deepfake-Eval-2024: A Multi-Modal In-the-Wild Benchmark of Deepfakes Circulated in 2024.*](https://arxiv.org/abs/2503.02857) arXiv:2503.02857 — 실전 유통본 평가 (접근 거절, 승인 시 추가)
+- Croitoru et al. [*MAVOS-DD: Multilingual Audio-Video Open-Set Deepfake Detection Benchmark.*](https://arxiv.org/abs/2505.11109) arXiv:2505.11109 — 최종 외부 평가(처음 보는 생성기) · [Hugging Face](https://huggingface.co/datasets/unibuc-cs/MAVOS-DD)
 - [*TalkingHeadBench: A Multi-Modal Benchmark & Analysis of Talking-Head DeepFake Detection.*](https://arxiv.org/abs/2505.24866) arXiv:2505.24866 — (a) 보강
 - [*TFDBench: A Comprehensive Benchmark and Codebase for Talking-Face Deepfake Detection.*](https://neurips.cc/virtual/2026/163771) NeurIPS 2026 (arXiv 번호 확인 필요) — 축3 립싱크 취약성 근거
 
