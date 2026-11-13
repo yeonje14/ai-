@@ -47,7 +47,7 @@
 - **MAVOS-DD 확인한 것**: CC BY-NC-SA 4.0, 자동 승인 방식 접근 제한, 전체 약 308.4 GB(mp4 87,038개), 폴더(언어·생성기) 단위로 일부만 받을 수 있는 구조. 폴더별 파일 수·용량 표를 `docs/dataset-access.md`에 넣었다(전체 기준, 분할 구분 없음).
 - **표본 추출 규칙**: 구조(층화, 고정 시드, 진짜·가짜 비율, 생성기당 상한, 교체 금지)를 `docs/dataset-access.md`에 먼저 고정했다. 숫자는 미정이다.
 - **MAVOS-DD 메타데이터 (2026-11-13)**: 접근이 승인돼 메타데이터만 받았다(`data/research/mavos-dd/`, 영상 없음). open-set model 분할은 43,959개, 155.3 GB(진짜 15,547, 가짜 28,412). 생성기별·언어별 표와 원본 영상 묶음 추정을 `docs/dataset-access.md`에 넣었다.
-- **남은 일**: 표본 숫자(10 GB 이내, 원본 묶음 단위)를 제안했고 저장소 소유자의 승인을 기다린다. 승인 뒤 순서: 규칙과 숫자를 문서에 고정 → manifest 생성 스크립트와 sha256 기록 → (그 뒤에만) 표본 영상 받기. 디스크 여유는 59 GB이고 DeepSpeak v2(40 GB 이상)가 들어올 예정이다.
+- **표본 규칙 고정 (2026-11-13, 저장소 소유자 승인)**: 층당 20개(생성기당 120), 원본 묶음당 2개, 진짜:가짜 1:1, 시드 20261113. 표본 2,160개, 6.77 GB. `manifest-q20.csv`의 sha256과 확장용 `manifest-q25.csv`(8.45 GB, q20을 포함)의 sha256을 `docs/dataset-access.md`에 적었다. 만든 파일: `scripts/mavos_sample.py`, `research/mavos/export_metadata.py`, `research/mavos/download_sample.py`, `research/mavos/requirements.lock.txt`, `tests/test_mavos_sample.py`.
 - **정정**: 지난 갱신에서 `docs/dataset-access.md`의 TalkingHeadBench "확인 필요" 표에 잘못 넣은 Deepfake-Eval-2024 거절 관련 두 줄을 Deepfake-Eval-2024 절로 옮겼다.
 - **검증**: `pytest -q` 124개 통과(conda `trinity`). 문서 변경이라 새 테스트는 없다.
 
