@@ -1,6 +1,38 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-13 · 브랜치 `docs/decision-6-external-eval`
+마지막 갱신: 2026-11-13 · 브랜치 `feat/eval-pipeline-skeleton`
+
+## 백로그 8번: 데이터 위생·고정 평가 파이프라인 (진행 중, 뼈대만)
+
+실제 데이터 없이 합성 manifest와 합성 점수로 끝까지 도는 뼈대다. 성능 결과가 아니다. 자세한 내용은 `docs/evaluation-pipeline.md`.
+
+- **만든 파일**: `training/datasets/{manifest,groups,mavos}.py`, `training/hygiene.py`, `training/evaluation/{metrics,thresholds,lock,run}.py`, `configs/external_eval_lock.json`, `tests/test_eval_pipeline.py`, `tests/test_mavos_external.py`. 표준 라이브러리만 쓴다(trinity에 새 의존성 없음).
+- **공통 manifest**: 영상 경로, 라벨, 위조 유형, 생성기, 인물 ID, 원본 계보 ID, 데이터셋, 분할(`train`/`dev`/`test`/`external`) 등. 원본 계보 ID는 필수, 인물 ID는 선택(없으면 경고).
+- **누수 검사**: 인물·원본 계보로 이은 그룹이 여러 분할에 걸치면 실패. 외부 세트와 내부 분할 사이의 원본·인물·해시 겹침을 따로 보고. 실패한 manifest로는 임계값도 평가도 거부한다. 경고 개수는 평가 리포트에 항상 싣는다.
+- **지표**: ROC-AUC, dev 임계값을 적용한 TPR·실제 FPR, 생성기별(기본)·유형별(보조, 잠정), 보류율과 coverage, 그룹 단위 bootstrap 신뢰구간.
+- **임계값**: dev에서만 정한다. 파일은 새로만 만들 수 있고 내용이 바뀌면 불러올 때 거부한다. `evaluate`는 임계값을 숫자로 받지 않는다.
+- **외부 평가 잠금**: MAVOS-DD, TalkingHeadBench, Deepfake-Eval-2024를 `locked`로 등록했다. 풀려면 `configs/external_eval_lock.json`을 고쳐 커밋하고 `--final-external`을 줘야 한다. **아직 풀지 않는다.**
+- **MAVOS-DD 메타데이터 검사 (추론 없음)**: 표본 목록 sha256이 잠금 값과 일치, 2,160개 모두 있고 크기 일치, 층 규칙 위반 없음. 경고: 인물 ID 없음 2,160, 원본 식별자 없음 448(21%), 파일 해시 없음 2,160. 공통 manifest는 `data/research/mavos-dd/common-manifest.csv`(Git 제외)에 썼다.
+- **실행**:
+  ```bash
+  conda activate trinity
+  pytest -q
+  python -m training.hygiene <manifest.csv>
+  python -m training.evaluation.run fit-threshold --manifest <m> --scores <s> --model-id <id> --out <threshold.json>
+  python -m training.evaluation.run evaluate --manifest <m> --scores <s> --threshold <threshold.json> --split test --out <report.json>
+  python -m training.datasets.mavos check
+  ```
+- **검증**: `pytest -q` 225개 통과(conda `trinity`, 건너뛴 테스트 없음). 실제 MAVOS-DD 표본 목록 검사 포함.
+- **미검증·확인 필요**:
+  - 실제 데이터로 실행한 적이 없다. 단일축 기초 평가 리포트는 없다(8번 완료 조건의 나머지).
+  - MAVOS-DD와 학습 데이터 사이의 원본 겹침. 비교할 내부 데이터가 없다. 두 데이터셋의 원본 ID 체계가 달라도 같은 영상일 수 있는지.
+  - 큰 데이터에서의 bootstrap 실행 시간.
+- **남은 일**:
+  - DeepSpeak v2 승인 뒤: 필드를 공통 manifest로 바꾸는 변환기, 그룹 분할, 누수 검사, WaveRep 단일축 평가 리포트.
+  - 프레임 logit을 영상 점수로 집계하는 방법을 dev에서 정하기(지금 WaveRep 어댑터의 `raw_score`는 `null`).
+  - README §6.4의 나머지 점검(영상 유사도, 무음 편향, 코덱·해상도 shortcut), 압축 조건별 지표, 보정 지표.
+  - 백로그 7번의 남은 일(Gate·Worker 연결)은 아래 절에 그대로 있다.
+
 
 ## 백로그 7번: WaveRep 어댑터 (어댑터만 구현함. Gate·Worker 미연결)
 
@@ -49,7 +81,7 @@ README 설계 문구와 접근 기록을 바꾸고, MAVOS-DD 표본 목록을 �
 - **MAVOS-DD 메타데이터 (2026-11-13)**: 접근이 승인돼 메타데이터만 받았다(`data/research/mavos-dd/`, 영상 없음). open-set model 분할은 43,959개, 155.3 GB(진짜 15,547, 가짜 28,412). 생성기별·언어별 표와 원본 영상 묶음 추정을 `docs/dataset-access.md`에 넣었다.
 - **표본 규칙 고정 (2026-11-13, 저장소 소유자 승인)**: 층당 20개(생성기당 120), 원본 묶음당 2개, 진짜:가짜 1:1, 시드 20261113. 표본 2,160개, 6.77 GB. `manifest-q20.csv`의 sha256과 확장용 `manifest-q25.csv`(8.45 GB, q20을 포함)의 sha256을 `docs/dataset-access.md`에 적었다. 만든 파일: `scripts/mavos_sample.py`, `research/mavos/export_metadata.py`, `research/mavos/download_sample.py`, `research/mavos/requirements.lock.txt`, `tests/test_mavos_sample.py`.
 - **표본 수신 (2026-11-13)**: 규칙 커밋(`dee503f`) 뒤에 2,160개를 받았다. 6,766,772,622바이트로 목록과 일치. 받은 뒤 디스크 여유는 약 50.5 GiB(`df` 기준, 받기 전 59 GiB). 표본은 모델에 넣지 않았다. 모델과 임계값을 고정하기 전에는 이 표본으로 추론 결과를 보지 않는다.
-- **남은 일**: DeepSpeak v2 승인 뒤 생성기가 MAVOS-DD와 겹치는지 확인, TalkingHeadBench 접근 절차 확인, Deepfake-Eval-2024 재신청 검토. PR #3은 draft 상태다.
+- **남은 일**: DeepSpeak v2 승인 뒤 생성기가 MAVOS-DD와 겹치는지 확인, TalkingHeadBench 접근 절차 확인, Deepfake-Eval-2024 재신청 검토. PR #3은 main에 합쳤다.
 - **정정**: 지난 갱신에서 `docs/dataset-access.md`의 TalkingHeadBench "확인 필요" 표에 잘못 넣은 Deepfake-Eval-2024 거절 관련 두 줄을 Deepfake-Eval-2024 절로 옮겼다.
 - **검증**: `pytest -q` 124개 통과(conda `trinity`). 문서 변경이라 새 테스트는 없다.
 
