@@ -1,6 +1,35 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-13 · 브랜치 `feat/eval-pipeline-skeleton`
+마지막 갱신: 2026-11-14 · 브랜치 `feat/motionphys-extractor`
+
+## 백로그 10번: MotionPhys 기본·얼굴 영역·Face Motion (진행 중, 앞부분만)
+
+특징 추출기와 데이터 없이 할 수 있는 검증까지다. 분류기를 학습하지 않았고 점수를 내지 않았다. 진위를 해석하지 않는다. 자세한 내용은 `docs/motionphys-spec.md`(정의), `docs/motionphys-spike.md`(측정).
+
+- **재구현**: 공개 코드가 없어 논문(arXiv:2608.20770v1) 본문만 보고 만들었다. 식 (3)~(19)는 그대로, 논문에 없는 숫자(코너 수, 격자 간격, LK 설정, 처리 해상도, ε, 유효 궤적 기준 등)는 "우리 선택"으로 정해 문서에 구분해 적었다. 논문의 수치를 재현했다고 주장하지 않는다.
+- **만든 파일**: `research/motionphys/{kinematics,tracking,faces,extract,train_lgbm}.py`, `research/motionphys/requirements.lock.txt`, `configs/motionphys_models.json`, `scripts/motionphys_compression_spike.py`, `tests/test_motionphys_{kinematics,extract,train}.py`.
+- **환경**: `research/motionphys/.venv`(Python 3.11.18). opencv-contrib-python 5.0.0.93, numpy 2.4.6, lightgbm 4.7.0, mediapipe 1.2.3. torch 없음(설치 전후 확인). trinity 환경은 바꾸지 않았다.
+- **세 후보** (같은 인터페이스: 영상 + 구간 → 특징 벡터, 유효 궤적 수, 상태): A 전체 화면 504차원, B 얼굴 영역 504차원, C Face Motion 1,512차원(머리·눈썹·입술). 움직임이 부족하면 `insufficient_motion`, 추적이 안 되면 `tracking_failed`, 특징은 `null`. 기준값은 임시값이다.
+- **모델 파일**: Face Landmarker를 새로 받았다(`data/models/motionphys/face_landmarker.task`, Git 제외). 출처 URL과 sha256은 `configs/motionphys_models.json`과 `docs/motionphys-spec.md` §7. **모델 파일의 이용 조건은 확인 필요**(코드는 Apache 2.0, 안내 페이지는 CC BY 4.0까지만 확인. 모델 카드는 읽지 않았다).
+- **압축 측정 결과** (본인 촬영 영상 1개, libx264 CRF 20/28/34, 10.4초 구간):
+  - 같은 입력 두 번의 차이는 0.
+  - 압축보다 표본 프레임의 위치가 특징을 더 크게 움직였다. jerk 특징 변화의 중앙값: CRF 34에서 A 2.8%, B 3.3%, C 8.5%. 압축 없이 표본을 한 프레임 민 대조군에서 A 6.4%, B 8.4%, C 9.5%.
+  - jerk가 가장 민감하지는 않았다. 곡률 특징이 더 많이 움직였다.
+  - 24프레임 스케일(클립 2개)은 불안정하다. A의 jerk 대표값이 CRF 34에서 −53%, 대조군에서 +71%.
+  - C는 CRF 20에서도 곡률 특징이 17% 움직였다(입술 영역 대표값 +52% ~ +77%).
+  - 유효 궤적 수와 추적 성공률은 압축에 거의 영향받지 않았다.
+- **이 측정으로 말할 수 없는 것**: 압축이 진짜를 가짜로 판정하게 만드는지. 분류기와 가짜 영상이 없다. 프레임 간격이 0.22초라 짧은 구간(연속 프레임)에서는 결과가 다를 수 있다.
+- **실행**:
+  ```bash
+  research/motionphys/.venv/bin/python -m pytest -q --noconftest tests/test_motionphys_kinematics.py tests/test_motionphys_extract.py tests/test_motionphys_train.py
+  research/motionphys/.venv/bin/python scripts/motionphys_compression_spike.py --video data/research/samples/<허가 영상>.mp4
+  ```
+  환경과 모델 파일 준비는 `docs/motionphys-spec.md` §8. `--noconftest`는 motionphys 환경에 fastapi가 없어서 필요하다.
+- **검증**: `research/motionphys/.venv`에서 49개 통과. conda `trinity`에서 전체 265개 통과, 1개 건너뜀(LightGBM이 없어 `tests/test_motionphys_train.py`).
+- **미검증·확인 필요**: 논문에 없는 설정 전부(`docs/motionphys-spec.md` §9), 구간 길이에 따른 프레임 간격 차이의 영향, 짧은 구간·원본 해상도·다른 영상에서의 압축 민감도, 24프레임 스케일이 불안정한 원인, C의 불안정이 특징점 떨림 때문인지, MediaPipe 모델 파일의 이용 조건.
+- **남은 일 (10번)**: DeepSpeak v2 승인 뒤 특징 추출 → `train_lgbm.py`로 학습 → 평가 파이프라인으로 A·B·C 비교(유효 궤적 비율, AUC, TPR@5%FPR, 추론 시간) → 축 유지/제거 결정. A+C, B+C 결합. 원본과 압축본의 점수 차이 측정(README §13.2 C1~C5). 서버 어댑터와 Worker 연결.
+- **의존성 메모**: 10번은 6번(Gate)·8번·9번에 의존한다. Gate 브랜치는 main에 없어서 얼굴 검출은 `research/motionphys` 안에서 MediaPipe를 직접 부른다. 압축은 9번의 `social_emulator`가 아니라 FFmpeg CRF만 썼다.
+
 
 ## 백로그 8번: 데이터 위생·고정 평가 파이프라인 (진행 중, 뼈대만)
 
