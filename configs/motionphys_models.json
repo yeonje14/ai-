@@ -1,0 +1,19 @@
+{
+  "_comment": "MotionPhys 후보 B·C가 쓰는 MediaPipe 모델 파일. 파일 자체는 Git 밖(data/models/)에 둔다. sha256이 다르면 실행을 거부한다. 이용 조건은 docs/motionphys-spec.md.",
+  "face_detector": {
+    "path": "data/models/gate/blaze_face_short_range.tflite",
+    "sha256": "b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f",
+    "source": "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite",
+    "downloaded": "2026-11-12",
+    "used_by": "face_roi"
+  },
+  "face_landmarker": {
+    "path": "data/models/motionphys/face_landmarker.task",
+    "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+    "source": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
+    "size_bytes": 3758596,
+    "server_last_modified": "2023-05-03",
+    "downloaded": "2026-11-14",
+    "used_by": "face_motion"
+  }
+}
