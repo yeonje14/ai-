@@ -1,6 +1,6 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-13 · 브랜치 `feat/waverep-adapter` (커밋함, push 전)
+마지막 갱신: 2026-11-13 · 브랜치 `docs/decision-6-external-eval`
 
 ## 백로그 7번: WaveRep 어댑터 (어댑터만 구현함. Gate·Worker 미연결)
 
@@ -36,7 +36,22 @@
 - **DeepSpeak v2**: 심사 대기.
 - **Deepfake-Eval-2024**: 접근 요청이 **거절됐다.** 거절 사유·통보 날짜·재신청 가능 여부는 확인 필요.
 - `docs/dataset-access.md`, README §6.1 표, §14.1 백로그 3번 행에 반영했다.
-- **막힌 점**: Deepfake-Eval-2024는 최종 외부 실전 평가 전용 자료였다(README §13.1, 백로그 15번). 지금은 그 자료가 없다. 다른 경로로 받지 않는다. 대체 자료를 정하거나 최종 평가 범위를 줄이려면 README §15.3 결정 6을 먼저 바꿔야 한다. 아직 결정하지 않았고 README의 설계 문구(§6.1 역할, §13)는 그대로 두었다.
+- 대체 방안은 아래 "결정 6 변경"에서 정했다.
+
+## 결정 6 변경: 최종 외부 평가 자료 (2026-11-13, 브랜치 `docs/decision-6-external-eval`)
+
+README 설계 문구와 접근 기록을 바꾸고, MAVOS-DD 표본 목록을 만드는 스크립트를 추가했다. 서버 코드는 바꾸지 않았다.
+
+- **결정**: 최종 외부 평가를 MAVOS-DD open-set model 분할과 TalkingHeadBench로 대체한다. Deepfake-Eval-2024는 재신청을 검토하고 승인되면 실전 유통본 평가로 추가한다. 실제 SNS 유통본으로 평가하지 못하면 결과 보고에 한계를 명시한다.
+- **바꾼 곳**: README §6.1(역할 표, 우선 접근 원칙), §6.3, §6.5, §13.1, §14.1 3번 행, §15.3 결정 6, §16, `AGENTS.md`의 최종 평가 전용 줄, `docs/dataset-access.md`(MAVOS-DD 절 추가).
+- **MAVOS-DD 확인한 것**: CC BY-NC-SA 4.0, 자동 승인 방식 접근 제한, 전체 약 308.4 GB(mp4 87,038개), 폴더(언어·생성기) 단위로 일부만 받을 수 있는 구조. 폴더별 파일 수·용량 표를 `docs/dataset-access.md`에 넣었다(전체 기준, 분할 구분 없음).
+- **표본 추출 규칙**: 구조(층화, 고정 시드, 진짜·가짜 비율, 생성기당 상한, 교체 금지)를 `docs/dataset-access.md`에 먼저 고정했다. 숫자는 미정이다.
+- **MAVOS-DD 메타데이터 (2026-11-13)**: 접근이 승인돼 메타데이터만 받았다(`data/research/mavos-dd/`, 영상 없음). open-set model 분할은 43,959개, 155.3 GB(진짜 15,547, 가짜 28,412). 생성기별·언어별 표와 원본 영상 묶음 추정을 `docs/dataset-access.md`에 넣었다.
+- **표본 규칙 고정 (2026-11-13, 저장소 소유자 승인)**: 층당 20개(생성기당 120), 원본 묶음당 2개, 진짜:가짜 1:1, 시드 20261113. 표본 2,160개, 6.77 GB. `manifest-q20.csv`의 sha256과 확장용 `manifest-q25.csv`(8.45 GB, q20을 포함)의 sha256을 `docs/dataset-access.md`에 적었다. 만든 파일: `scripts/mavos_sample.py`, `research/mavos/export_metadata.py`, `research/mavos/download_sample.py`, `research/mavos/requirements.lock.txt`, `tests/test_mavos_sample.py`.
+- **표본 수신 (2026-11-13)**: 규칙 커밋(`dee503f`) 뒤에 2,160개를 받았다. 6,766,772,622바이트로 목록과 일치. 받은 뒤 디스크 여유는 약 50.5 GiB(`df` 기준, 받기 전 59 GiB). 표본은 모델에 넣지 않았다. 모델과 임계값을 고정하기 전에는 이 표본으로 추론 결과를 보지 않는다.
+- **남은 일**: DeepSpeak v2 승인 뒤 생성기가 MAVOS-DD와 겹치는지 확인, TalkingHeadBench 접근 절차 확인, Deepfake-Eval-2024 재신청 검토. PR #3은 draft 상태다.
+- **정정**: 지난 갱신에서 `docs/dataset-access.md`의 TalkingHeadBench "확인 필요" 표에 잘못 넣은 Deepfake-Eval-2024 거절 관련 두 줄을 Deepfake-Eval-2024 절로 옮겼다.
+- **검증**: `pytest -q` 124개 통과(conda `trinity`). 문서 변경이라 새 테스트는 없다.
 
 ## 백로그 1·3번: 접근 기록 문서화 (둘 다 진행 중)
 
