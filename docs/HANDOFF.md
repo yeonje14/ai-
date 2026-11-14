@@ -1,6 +1,36 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-14 · 브랜치 `feat/motionphys-extractor`
+마지막 갱신: 2026-11-14 · 브랜치 `feat/compression-emulator`
+
+## 백로그 9번: 압축 에뮬레이터 (범용 프로파일까지. 플랫폼 파라미터 추정은 하지 않음)
+
+실제 YouTube의 재인코딩과 같다고 주장하지 않는다. 어떤 영상도 YouTube에 올리지 않았다. 성능 결과가 아니다. 자세한 내용은 `docs/compression-emulator.md`.
+
+- **공개 코드**: `truebees-ai/social_emulator`가 있다(커밋 `3e1a39a`, `LICENSE`는 CC BY 4.0). `research/emulator/upstream/`에 clone(Git 제외)하고 수정 없이 `research/emulator/.venv`에서 두 단계를 실행했다. `breakpoint()`가 남아 있어 `PYTHONBREAKPOINT=0`으로 껐다.
+- **저자 방식의 에뮬레이션은 못 했다**: 원본과 플랫폼 처리본의 쌍이 필요한데 저장소에 파라미터 파일과 샘플이 없고 우리에게 처리본이 없다. 플랫폼 처리본 자리에 로컬 파일(`x264-crf28-720p`)을 넣어 동작만 확인했다. 해상도는 되찾았고 CRF는 28이 아니라 29로 나왔다(비트레이트가 처음 낮아지는 값을 고르는 규칙). 원본 코드의 출력에는 오디오가 없다.
+- **만든 파일**: `training/emulator/{profiles,video,pipeline}.py`, `research/emulator/{run_upstream_smoke.py,requirements.lock.txt}`, `scripts/compression_profile_report.py`, `tests/test_emulator.py`, `docs/compression-emulator.md`. 표준 라이브러리만 쓴다(trinity에 새 의존성 없음).
+- **범용 프로파일**: libx264 CRF 20/28/34 × 원본/1080/720/480(짧은 변) = 12개. 하드웨어 인코더 거부, 업스케일은 `skipped_upscale`, 오디오는 복사.
+- **`emulate(입력, 프로파일 ID, 출력 폴더)`**: 스레드 고정 + bitexact + 메타데이터 제거로 같은 입력이면 같은 바이트. 설정·FFmpeg 버전·입출력 sha256·계보·상태를 출력 옆 `.json`에 기록. 원본과 기존 출력을 덮어쓰지 않는다.
+- **manifest·평가 연결**: 선택 열 `compression_profile_id`(빈칸은 원본, 예전 manifest도 읽힘). 파생 행은 부모의 분할과 계보를 물려받는다. 리포트에 `by_compression`(조건별 AUC·TPR·실제 FPR, 그룹 bootstrap). 리포트 `schema_version` 2.
+- **출력 비교** (본인 촬영 영상 1개, 1080p 10.4초): 12개 모두 두 번 실행한 sha256이 같다. 영상 비트레이트는 CRF 20 원본 해상도 5,768 kbps에서 CRF 34 480p 218 kbps까지. 표는 문서 §5.
+- **규칙(저장소 소유자 결정, 2026-11-14)**: 최종 평가에 남겨 둘 프로파일은 학습을 시작하기 전에 고정한다. 어떤 프로파일을 남길지는 아직 정하지 않았다.
+- **실행**:
+  ```bash
+  conda activate trinity
+  pytest -q
+  python scripts/compression_profile_report.py --video data/research/samples/<허가 영상>.mp4
+  python -m training.emulator.pipeline --manifest <m.csv> --media-root <dir> --profile x264-crf28-720p --out-dir <dir> --out-manifest <m2.csv>
+  research/emulator/.venv/bin/python research/emulator/run_upstream_smoke.py --video data/research/samples/<허가 영상>.mp4
+  ```
+  환경 준비는 문서 §7. 두 스크립트는 출력 폴더가 이미 있으면 멈춘다(`data/research/emulator/` 아래, Git 제외).
+- **검증**: `pytest -q` 290개 통과, 1개 건너뜀(conda `trinity`, LightGBM이 없는 `tests/test_motionphys_train.py`).
+- **미검증·확인 필요**: 다른 기기·다른 FFmpeg/x264 버전에서의 출력 동일성, 가변 프레임률·회전 메타데이터·복사할 수 없는 오디오 코덱, 코드에 적용된 CC BY 4.0의 세부 해석, 원본 코드의 `h264` 인코더 이름이 다른 빌드에서 하드웨어 인코더로 풀리는지, YouTube Studio에서 받은 파일이 플랫폼 처리본인지.
+- **남은 일 (9번)**:
+  - 최종 평가용 프로파일 고정(학습 시작 전), dev에 넣을 압축 조건 결정.
+  - 모델 점수의 압축 민감도(README §13.2 C1~C3), 원본과 압축본을 짝지은 점수 차이 지표. 데이터와 영상 단위 점수가 생긴 뒤.
+  - 향후 경로: 저장소 소유자가 직접 찍은 영상을 본인 채널에 올려 YouTube Studio에서 받은 파일과 쌍으로 실제 파라미터를 추정(받은 파일이 처리본인지 확인 필요). **지금은 업로드하지 않는다.**
+  - 오디오 재인코딩·프레임률·반복 인코딩·화질 지표.
+
 
 ## 백로그 10번: MotionPhys 기본·얼굴 영역·Face Motion (진행 중, 앞부분만)
 

@@ -6,5 +6,6 @@
 - `hygiene.py`: 분할 누수 검사
 - `evaluation/`: 지표, dev 임계값 고정, 외부 평가 잠금, 실행 명령
 - `datasets/mavos.py`: MAVOS-DD 표본의 메타데이터 검사(추론 없음)
+- `emulator/`: 범용 압축 프로파일(libx264), 열화 영상 생성과 기록, manifest 파생 행. `docs/compression-emulator.md`
 
 사용법과 한계는 `docs/evaluation-pipeline.md`.

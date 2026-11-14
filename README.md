@@ -284,7 +284,7 @@ Logistic Regression이 내놓는 0–1 값은 **보정 여부와 무관하게 �
 
 ### 6.2 사회관계망 압축 에뮬레이터 — Montibeller 기반 (결정 7)
 
-**채택 근거:** Montibeller et al., [*Bridging the Gap: A Framework for Real-World Video Deepfake Detection via Social Network Compression Emulation*](https://arxiv.org/abs/2508.08765). **공개 구현:** [`truebees-ai/social_emulator`](https://github.com/truebees-ai/social_emulator). README 및 스크립트의 실제 입출력, 라이선스, ffmpeg 의존성은 Phase 0에서 검증한다. macOS ARM64에서의 공식 실행 보증은 아직 없다.
+**채택 근거:** Montibeller et al., [*Bridging the Gap: A Framework for Real-World Video Deepfake Detection via Social Network Compression Emulation*](https://arxiv.org/abs/2508.08765). **공개 구현:** [`truebees-ai/social_emulator`](https://github.com/truebees-ai/social_emulator). README 및 스크립트의 실제 입출력, 라이선스, ffmpeg 의존성은 Phase 0에서 검증한다. macOS ARM64에서의 공식 실행 보증은 아직 없다. **확인 결과(2026-11-14, `docs/compression-emulator.md`):** 라이선스 파일은 CC BY 4.0, 수정 없이 macOS ARM64에서 실행됨. 추정된 파라미터 파일과 샘플 영상은 저장소에 없어, 플랫폼 처리본 없이는 저자 방식의 에뮬레이션을 할 수 없다.
 
 **2단계 설계:**
 
@@ -575,7 +575,7 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 | **6** | **P1-1 / 핵심** | **최소 발화 구간 Gate:** ffprobe, 얼굴 추적, VAD, 발화자-얼굴 대응, 구간별 품질·coverage. | 단일 발화/무음/얼굴 없음/다중 발화 예시를 분리 처리하고 원인 코드 생성. | 4·5 |
 | **7** | **P1-2 / 핵심** | **실제 WaveRep를 Worker에 연결:** 모델 어댑터, 순차 실행·실패 격리, 원시 지표 JSON. | URL→허가 미디어→WaveRep 원시 지표까지 **진짜 계산**; `overall_score=null` 유지; 추론 중 주기적 heartbeat로 lease 연장.<br>**상태(2026-11-13): 어댑터만 구현함.** 구간·샘플링·배치를 받아 프레임별 원시 logit을 돌려주는 어댑터와 측정 기록까지. Gate·Worker 미연결, heartbeat 없음. 기록: `docs/waverep-adapter.md` | 4·5·6 |
 | **8** | **P1-3 / 연구** | **데이터 위생·고정 평가 파이프라인:** 원본 계보 그룹 분할, 해시/편향, ROC-AUC/TPR/FPR/실패율 기록. | 누수 검사 자동화, 재현 가능한 단일축 기초 평가 리포트.<br>**상태(2026-11-13): 진행 중(뼈대).** 공통 manifest, 그룹 분할·누수 검사, 지표와 그룹 bootstrap, dev 임계값 고정, 외부 평가 잠금을 합성 데이터로 확인. 실제 데이터로는 실행하지 않았고 단일축 평가 리포트는 없음. 기록: `docs/evaluation-pipeline.md` | 3·5 |
-| **9** | **P1-4 / 연구** | **Montibeller `social_emulator` 설치·적용** + FFmpeg 범용 압축 프로파일; 원본 훼손·분할 누수 방지. | 실행 설정·해시·압축 출력 비교 리포트; 실제 YouTube 동등성은 미주장. | 2·3·8 |
+| **9** | **P1-4 / 연구** | **Montibeller `social_emulator` 설치·적용** + FFmpeg 범용 압축 프로파일; 원본 훼손·분할 누수 방지. | 실행 설정·해시·압축 출력 비교 리포트; 실제 YouTube 동등성은 미주장.<br>**상태(2026-11-14): 범용 프로파일까지.** 공개 코드(CC BY 4.0)를 수정 없이 실행해 동작만 확인함. 플랫폼 처리본이 없어 저자 방식의 파라미터 추정은 하지 않음. FFmpeg 범용 프로파일 12개(libx264 CRF 20/28/34 × 원본/1080/720/480), 설정·해시 기록, 같은 입력의 출력 동일성, manifest 압축 조건 열과 조건별 지표를 구현함. 본인 촬영 영상 1개로 출력 비교. 모델 점수 변화는 재지 않음. 기록: `docs/compression-emulator.md` | 2·3·8 |
 | **10** | **P2-1 / 연구** | **MotionPhys 기본→얼굴 ROI→Face Motion 비교**. | 유효 궤적 비율·AUC·TPR@5%FPR·추론 시간 비교, 축 유지/제거 결정.<br>**상태(2026-11-14): 진행 중(앞부분).** 논문 기준 재구현(공개 코드 없음), 세 후보의 특징 추출기, 합성 궤적 테스트, 압축 민감도 측정, 합성 데이터로 LightGBM 스크립트 동작 확인까지. 실제 학습과 AUC·TPR 비교, 축 유지/제거 결정은 하지 않음. 기록: `docs/motionphys-spec.md`, `docs/motionphys-spike.md` | 6·8·9 |
 | **11** | **P2-2 / 연구** | **SyncNet CPU 동기화 검증**: 실제 발화 구간과 인위적 오프셋, A/B/C 비교. | LSE-C/LSE-D/오프셋 산출, 실패 조건, 위조 탐지 추가 기여 판단. | 6·8·9 |
 | **12** | **P2-3 / 연구** | **OOF 기반 Logistic Regression·보정·임계값**: WaveRep 최강 단일 모델과 비교. | 미사용 그룹에서 비교 완료, 조합 채택/보류 결정. 3축 강제 채택 금지. | 8·10·11 |
@@ -675,7 +675,7 @@ TRINITY/
 | 4 | WaveRep 전체·얼굴 ROI, 압축 증강·점수 보정 분리 | 실험안 확정 / 평가 전 |
 | 5 | 그룹 OOF Logistic Regression 기본, SyncNet 조건부, 부분 실패시 검증된 조합만 사용 | 설계 확정 / 학습 전 |
 | 6 | DeepSpeak 주 학습. 최종 외부 평가는 **MAVOS-DD open-set model 분할 + TalkingHeadBench**. Deepfake-Eval-2024는 접근 거절(2026-11-13), 재신청을 검토하고 승인되면 실전 유통본 평가로 추가. 유통본 평가를 못 하면 결과 보고에 한계 명시. 그룹 누수 방지 | 실험안 변경(2026-11-13) / 접근 확인 전 |
-| 7 | Montibeller `social_emulator` 기반 압축 검증 + TRINITY 오디오 별도 실험 | 설계 확정 / 포팅 전 |
+| 7 | Montibeller `social_emulator` 기반 압축 검증 + TRINITY 오디오 별도 실험 | 설계 확정 / 범용 프로파일 구현, 플랫폼 파라미터 추정 전 |
 | 8 | 작업·분석·판정 분리, 실패 `null`, 보류/coverage 필수 | 계약 확정 / 구현 전 |
 | 9 | macOS ARM64, MPS/CPU 대체, 순차 실행, 모델별 환경 | 설계 확정 / 기기 테스트 전 |
 | 10 | 규칙 기반 설명, 의심 신호 표현, 분석 타임라인 우선 | 설계 확정 / UI 검증 전 |

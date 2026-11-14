@@ -35,7 +35,7 @@ from training.evaluation import thresholds
 from training.evaluation.lock import DEFAULT_LOCK_PATH, ExternalEvalLocked, assert_unlocked, load_lock
 from training.evaluation.metrics import Item, evaluate
 
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2  # 2: by_compression 추가
 MISSING_SCORE = "missing_score"
 EVAL_SPLITS = ("train", "dev", "test", "external")
 DURATION_FIELDS = ("video_duration_sec", "eligible_duration_sec", "analyzed_duration_sec")
@@ -91,6 +91,7 @@ def build_items(records: list[Record], gid: dict[str, str], scores: dict[str, di
         items.append(Item(
             uid=r.uid, label=r.label, group=gid[r.uid], score=score,
             generator=r.generator_id, manipulation_type=r.manipulation_type, reason_code=reason,
+            compression=r.compression_profile_id,
         ))
     return items
 
@@ -192,6 +193,9 @@ def cmd_evaluate(opt) -> int:
             "데이터셋의 생성기를 A1~C2에 대응시킨 것은 잠정이다.",
             "tpr·fpr은 dev에서 고정한 임계값을 적용한 값이다. 이 분할의 ROC에서 다시 고른 값이 아니다.",
             "verdict_coverage와 coverage는 분석한 양이다. 정확도나 신뢰도가 아니다.",
+            "by_compression은 manifest의 compression_profile_id별 값이다(빈칸은 original). 조건이 둘 이상이면 "
+            "overall과 by_generator는 조건을 섞은 값이므로 조건별 값을 기본으로 본다. "
+            "프로파일은 범용 압축 시험용이며 실제 YouTube 재인코딩과 같다고 주장하지 않는다.",
             "신뢰구간은 인물·원본 계보 그룹 단위 bootstrap이다. 원본 식별자가 없는 영상은 서로 독립으로 취급된다.",
         ],
     }
