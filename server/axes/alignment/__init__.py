@@ -5,13 +5,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
+
+from server.axes import AxisContext
 
 STUB_REASON = "stub_not_executed"
 
 
-def run(job_dir: Path) -> dict[str, Any]:
+def run(ctx: AxisContext) -> dict[str, Any]:
     return {
         "status": "insufficient_input",
         "reason_code": STUB_REASON,

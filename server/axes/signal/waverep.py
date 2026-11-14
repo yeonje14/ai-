@@ -1,4 +1,4 @@
-"""WaveRep 어댑터 (README §14.1 백로그 7번의 앞부분). Gate·Worker에는 아직 연결하지 않았다.
+"""WaveRep 어댑터 (README §14.1 백로그 7번의 앞부분). Worker는 server/axes/signal/__init__.py를 거쳐 부른다.
 
 영상 파일과 시간 구간 목록을 받아 프레임별 원시 logit을 돌려준다.
 
@@ -19,9 +19,10 @@ import re
 import signal
 import statistics
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WAVEREP_DIR = REPO_ROOT / "research" / "waverep"
@@ -124,8 +125,21 @@ def _check_inputs(config: WaveRepConfig, segments: Sequence[Sequence[float]]) ->
     return None
 
 
-def _run_process(cmd: list[str], timeout_sec: float) -> tuple[Optional[int], str]:
-    """(종료 코드, stderr)를 돌려준다. 타임아웃이면 프로세스 그룹 전체를 죽이고 종료 코드는 None."""
+TIMED_OUT = "timeout"
+ABORTED = "aborted"
+
+
+def _run_process(
+    cmd: list[str],
+    timeout_sec: float,
+    on_tick: Optional[Callable[[], bool]] = None,
+    tick_sec: float = 10.0,
+) -> tuple[Optional[int], str, Optional[str]]:
+    """(종료 코드, stderr, 중단 원인)을 돌려준다.
+
+    기다리는 동안 tick_sec마다 on_tick을 부른다(Worker의 heartbeat). on_tick이 False를 돌려주거나
+    타임아웃이면 프로세스 그룹 전체를 죽이고 종료 코드는 None, 중단 원인은 ABORTED 또는 TIMED_OUT이다.
+    """
     env = dict(os.environ, PYTORCH_ENABLE_MPS_FALLBACK="1")
     proc = subprocess.Popen(
         cmd,
@@ -137,16 +151,36 @@ def _run_process(cmd: list[str], timeout_sec: float) -> tuple[Optional[int], str
         text=True,
         start_new_session=True,  # /usr/bin/time으로 감쌌을 때도 자식까지 한 번에 끝낼 수 있게
     )
+    deadline = time.monotonic() + timeout_sec
+    stopped: Optional[str] = None
     try:
-        _, stderr = proc.communicate(timeout=timeout_sec)
-        return proc.returncode, stderr or ""
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        _, stderr = proc.communicate()
-        return None, stderr or ""
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                stopped = TIMED_OUT
+                break
+            wait = remaining if on_tick is None else min(remaining, max(tick_sec, 0.05))
+            try:
+                _, stderr = proc.communicate(timeout=wait)
+                return proc.returncode, stderr or "", None
+            except subprocess.TimeoutExpired:
+                if on_tick is None or time.monotonic() >= deadline:
+                    continue
+                try:
+                    keep_going = on_tick()
+                except Exception:
+                    keep_going = False  # 호출자의 오류로 추론 프로세스를 남겨 두지 않는다
+                if not keep_going:
+                    stopped = ABORTED
+                    break
+    finally:
+        if proc.poll() is None:  # 타임아웃·중단·on_tick 예외 어느 경우에도 프로세스를 남기지 않는다
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    _, stderr = proc.communicate()
+    return None, stderr or "", stopped
 
 
 def _parse_result(raw: Any) -> dict[str, Any]:
@@ -172,12 +206,16 @@ def run_waverep(
     segments: Sequence[Sequence[float]],
     work_dir: Path,
     config: WaveRepConfig = WaveRepConfig(),
+    on_tick: Optional[Callable[[], bool]] = None,
+    tick_sec: float = 10.0,
 ) -> dict[str, Any]:
     """구간 안 프레임의 WaveRep 원시 logit을 계산한다. 예외를 던지지 않는다.
 
     video: 서버가 발급한 작업 경로 안의 허가 미디어 파일.
     segments: [(start_sec, end_sec), ...]. 비어 있으면 insufficient_input.
     work_dir: 요청·결과 JSON을 잠시 두는 작업 폴더(이미 있어야 한다). 끝나면 두 파일을 지운다.
+    on_tick: 추론을 기다리는 동안 tick_sec마다 부른다(lease 연장용). False를 돌려주면
+        추론 프로세스를 끝내고 status=error, reason_code=aborted를 돌려준다.
     """
     video = Path(video)
     work_dir = Path(work_dir)
@@ -212,11 +250,13 @@ def run_waverep(
         request_path.write_text(json.dumps(request), encoding="utf-8")
         cmd = build_command(config, request_path, output_path)
         try:
-            returncode, stderr = _run_process(cmd, config.timeout_sec)
+            returncode, stderr, stopped = _run_process(cmd, config.timeout_sec, on_tick, tick_sec)
         except OSError as e:
             return _failure(ERROR, "model_unavailable", type(e).__name__)
+        if stopped == ABORTED:
+            return _failure(ERROR, ABORTED, "호출자가 중단함")
         if returncode is None:
-            return _failure(ERROR, "timeout", f"{config.timeout_sec}초 초과")
+            return _failure(ERROR, TIMED_OUT, f"{config.timeout_sec}초 초과")
 
         try:
             raw = _parse_result(json.loads(output_path.read_text(encoding="utf-8")))

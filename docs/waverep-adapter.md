@@ -184,3 +184,11 @@ python scripts/bench_waverep_adapter.py --video data/research/samples/<허가 �
 ```
 
 결과는 `data/research/waverep-adapter/<이름>.json`과 `comparisons.json`에 있다(Git 제외).
+
+## Worker 연결 (2026-11-15)
+
+- Worker는 `server/axes/signal/__init__.py`를 거쳐 `run_waverep`를 부른다. 기본값은 MPS, 배치 1, 초당 2장, `pretrained=False`.
+- `run_waverep(..., on_tick=, tick_sec=)`: 추론 프로세스를 기다리는 동안 `tick_sec`마다 `on_tick`을 부른다. `False`를 돌려주거나 예외가 나면 프로세스 그룹을 끝내고 `status=error`, `reason_code=aborted`를 돌려준다.
+- 실제 Worker 실행 1회(본인 촬영 샘플 10.43초 전체, 프레임 21장, mps): 추론 프로세스 6.07초, `waverep` 단계 약 6.9초. logit 평균 -0.675. 위 벤치마크 `cpu-fps2-b8`의 평균(-0.674708)과 소수 넷째 자리까지 같다. 성능 검증이 아니며 판정에 쓰지 않는다.
+- 자세한 내용과 미검증 항목은 `docs/HANDOFF.md` "백로그 7번: WaveRep을 Worker에 연결".
+

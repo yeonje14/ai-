@@ -83,9 +83,11 @@ def test_cancel_queued_and_processing(queue):
 
 def test_worker_cancels_between_stages(queue, settings, monkeypatch):
     aid = queue.enqueue(REGISTERED_ID, OWNER, 3)
-    registry = AuthorizedMediaRegistry.from_file(settings.authorized_media_path)
+    registry = AuthorizedMediaRegistry.from_file(
+        settings.authorized_media_path, settings.authorized_media_root
+    )
 
-    def _cancel_during_waverep(job_dir):
+    def _cancel_during_waverep(ctx):
         queue.request_cancel(aid, OWNER)
         return {"status": "insufficient_input", "raw_score": None}
 
@@ -100,7 +102,9 @@ def test_worker_cancels_between_stages(queue, settings, monkeypatch):
 
 def test_worker_timeout_fails_job_without_result(queue, settings):
     aid = queue.enqueue(REGISTERED_ID, OWNER, 3)
-    registry = AuthorizedMediaRegistry.from_file(settings.authorized_media_path)
+    registry = AuthorizedMediaRegistry.from_file(
+        settings.authorized_media_path, settings.authorized_media_root
+    )
 
     worker.run_once(queue, registry, replace(settings, job_timeout_seconds=-1), "w1")
 
@@ -112,9 +116,11 @@ def test_worker_timeout_fails_job_without_result(queue, settings):
 
 def test_axis_failure_does_not_stop_other_axes(queue, settings, monkeypatch):
     aid = queue.enqueue(REGISTERED_ID, OWNER, 3)
-    registry = AuthorizedMediaRegistry.from_file(settings.authorized_media_path)
+    registry = AuthorizedMediaRegistry.from_file(
+        settings.authorized_media_path, settings.authorized_media_root
+    )
 
-    def _boom(job_dir):
+    def _boom(ctx):
         raise RuntimeError("model crashed")
 
     monkeypatch.setattr(signal_axis, "run", _boom)

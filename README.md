@@ -576,7 +576,7 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 | **4** | **P0-3 / 핵심** | **URL-only 최소 수직 슬라이스:** URL 검사·ID 추출 → `AuthorizedMediaRegistry` → FastAPI/SQLite 단일 Worker → 상태/보류 JSON. **모델은 임시 Stub**. | 등록된 허가 YouTube ID는 작업→결과 완료, 미등록/무권한 ID는 `analysis_unavailable`; 업로드 UI 없음. | 1·2 |
 | **5** | **P0-4 / 핵심** | **WaveRep 단독 추론 스파이크:** 공개 체크포인트·CPU 추론 → MPS 시험; 프레임 점수와 실행시간/메모리 기록. | 허가 테스트 클립에서 추론 반복 가능, 실패·장치 대안 문서화. **성능 검증과 구별**. | 2·3 |
 | **6** | **P1-1 / 핵심** | **최소 발화 구간 Gate:** ffprobe, 얼굴 추적, VAD, 발화자-얼굴 대응, 구간별 품질·coverage. | 단일 발화/무음/얼굴 없음/다중 발화 예시를 분리 처리하고 원인 코드 생성. | 4·5 |
-| **7** | **P1-2 / 핵심** | **실제 WaveRep를 Worker에 연결:** 모델 어댑터, 순차 실행·실패 격리, 원시 지표 JSON. | URL→허가 미디어→WaveRep 원시 지표까지 **진짜 계산**; `overall_score=null` 유지; 추론 중 주기적 heartbeat로 lease 연장.<br>**상태(2026-11-13): 어댑터만 구현함.** 구간·샘플링·배치를 받아 프레임별 원시 logit을 돌려주는 어댑터와 측정 기록까지. Gate·Worker 미연결, heartbeat 없음. 기록: `docs/waverep-adapter.md` | 4·5·6 |
+| **7** | **P1-2 / 핵심** | **실제 WaveRep를 Worker에 연결:** 모델 어댑터, 순차 실행·실패 격리, 원시 지표 JSON. | URL→허가 미디어→WaveRep 원시 지표까지 **진짜 계산**; `overall_score=null` 유지; 추론 중 주기적 heartbeat로 lease 연장.<br>**상태(2026-11-15): Worker에 연결함(Gate 미연결).** 허가 미디어 파일 → 작업 폴더 복사 → WaveRep 추론(MPS, 배치 1, 초당 2장) → 프레임 logit 요약까지 실제로 계산하고, 추론 중 주기적 heartbeat로 lease를 연장함. Gate가 없어 기본 설정에서는 모델을 실행하지 않고, 개발 전용 수동 구간(`TRINITY_DEV_MANUAL_SEGMENTS`)을 켰을 때만 실행함(`gate_bypassed=true`, `partial`, `abstained`). `raw_score`·`overall_score`는 `null`. 기록: `docs/waverep-adapter.md`, `docs/HANDOFF.md` | 4·5·6 |
 | **8** | **P1-3 / 연구** | **데이터 위생·고정 평가 파이프라인:** 원본 계보 그룹 분할, 해시/편향, ROC-AUC/TPR/FPR/실패율 기록. | 누수 검사 자동화, 재현 가능한 단일축 기초 평가 리포트.<br>**상태(2026-11-13): 진행 중(뼈대).** 공통 manifest, 그룹 분할·누수 검사, 지표와 그룹 bootstrap, dev 임계값 고정, 외부 평가 잠금을 합성 데이터로 확인. 실제 데이터로는 실행하지 않았고 단일축 평가 리포트는 없음. 기록: `docs/evaluation-pipeline.md` | 3·5 |
 | **9** | **P1-4 / 연구** | **Montibeller `social_emulator` 설치·적용** + FFmpeg 범용 압축 프로파일; 원본 훼손·분할 누수 방지. | 실행 설정·해시·압축 출력 비교 리포트; 실제 YouTube 동등성은 미주장.<br>**상태(2026-11-14): 범용 프로파일까지.** 공개 코드(CC BY 4.0)를 수정 없이 실행해 동작만 확인함. 플랫폼 처리본이 없어 저자 방식의 파라미터 추정은 하지 않음. FFmpeg 범용 프로파일 12개(libx264 CRF 20/28/34 × 원본/1080/720/480), 설정·해시 기록, 같은 입력의 출력 동일성, manifest 압축 조건 열과 조건별 지표를 구현함. 본인 촬영 영상 1개로 출력 비교. 모델 점수 변화는 재지 않음. 기록: `docs/compression-emulator.md` | 2·3·8 |
 | **10** | **P2-1 / 연구** | **MotionPhys 기본→얼굴 ROI→Face Motion 비교**. | 유효 궤적 비율·AUC·TPR@5%FPR·추론 시간 비교, 축 유지/제거 결정.<br>**상태(2026-11-14): 진행 중(앞부분).** 논문 기준 재구현(공개 코드 없음), 세 후보의 특징 추출기, 합성 궤적 테스트, 압축 민감도 측정, 합성 데이터로 LightGBM 스크립트 동작 확인까지. 실제 학습과 AUC·TPR 비교, 축 유지/제거 결정은 하지 않음. 기록: `docs/motionphys-spec.md`, `docs/motionphys-spike.md` | 6·8·9 |
@@ -733,9 +733,9 @@ C2PA·콘텐츠 출처 증명, 구간별 조작 위치 추정, 모델 기반 설
 
 ---
 
-## 서버 실행 방법 (백로그 4번: URL-only 최소 수직 슬라이스)
+## 서버 실행 방법 (백로그 4·7번)
 
-모델과 다운로드는 stub입니다. 실제 영상을 내려받거나 분석하지 않으며, 점수는 모두 `null`입니다.
+영상을 내려받지 않습니다. 물리·정합 축은 stub이고, 신호 축(WaveRep)은 Gate가 연결되지 않아 기본 설정에서는 실행하지 않습니다. 판정은 하지 않으며 `raw_score`와 `overall_score`는 `null`입니다.
 
 **1. 환경 준비** (Python 3.11)
 
@@ -772,6 +772,15 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyses \
   -d '{"url":"https://www.youtube.com/watch?v=TRINITYtest"}'
 ```
 
-**허가 미디어 등록:** `configs/authorized_media.json`에 등록된 video ID만 분석 대상으로 봅니다. 현재는 stub 검증용 가짜 ID(`TRINITYtest`)만 있습니다. 등록되지 않은 ID는 `analysis_unavailable` / `access_not_authorized`로 끝납니다.
+**허가 미디어 등록:** `configs/authorized_media.json`에 등록된 video ID만 분석 대상으로 봅니다. 현재는 검증용 가짜 ID(`TRINITYtest`)만 있습니다. 등록되지 않은 ID는 `analysis_unavailable` / `access_not_authorized`로 끝납니다. 항목의 `local_path`(미디어 루트 `TRINITY_AUTHORIZED_MEDIA_ROOT`, 기본 `data` 안의 상대 경로)에 허가 미디어 파일을 적으며, 파일이 연결되지 않은 등록 ID는 `analysis_unavailable` / `video_access_unavailable`로 끝납니다. 저장소의 설정 파일에는 `local_path`가 없으므로, 미디어 파일을 연결한 레지스트리는 Git 밖(`data/` 아래)에 두고 `TRINITY_AUTHORIZED_MEDIA`로 가리킵니다.
 
-**환경 변수:** `TRINITY_DB_PATH`(기본 `data/runtime/trinity.sqlite3`), `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`, `TRINITY_MAX_QUEUED`(기본 3), `TRINITY_LEASE_SECONDS`, `TRINITY_MAX_ATTEMPTS`, `TRINITY_JOB_TIMEOUT_SECONDS`, `TRINITY_STUB_STAGE_DELAY_SECONDS`(단계 전이를 눈으로 볼 때만 사용). `TRINITY_CORS_ORIGINS`(쉼표로 구분한 브라우저 출처. 기본 `http://localhost:8080,http://127.0.0.1:8080`. localhost·127.0.0.1만 받고 `*`는 거부한다. 빈 값이면 CORS를 끈다. Flutter 웹 개발용).
+**실제 WaveRep 실행(개발 전용):** `research/waverep/.venv`와 가중치가 있어야 합니다(`docs/waverep-spike.md` "재현 방법"). Gate가 아직 없으므로 Worker를 띄울 때 `TRINITY_DEV_MANUAL_SEGMENTS=0-10`처럼 초 단위 구간을 손으로 줘야 모델이 실행됩니다. 이렇게 만든 결과에는 `gate_bypassed=true`가 남고 항상 `analysis_status=partial`, `verdict_status=abstained`입니다.
+
+```bash
+export TRINITY_AUTHORIZED_MEDIA=data/runtime/authorized_media.local.json   # local_path가 있는 레지스트리 (Git 제외)
+uvicorn server.main:app                                        # 터미널 1
+TRINITY_DEV_MANUAL_SEGMENTS=0-10 python -m server.jobs.worker   # 터미널 2
+python scripts/smoke_slice.py                                  # 터미널 3
+```
+
+**환경 변수:** `TRINITY_DB_PATH`(기본 `data/runtime/trinity.sqlite3`), `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`, `TRINITY_MAX_QUEUED`(기본 3), `TRINITY_LEASE_SECONDS`, `TRINITY_MAX_ATTEMPTS`, `TRINITY_JOB_TIMEOUT_SECONDS`, `TRINITY_STUB_STAGE_DELAY_SECONDS`(단계 전이를 눈으로 볼 때만 사용), `TRINITY_AUTHORIZED_MEDIA_ROOT`(기본 `data`), `TRINITY_WAVEREP_DEVICE`(기본 `mps`, 못 쓰면 `cpu`로 대체), `TRINITY_WAVEREP_BATCH_SIZE`(기본 1), `TRINITY_WAVEREP_SAMPLE_FPS`(기본 2), `TRINITY_WAVEREP_TIMEOUT_SECONDS`(기본 300), `TRINITY_HEARTBEAT_INTERVAL_SECONDS`(기본 10, lease보다 짧아야 함), `TRINITY_DEV_MANUAL_SEGMENTS`(개발 전용, 기본 꺼짐). `TRINITY_CORS_ORIGINS`(쉼표로 구분한 브라우저 출처. 기본 `http://localhost:8080,http://127.0.0.1:8080`. localhost·127.0.0.1만 받고 `*`는 거부한다. 빈 값이면 CORS를 끈다. Flutter 웹 개발용).

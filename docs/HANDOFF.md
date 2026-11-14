@@ -1,6 +1,57 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-14 · 브랜치 `feat/app-light-redesign`
+마지막 갱신: 2026-11-15 · 브랜치 `feat/waverep-worker`
+
+## 백로그 7번: WaveRep을 Worker에 연결 (2026-11-15 밤, 무인 작업)
+
+**계획** (작업 전 기록):
+
+- 레지스트리 항목에 서버 쪽 `local_path`(허가 미디어 파일, 미디어 루트 안의 상대 경로)를 둔다. 등록됐지만 파일이 없으면 `analysis_unavailable` / `video_access_unavailable`.
+- `preprocessing`에서 허가 미디어를 작업 폴더로 복사하고, 모델 프로세스에는 작업 폴더 경로만 넘긴다.
+- signal 축 stub을 `run_waverep` 호출로 바꾼다. 기본 MPS, 배치 1, 초당 2장.
+- 개발 전용 수동 구간 설정 `TRINITY_DEV_MANUAL_SEGMENTS`(기본 꺼짐). 켜면 `gate_bypassed=true`, `partial`, `abstained`. 끄면 구간이 없으므로 signal 축은 실행하지 않는다.
+- 큐에 `heartbeat()`를 추가하고 추론 프로세스를 기다리는 동안 주기적으로 lease를 연장한다. 취소·lease 상실·작업 타임아웃이면 추론 프로세스를 끝낸다.
+- 축 타임아웃·실패는 `status=error`, 점수 `null`. 결과에는 프레임 logit 요약만 둔다.
+
+**결과**:
+
+- **바꾼 파일**: `server/jobs/worker.py`, `server/jobs/queue.py`(`heartbeat()`), `server/axes/__init__.py`(`AxisContext`), `server/axes/signal/__init__.py`(stub → 어댑터 호출), `server/axes/signal/waverep.py`(`on_tick`), `server/ingest/media_resolver.py`(`local_path`), `server/config.py`, `server/schemas/__init__.py`, `scripts/smoke_slice.py`(대기 시간), `tests/test_waverep_worker.py`(새 파일) 외 기존 테스트 3개.
+- **허가 미디어 파일**: 레지스트리 항목의 `local_path`. 절대 경로, `..`, 루트 밖을 가리키는 심볼릭 링크는 설정을 읽을 때 거부한다. 저장소의 `configs/authorized_media.json`에는 `local_path`가 없다.
+- **동작이 달라진 점**: 등록 ID라도 미디어 파일이 없으면 이제 `analysis_unavailable` / `video_access_unavailable`이다. 그래서 **아무 설정 없이 `smoke_slice.py`를 돌리면 등록 ID `TRINITYtest`는 접근 불가로 나온다**(전에는 stub으로 `partial`). 미디어를 연결한 레지스트리를 `TRINITY_AUTHORIZED_MEDIA`로 줘야 `partial`이 된다.
+- **수동 구간 꺼짐(기본)**: signal 축은 `insufficient_input` / `gate_not_connected`, 모델 실행 안 함. `gate_bypassed=false`.
+- **수동 구간 켬**: 모델 실행. `gate_bypassed=true`, `partial`, `abstained`, `overall_score=null`, 설명에 `GATE_BYPASSED_DEV`. 스키마가 `gate_bypassed`인데 `assessed`·`completed`·점수 있는 결과를 거부한다.
+- **결과에 남는 것**: `axes.signal.raw_metrics.frame_logit`(프레임 수, 평균, 중앙값, 최소, 최대, 표준편차)뿐이다. 프레임별 값·실행 시간·stderr는 결과에 넣지 않는다. `raw_score`는 `null`.
+- **coverage**: 영상 길이와, signal 축이 끝낸 구간(영상 길이로 자르고 겹침을 합침). `eligible_*`는 Gate가 없어 `null`.
+- **heartbeat**: 추론 프로세스를 기다리는 동안 `TRINITY_HEARTBEAT_INTERVAL_SECONDS`(기본 10초)마다 lease를 연장한다. 추론 중 취소 → 프로세스 종료 후 `cancelled`, lease 상실 → 종료 후 아무것도 쓰지 않음, 작업 타임아웃 → 종료 후 `failed`/`timeout`.
+- **격리**: 축 타임아웃(`TRINITY_WAVEREP_TIMEOUT_SECONDS`, 기본 300초)과 추론 실패는 `status=error`, 점수 `null`이고 나머지 축과 작업은 계속된다.
+- **남긴 stub**: physics·alignment 축은 그대로 `stub_not_executed` / `model_version=stub`이다.
+
+**검증** (2026-11-15):
+
+- `pytest -q`: 352개 통과, 1개 건너뜀(`test_motionphys_train.py`, trinity 환경에 lightgbm이 없어서. 전부터 그랬다). 새 테스트는 가짜 추론 프로세스를 쓴다.
+- 실제 실행: uvicorn + Worker를 띄우고 `smoke_slice.py`로 등록 ID `TRINITYtest` + 본인 촬영 샘플(`data/research/samples/`, 10.43초)을 요청했다.
+  - `TRINITY_DEV_MANUAL_SEGMENTS=0-10.5`: `queued → processing/waverep → finished`. `gate_bypassed=true`, `partial`, `abstained`, `overall_score=null`, signal `completed`, `raw_score=null`, 프레임 21장, 장치 mps, 추론 프로세스 6.07초. logit 평균 -0.675, 중앙값 -0.900, 최소 -5.217, 최대 4.670. coverage 10.433초 / 10.433초. 작업 폴더는 남지 않았다.
+  - 수동 구간 없음: signal `insufficient_input` / `gate_not_connected`, `gate_bypassed=false`, `partial`, `abstained`.
+  - 미등록 ID `analysis_unavailable` / `access_not_authorized`, 잘못된 URL 422, 없는 작업 404.
+- 가중치는 새로 받지 않았다. 기존 `weights_dinov2_G4.ckpt`의 md5는 `8bf19e6f68a92bed600dd97fbed3f2cd`로 기록값과 같다.
+
+**미검증**:
+
+- 실제 추론이 약 7초로 heartbeat 간격(10초)보다 짧았다. **실제 모델 실행 중의 lease 연장은 관찰하지 못했고**, 가짜 추론 프로세스 테스트(lease 1초, 추론 2.5초)로만 확인했다.
+- 발화가 있는 영상, 합성 영상, 긴 영상, 504px 미만 영상에서의 Worker 실행.
+- 큰 미디어 파일을 작업 폴더로 복사하는 동안에는 heartbeat가 없다(3.6MB 샘플에서는 문제없음).
+- Flutter 앱의 실제 서버 모드에서 새 필드가 있는 결과를 여는 것(앱 코드는 바꾸지 않았다).
+
+**§15.3 변경 제안 (README §9·§10은 바꾸지 않았다. 승인하면 문서에 반영)**:
+
+1. §9 결과에 `gate_bypassed`(bool, 기본 `false`)를 적는다. `true`면 개발용 결과이며 항상 `partial` / `abstained` / `overall_score=null`.
+2. §9 `axes.signal`에 `raw_metrics.frame_logit` 요약을 적는다. `raw_score`는 집계 방법이 정해질 때까지 `null`.
+3. §9 "접근 불가 결과"에 "등록됐지만 미디어 파일이 없는 ID는 `video_access_unavailable`"을 적는다. 백로그 4번 완료 조건의 "등록된 허가 ID는 작업→결과 완료"는 미디어 파일이 연결된 ID에만 해당하게 된다.
+4. §10 축별 원인 코드에 `gate_not_connected`(임시, Gate 연결 시 제거), `timeout`, `aborted`, `media_unreadable`, `model_unavailable`을 적는다. 설명 원인 코드 `gate_bypassed`도 같다.
+
+**7번에서 남은 일**: Gate 연결(수동 구간 설정과 `gate_not_connected` 제거), 프레임 logit을 `raw_score`로 집계하는 방법 결정(백로그 8번 이후), physics·alignment stub 교체.
+
+**실행**: README 하단 "서버 실행 방법"의 "실제 WaveRep 실행(개발 전용)".
 
 ## 앱 디자인 개정: 밝은 테마, 웹형·앱형 홈 (백로그 13번, 2026-11-14)
 
