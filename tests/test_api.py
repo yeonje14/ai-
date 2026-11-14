@@ -46,7 +46,7 @@ def test_registered_id_runs_to_finished_with_contract_result(client, run_worker,
     result = client.get(f"/api/v1/analyses/{aid}/result").json()
     assert set(result) == {
         "analysis_id", "youtube_video_id", "job_status", "analysis_status",
-        "verdict_status", "overall_score", "abstention_reason", "reason_code",
+        "verdict_status", "verdict_label", "overall_score", "abstention_reason", "reason_code",
         "media_provenance", "coverage", "axes", "explanations",
     }
     assert result["analysis_id"] == aid

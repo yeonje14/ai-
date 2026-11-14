@@ -415,6 +415,7 @@ Flutter — REST Polling으로 상태/결과 표시
   "job_status": "finished",
   "analysis_status": "partial",
   "verdict_status": "abstained",
+  "verdict_label": null,
   "overall_score": null,
   "abstention_reason": "no_valid_fusion_model",
   "media_provenance": "registered_authorized_source",
@@ -437,7 +438,9 @@ Flutter — REST Polling으로 상태/결과 표시
 }
 ```
 
-**접근 불가 결과:** `job_status=finished`, `analysis_status=analysis_unavailable`, `verdict_status=abstained`, `overall_score=null`, `reason_code=video_access_unavailable` 또는 `access_not_authorized`; 모든 축의 점수는 `null`. HTTP 요청 접수 성공과 분석/판정 성공은 다릅니다.
+**판정 라벨 `verdict_label`** (2026-11-14 추가, 결정 8): `suspicious_signals`(의심 신호 발견), `low_suspicion`(의심 신호 낮음), `null`. 결과 요약 화면이 숫자 점수 없이 둘을 구분하기 위한 필드입니다. 서버가 고정된 임계값으로 정하며 클라이언트는 `overall_score`로 라벨을 만들지 않습니다. `verdict_status=assessed`일 때만 값이 있고 그 밖에는 `null`입니다. **검증된 결합 모델이 없으면 항상 `null`**이며(지금의 서버가 그렇습니다), 클라이언트는 `assessed`인데 라벨이 없으면 판단 보류로 표시합니다. `low_suspicion`은 진짜 영상임을 뜻하지 않습니다.
+
+**접근 불가 결과:** `job_status=finished`, `analysis_status=analysis_unavailable`, `verdict_status=abstained`, `verdict_label=null`, `overall_score=null`, `reason_code=video_access_unavailable` 또는 `access_not_authorized`; 모든 축의 점수는 `null`. HTTP 요청 접수 성공과 분석/판정 성공은 다릅니다.
 
 **HTTP 실패:** 잘못된 URL 422, 인증 실패 401/403, 작업 접근권한 없음 403 또는 정책상 404, 대기열 포화 429/503, 없는 작업 404. 결과 대기 중(`queued`, `processing`)에는 완료 결과를 꾸며내지 않고 `GET /result`가 HTTP `202`와 함께 `job_status`·`stage`만 반환.
 
@@ -579,7 +582,7 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 | **10** | **P2-1 / 연구** | **MotionPhys 기본→얼굴 ROI→Face Motion 비교**. | 유효 궤적 비율·AUC·TPR@5%FPR·추론 시간 비교, 축 유지/제거 결정.<br>**상태(2026-11-14): 진행 중(앞부분).** 논문 기준 재구현(공개 코드 없음), 세 후보의 특징 추출기, 합성 궤적 테스트, 압축 민감도 측정, 합성 데이터로 LightGBM 스크립트 동작 확인까지. 실제 학습과 AUC·TPR 비교, 축 유지/제거 결정은 하지 않음. 기록: `docs/motionphys-spec.md`, `docs/motionphys-spike.md` | 6·8·9 |
 | **11** | **P2-2 / 연구** | **SyncNet CPU 동기화 검증**: 실제 발화 구간과 인위적 오프셋, A/B/C 비교. | LSE-C/LSE-D/오프셋 산출, 실패 조건, 위조 탐지 추가 기여 판단. | 6·8·9 |
 | **12** | **P2-3 / 연구** | **OOF 기반 Logistic Regression·보정·임계값**: WaveRep 최강 단일 모델과 비교. | 미사용 그룹에서 비교 완료, 조합 채택/보류 결정. 3축 강제 채택 금지. | 8·10·11 |
-| **13** | **P3-1 / 제품** | **Flutter YouTube 공유 시트 + URL 붙여넣기 + 상태 Polling + 결과 요약/상세**. | YouTube 앱에서 공유→TRINITY→상태/보류/근거 화면 시연. 파일 업로드 UI 없음. | 4·7 |
+| **13** | **P3-1 / 제품** | **Flutter YouTube 공유 시트 + URL 붙여넣기 + 상태 Polling + 결과 요약/상세**. | YouTube 앱에서 공유→TRINITY→상태/보류/근거 화면 시연. 파일 업로드 UI 없음.<br>**상태(2026-11-14): 진행 중(앞부분).** 디자인 시스템, 화면 8개(입력, 분석 중, 결과 3종, 판단 근거 상세, 영상 접근 불가, 분석 대상 아님), mock·실제 서버 모드, 세 엔드포인트 연결을 Flutter 웹으로 만듦. 모델 미연결이라 실제 서버 모드에서는 판단 보류와 접근 불가만 나옴. 공유 시트와 iOS·Android 빌드는 없음. 기록: `docs/design-system.md`, `app/README.md` | 4·7 |
 | **14** | **P3-2 / 안정화** | **인증·작업 소유권·취소·중복 방지·재시작 복구·임시 파일 삭제·rate limit**. | 다른 사용자 결과 접근 차단, 작업 복구/취소/정리 통합 테스트. | 4·7·13 (보안 기초는 4부터 적용) |
 | **15** | **P4 / 최종 검증** | **내부 홀드아웃+허가된 외부 벤치마크, 압축 일반화, 맥북 latency·RAM, 결과 해석 검증**. | 모델·임계값 잠금, 실제 FPR/TPR·Coverage·실패율/CI 공개, 범용 YouTube 접근 가능 여부를 별도로 보고. | 8~14 |
 
@@ -676,7 +679,7 @@ TRINITY/
 | 5 | 그룹 OOF Logistic Regression 기본, SyncNet 조건부, 부분 실패시 검증된 조합만 사용 | 설계 확정 / 학습 전 |
 | 6 | DeepSpeak 주 학습. 최종 외부 평가는 **MAVOS-DD open-set model 분할 + TalkingHeadBench**. Deepfake-Eval-2024는 접근 거절(2026-11-13), 재신청을 검토하고 승인되면 실전 유통본 평가로 추가. 유통본 평가를 못 하면 결과 보고에 한계 명시. 그룹 누수 방지 | 실험안 변경(2026-11-13) / 접근 확인 전 |
 | 7 | Montibeller `social_emulator` 기반 압축 검증 + TRINITY 오디오 별도 실험 | 설계 확정 / 범용 프로파일 구현, 플랫폼 파라미터 추정 전 |
-| 8 | 작업·분석·판정 분리, 실패 `null`, 보류/coverage 필수 | 계약 확정 / 구현 전 |
+| 8 | 작업·분석·판정 분리, 실패 `null`, 보류/coverage 필수. 판정 라벨은 `verdict_label`로 서버가 정하고 검증된 결합 모델이 없으면 `null`(2026-11-14 추가) | 계약 확정 / stub 구현 |
 | 9 | macOS ARM64, MPS/CPU 대체, 순차 실행, 모델별 환경 | 설계 확정 / 기기 테스트 전 |
 | 10 | 규칙 기반 설명, 의심 신호 표현, 분석 타임라인 우선 | 설계 확정 / UI 검증 전 |
 | 11 | URL-only Flutter → FastAPI → SQLite 단일 Worker + 인증·복구·삭제 | 설계 확정 / 구현 전 |
@@ -771,4 +774,4 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyses \
 
 **허가 미디어 등록:** `configs/authorized_media.json`에 등록된 video ID만 분석 대상으로 봅니다. 현재는 stub 검증용 가짜 ID(`TRINITYtest`)만 있습니다. 등록되지 않은 ID는 `analysis_unavailable` / `access_not_authorized`로 끝납니다.
 
-**환경 변수:** `TRINITY_DB_PATH`(기본 `data/runtime/trinity.sqlite3`), `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`, `TRINITY_MAX_QUEUED`(기본 3), `TRINITY_LEASE_SECONDS`, `TRINITY_MAX_ATTEMPTS`, `TRINITY_JOB_TIMEOUT_SECONDS`, `TRINITY_STUB_STAGE_DELAY_SECONDS`(단계 전이를 눈으로 볼 때만 사용).
+**환경 변수:** `TRINITY_DB_PATH`(기본 `data/runtime/trinity.sqlite3`), `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`, `TRINITY_MAX_QUEUED`(기본 3), `TRINITY_LEASE_SECONDS`, `TRINITY_MAX_ATTEMPTS`, `TRINITY_JOB_TIMEOUT_SECONDS`, `TRINITY_STUB_STAGE_DELAY_SECONDS`(단계 전이를 눈으로 볼 때만 사용). `TRINITY_CORS_ORIGINS`(쉼표로 구분한 브라우저 출처. 기본 `http://localhost:8080,http://127.0.0.1:8080`. localhost·127.0.0.1만 받고 `*`는 거부한다. 빈 값이면 CORS를 끈다. Flutter 웹 개발용).
