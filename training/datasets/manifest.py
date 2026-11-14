@@ -22,8 +22,12 @@ IDENTITY_SEPARATOR = "|"
 FIELDS = (
     "dataset_id", "video_id", "video_path", "label", "manipulation_type", "generator_id",
     "identity_ids", "source_recording_id", "parent_video_id", "derivation_group_id",
-    "split", "file_hash",
+    "split", "file_hash", "compression_profile_id",
 )
+# 머리글에 없어도 되는 열(없으면 빈칸으로 읽는다). 이 열이 생기기 전에 쓴 manifest를 그대로 읽기 위해서다.
+OPTIONAL_COLUMNS = ("compression_profile_id",)
+# 압축 조건이 빈칸인 영상을 리포트에서 부르는 이름
+ORIGINAL_COMPRESSION = "original"
 # 원본 계보 ID(source_recording_id)는 필수다. 인물 ID는 없을 수 있다(경고로 센다).
 REQUIRED = ("dataset_id", "video_id", "video_path", "label", "source_recording_id")
 # 원본을 알 수 없어 파일 하나를 묶음 하나로 둔 경우의 접두사 (scripts/mavos_sample.py와 같은 규칙)
@@ -52,6 +56,8 @@ class Record:
     derivation_group_id: str = ""
     split: str = ""
     file_hash: str = ""
+    # 압축 조건(training/emulator의 프로파일 ID 등). 빈칸은 다시 압축하지 않은 영상이다.
+    compression_profile_id: str = ""
 
     @property
     def uid(self) -> str:
@@ -82,6 +88,8 @@ def _problems_of(rec: Record) -> list[str]:
         out.append(f"split은 {SPLITS} 중 하나 또는 빈칸: {rec.split!r}")
     if rec.manipulation_type and rec.manipulation_type not in MANIPULATION_TYPES:
         out.append(f"manipulation_type은 {MANIPULATION_TYPES} 중 하나 또는 빈칸: {rec.manipulation_type!r}")
+    if rec.compression_profile_id == ORIGINAL_COMPRESSION:
+        out.append(f"compression_profile_id에 {ORIGINAL_COMPRESSION!r}을 쓰지 않는다. 원본은 빈칸이다")
     if rec.label == "real" and (rec.manipulation_type or rec.generator_id):
         out.append("real에는 manipulation_type·generator_id를 쓰지 않는다")
     return out
@@ -106,7 +114,7 @@ def validate(records: Iterable[Record]) -> list[Record]:
 def read_manifest(path: Path) -> list[Record]:
     with Path(path).open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        missing = [c for c in FIELDS if c not in (reader.fieldnames or [])]
+        missing = [c for c in FIELDS if c not in (reader.fieldnames or []) and c not in OPTIONAL_COLUMNS]
         if missing:
             raise ManifestError([f"머리글에 없는 열: {missing}"])
         records = []
@@ -114,7 +122,7 @@ def read_manifest(path: Path) -> list[Record]:
             ids = tuple(s for s in (row["identity_ids"] or "").split(IDENTITY_SEPARATOR) if s)
             records.append(Record(
                 identity_ids=ids,
-                **{f: (row[f] or "").strip() for f in FIELDS if f != "identity_ids"},
+                **{f: (row.get(f) or "").strip() for f in FIELDS if f != "identity_ids"},
             ))
     return validate(records)
 

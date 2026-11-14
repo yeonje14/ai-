@@ -1,0 +1,7 @@
+ffmpeg-python==0.2.0
+future==1.0.0
+numpy==2.4.6
+pandas==3.1.1
+python-dateutil==4.0.0
+tqdm==4.70.1
+tzdata==2026.6

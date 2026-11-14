@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
 UNKNOWN = "(미상)"
+ORIGINAL = "original"  # 압축 조건이 빈칸인 영상
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class Item:
     generator: str = ""
     manipulation_type: str = ""
     reason_code: str = ""           # score가 None인 이유
+    compression: str = ""           # 압축 조건(프로파일 ID). 빈칸은 원본
 
 
 def roc_auc(fake_scores: Sequence[float], real_scores: Sequence[float]) -> Optional[float]:
@@ -90,6 +92,18 @@ def point_metrics(items: Sequence[Item], threshold: float) -> dict[str, Optional
             out[f"{kind}\x1f{name}\x1ftpr"] = rate_at(scores, threshold)
             # 그 범주의 가짜 대 전체 진짜
             out[f"{kind}\x1f{name}\x1froc_auc"] = roc_auc(scores, real)
+    # 압축 조건별: 같은 조건의 진짜와 가짜끼리만 견준다
+    conditions = {it.compression or ORIGINAL for it in items}
+    if conditions != {ORIGINAL}:
+        for name in conditions:
+            members = [it for it in items if (it.compression or ORIGINAL) == name]
+            c_real, c_fake = _scored(members, "real"), _scored(members, "fake")
+            out[f"compression\x1f{name}\x1froc_auc"] = roc_auc(c_fake, c_real)
+            out[f"compression\x1f{name}\x1ftpr"] = rate_at(c_fake, threshold)
+            out[f"compression\x1f{name}\x1ffpr"] = rate_at(c_real, threshold)
+    else:  # 조건이 원본 하나뿐이면 전체와 같다
+        for m in ("roc_auc", "tpr", "fpr"):
+            out[f"compression\x1f{ORIGINAL}\x1f{m}"] = out[m]
     return out
 
 
@@ -147,7 +161,7 @@ def evaluate(
     seed: int = 0,
     confidence: float = 0.95,
 ) -> dict:
-    """전체·생성기별·유형별 지표와 그룹 bootstrap 신뢰구간, 보류 현황."""
+    """전체·생성기별·유형별·압축 조건별 지표와 그룹 bootstrap 신뢰구간, 보류 현황."""
     items = list(items)
     point = point_metrics(items, threshold)
     ci = group_bootstrap(items, lambda xs: point_metrics(xs, threshold), n_boot, seed, confidence) if items else {}
@@ -177,6 +191,21 @@ def evaluate(
             }
         return out
 
+    def by_compression() -> dict:
+        out = {}
+        for name in sorted({it.compression or ORIGINAL for it in items}):
+            members = [it for it in items if (it.compression or ORIGINAL) == name]
+            out[name] = {
+                "videos": len(members),
+                "groups": len({it.group for it in members}),
+                "real": sum(1 for it in members if it.label == "real"),
+                "fake": sum(1 for it in members if it.label == "fake"),
+                "real_scored": len(_scored(members, "real")),
+                "fake_scored": len(_scored(members, "fake")),
+                **{m: with_ci(f"compression\x1f{name}\x1f{m}") for m in ("roc_auc", "tpr", "fpr")},
+            }
+        return out
+
     scored = [it for it in items if it.score is not None]
     reasons: dict[str, int] = defaultdict(int)
     for it in items:
@@ -202,5 +231,7 @@ def evaluate(
         "overall": {name: with_ci(name) for name in ("roc_auc", "tpr", "fpr")},
         "by_generator": breakdown("generator", lambda it: it.generator),
         "by_manipulation_type": breakdown("manipulation_type", lambda it: it.manipulation_type),
+        # 압축 조건별. 그 조건의 진짜와 가짜만으로 계산한다. 임계값은 dev에서 고정한 값 그대로다
+        "by_compression": by_compression(),
         "bootstrap": {"unit": "group", "n_boot": n_boot, "seed": seed, "confidence": confidence},
     }
