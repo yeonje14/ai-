@@ -1,7 +1,10 @@
 """발화 구간 Gate (백로그 6번).
 
 허가 미디어 파일 하나를 받아 "분석할 수 있는 발화 구간"과 원인 코드를 돌려준다.
-모델 추론은 하지 않는다. Worker에는 아직 연결하지 않았다(백로그 7번).
+진위 모델 추론은 하지 않는다. Worker에는 아직 연결하지 않았다(백로그 7번).
+
+음성(VAD)과 입 움직임(얼굴 특징점)이 함께 있을 때만 발화로 인정한다.
+말하는 영상으로는 아직 검증하지 않았다(docs/gate.md).
 
 무거운 의존성(cv2, mediapipe, webrtcvad)은 run_gate 안에서만 불러온다.
 API 서버는 이 패키지를 import하지 않는다.
@@ -25,6 +28,7 @@ def run_gate(
     media_path: Path,
     *,
     face_model_path: Optional[Path] = None,
+    landmark_model_path: Optional[Path] = None,
     config: GateConfig = GateConfig(),
 ) -> GateResult:
     """media_path는 서버가 발급한 작업 경로(허가 미디어)여야 한다.
@@ -32,7 +36,7 @@ def run_gate(
     미디어 문제는 GateResult.reason_code로 돌려준다.
     모델 파일 누락 같은 설정 문제는 GateSetupError로 올린다.
     """
-    from server.gate import faces, probe, segments, vad
+    from server.gate import faces, mouth, mouth_activity, probe, segments, vad
 
     path = Path(media_path).resolve()
     if not path.is_file():
@@ -53,13 +57,20 @@ def run_gate(
     if not speech:
         return segments.build_result(media, [], [], config)
 
-    if face_model_path is None:
+    if face_model_path is None or landmark_model_path is None:
         from server.config import Settings
 
         settings = Settings.from_env()
-        face_model_path = faces.resolve_face_model(
-            settings.gate_model_dir, settings.gate_models_config_path
-        )
+        where = (settings.gate_model_dir, settings.gate_models_config_path)
+        if face_model_path is None:
+            face_model_path = faces.resolve_face_model(*where)
+        if landmark_model_path is None:
+            landmark_model_path = faces.resolve_landmark_model(*where)
     frames = faces.detect_faces(path, media, Path(face_model_path), config)
     frames = segments.assign_tracks(frames, config)
-    return segments.build_result(media, speech, frames, config)
+    samples = mouth.measure_mouth(path, media, Path(landmark_model_path), config, within=speech)
+    return segments.build_result(
+        media, speech, frames, config,
+        mouth_active=mouth_activity.active_intervals(samples, config),
+        mouth_summary=mouth_activity.summarize(samples, config),
+    )

@@ -18,6 +18,11 @@ LOW_RESOLUTION = "low_resolution"
 FACE_TOO_SMALL = "face_too_small"
 TOO_BLURRY = "too_blurry"
 SEGMENT_TOO_SHORT = "segment_too_short"
+# 음성으로 판정된 소리는 있지만, 보이는 얼굴에서 입을 여닫는 움직임이 반복되는 것을 확인하지 못했다
+NO_MOUTH_MOVEMENT = "no_mouth_movement"
+
+# 적합 구간이 없는 까닭이 "보이는 사람이 말하는 것을 확인하지 못함"인 원인 코드 묶음
+NO_SPEECH_FAMILY = (AUDIO_MISSING, NO_SPEECH_DETECTED, NO_MOUTH_MOVEMENT)
 
 
 @dataclass(frozen=True)
@@ -35,6 +40,13 @@ class GateConfig:
     vad_frame_ms: int = 30
     vad_min_speech_sec: float = 0.25      # 이보다 짧은 음성 조각은 버린다
     vad_merge_gap_sec: float = 0.4        # 이보다 짧은 쉼은 한 구간으로 잇는다
+    # 입 움직임 (입 벌림 = 안쪽 입술 거리 / 두 눈 바깥꼬리 거리). 말하는 영상으로 검증하지 않은 임시값이다
+    mouth_sample_fps: float = 15.0
+    mouth_min_swing: float = 0.02            # 이만큼 되돌아가야 방향이 바뀐 것(반전)으로 센다
+    mouth_min_reversals: int = 3             # 한 묶음에 필요한 반전 수. 3이면 입을 두 번 이상 연 것
+    mouth_max_reversal_gap_sec: float = 0.75  # 반전 사이가 이보다 길면 다른 묶음이다
+    mouth_pad_sec: float = 0.2               # 묶음 앞뒤로 붙이는 여유
+    mouth_max_sample_gap_sec: float = 0.3    # 측정이 이보다 오래 끊기면 시계열을 나눈다
     # 구간 품질
     min_short_side_px: int = 360
     min_face_height_px: float = 96.0
@@ -72,6 +84,13 @@ class FrameFaces:
 
 
 @dataclass(frozen=True)
+class MouthSample:
+    t: float                                   # 초
+    opening: Optional[float]                   # 입 벌림 비율. 특징점을 찾지 못했으면 None
+    box: Optional[tuple[float, float, float, float]]  # 얼굴 박스 (x, y, w, h), 픽셀
+
+
+@dataclass(frozen=True)
 class SegmentQuality:
     face_height_px: float         # 구간 내 중앙값
     face_height_ratio: float      # 프레임 짧은 변 대비
@@ -105,6 +124,10 @@ class GateResult:
     eligible_segments: tuple[Segment, ...] = ()
     excluded_segments: tuple[Segment, ...] = ()
     speech_segments: tuple[tuple[float, float], ...] = ()
+    # 입을 여닫는 움직임이 반복된 구간. 입 움직임을 재지 않았으면 None이다
+    mouth_active_segments: Optional[tuple[tuple[float, float], ...]] = None
+    mouth_summary: Optional[dict] = None
+    speaking_video_validated: bool = field(default=False)  # 말하는 영상으로는 검증하지 않았다
     multi_speaker_validated: bool = field(default=False)  # 여러 명 영상으로는 검증하지 않았다
 
     @property
@@ -139,5 +162,10 @@ class GateResult:
             "speech_segments": [
                 {"start_sec": a, "end_sec": b} for a, b in self.speech_segments
             ],
+            "mouth_active_segments": None if self.mouth_active_segments is None else [
+                {"start_sec": a, "end_sec": b} for a, b in self.mouth_active_segments
+            ],
+            "mouth_summary": self.mouth_summary,
+            "speaking_video_validated": self.speaking_video_validated,
             "multi_speaker_validated": self.multi_speaker_validated,
         }

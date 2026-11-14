@@ -4,8 +4,12 @@
 테스트 중 FFmpeg로 만든 변형(오디오 제거본, 검은 화면본, 무음 오디오본).
 변형은 임시 폴더에 만들고 테스트가 끝나면 지운다.
 
+샘플 영상에는 발화가 없다(야외 촬영, 저장소 소유자 확인). 얼굴은 하나 나온다.
+그래서 이 영상에는 적합 구간이 없어야 한다.
+
+말하는 영상은 아직 없다(미검증). data/research/samples/speaking/ 에 허가 영상을 넣으면
+맨 아래 테스트가 돈다. 여러 명이 말하는 영상은 동의받은 것이 없어 다루지 않는다(미검증).
 샘플 영상·Gate 의존성·모델 파일·ffmpeg 중 하나라도 없으면 건너뛴다.
-여러 명이 말하는 영상은 동의받은 것이 없어 여기서 다루지 않는다(미검증).
 """
 
 from __future__ import annotations
@@ -25,11 +29,13 @@ from server.gate.types import (
     MEDIA_UNREADABLE,
     NO_FACE_DETECTED,
     NO_SPEECH_DETECTED,
+    NO_SPEECH_FAMILY,
 )
 
 from tests.conftest import REPO_ROOT
 
 SAMPLES = sorted((REPO_ROOT / "data/research/samples").glob("*.mp4"))
+SPEAKING = sorted((REPO_ROOT / "data/research/samples/speaking").glob("*.mp4"))
 MODEL_DIR = REPO_ROOT / Settings().gate_model_dir
 MISSING = [
     name
@@ -39,6 +45,9 @@ MISSING = [
             importlib.util.find_spec(m) for m in ("cv2", "mediapipe", "webrtcvad")
         ),
         "얼굴 검출 모델 파일(data/models/gate/)": any(MODEL_DIR.glob("*.tflite")),
+        "얼굴 특징점 모델 파일(data/models/gate/face_landmarker.task)": (
+            MODEL_DIR / "face_landmarker.task"
+        ).is_file(),
         "ffmpeg": shutil.which("ffmpeg") is not None,
     }.items()
     if not ok
@@ -86,13 +95,20 @@ def results(media):
     return {name: run_gate(media[name]) for name in ("original", "no_audio", "black", "silent")}
 
 
-def test_single_speaker_video_has_eligible_segment(results):
+def test_sample_without_speech_has_no_eligible_segment(results):
+    """발화가 없는 영상이다. VAD가 주변 소리를 음성으로 판정해도 입이 움직이지 않으면 걸러야 한다.
+
+    (이전 테스트는 이 영상에 적합 구간이 있다고 기대했다. 기대값이 틀렸다.)
+    """
     result = results["original"]
-    assert result.reason_code is None
-    assert len(result.eligible_segments) >= 1
-    assert 0 < result.eligible_duration_sec <= result.media.duration_sec
-    quality = result.eligible_segments[0].quality
-    assert quality.face_height_px > 0 and quality.sharpness > 0 and quality.face_frames > 0
+    assert result.eligible_segments == ()
+    assert result.eligible_duration_sec == 0.0
+    assert result.reason_code in NO_SPEECH_FAMILY
+    assert all(s.reason_code in NO_SPEECH_FAMILY for s in result.excluded_segments)
+    # 얼굴은 보였고 입 벌림도 쟀다. 못 재서 걸러진 것이 아니다.
+    assert result.mouth_summary["measured"] > 0
+    assert result.mouth_active_segments == ()
+    assert result.speaking_video_validated is False
 
 
 def test_audio_removed_video_is_audio_missing(results):
@@ -117,8 +133,8 @@ def test_silent_audio_track_is_no_speech_detected(results):
 
 
 def test_reason_codes_are_all_distinct(results):
-    codes = [results[name].reason_code for name in ("original", "no_audio", "black", "silent")]
-    assert len(set(codes)) == 4
+    codes = [results[name].reason_code for name in ("no_audio", "black", "silent")]
+    assert len(set(codes)) == 3
 
 
 def test_segments_cover_whole_video_and_coverage_shape(results):
@@ -149,3 +165,14 @@ def test_unreadable_inputs(media):
     result = run_gate(junk)
     assert result.reason_code == MEDIA_UNREADABLE
     assert result.coverage()["video_duration_sec"] is None
+
+
+@pytest.mark.skipif(not SPEAKING, reason="말하는 허가 영상 없음(data/research/samples/speaking/*.mp4). 미검증")
+@pytest.mark.parametrize("path", SPEAKING, ids=lambda p: p.name)
+def test_speaking_video_has_eligible_segment(path, media):
+    """한 사람이 화면을 보고 말하는 영상에는 적합 구간이 있어야 한다."""
+    result = run_gate(path)
+    assert result.reason_code is None, result.to_dict()
+    assert result.eligible_duration_sec > 0
+    assert result.mouth_active_segments
+

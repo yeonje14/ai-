@@ -6,14 +6,105 @@ README §14.1 백로그 6번의 기록이다. 작성일: 2026-11-12.
 > 아래 임계값은 모두 **임시값**이며 검증된 운영 범위가 아니다.
 > 실제 실행은 본인 촬영 영상 1개와 그 변형 3개로만 했다.
 
-## 알려진 문제 (2026-11-12, 저장소 소유자 확인)
+## 2026-11-15 보완: 입 움직임 확인, VAD 비교
+
+아래 "알려진 문제"에 대한 수정이다. **말하는 영상으로는 검증하지 않았다(미검증).** 임계값은 전부 임시값이다.
+
+### 바뀐 규칙
+
+음성(VAD)과 입 움직임이 **함께** 있을 때만 발화로 인정한다.
+
+- **입 벌림 측정** (`server/gate/mouth.py`): MediaPipe Face Landmarker를 초당 약 15장에 돌려, 가장 큰 얼굴의 `안쪽 윗입술(13)–안쪽 아랫입술(14) 거리 ÷ 두 눈 바깥꼬리(33–263) 거리`를 잰다. 음성 구간(앞뒤 0.75초 여유) 안의 프레임만 본다. 특징점 좌표·프레임·crop은 저장하지 않는다. 특징점을 못 찾은 표본은 `None`이다.
+- **움직임 규칙** (`server/gate/mouth_activity.py`, 순수 함수): 입 벌림 값이 0.02 이상 되돌아간 극점을 "반전"으로 센다. 반전이 0.75초 안에서 이어지는 묶음 가운데 **반전이 3번 이상**(입을 두 번 이상 연 것)인 묶음만 입이 움직인 구간으로 보고 앞뒤 0.2초를 붙인다. 한 번 벌렸다 닫는 동작은 반전 1번이라 발화로 보지 않는다. 측정이 0.3초 넘게 끊기거나 얼굴 박스가 바뀌면 시계열을 나눈다.
+- **구간 규칙** (`segments.py`): 주된 얼굴이 하나인 음성 구간을 입이 움직인 조각과 아닌 조각으로 나눈다. 움직인 조각만 품질 검사를 거쳐 적합 구간이 되고, 아닌 조각은 새 원인 코드 `no_mouth_movement`로 제외한다.
+- **원인 코드 묶음** `NO_SPEECH_FAMILY` = `audio_missing`, `no_speech_detected`, `no_mouth_movement`. "보이는 사람이 말하는 것을 확인하지 못했다"는 계열이다.
+- 결과에 `mouth_active_segments`, `mouth_summary`(표본 수, 측정된 수, 입 벌림 중앙값·최댓값, 반전 수), `speaking_video_validated=false`가 추가됐다.
+
+단순한 변화량(창 안의 최대–최소)을 쓰지 않은 이유: 샘플 영상 0.3~1.0초에 입을 한 번 벌렸다 닫는 동작(입 벌림 0.006 → 0.127 → 0.006)이 있어서, 변화량만 보면 그 부분이 발화로 잡힌다.
+
+### 샘플 영상(야외, 발화 없음) 결과
+
+| 항목 | 값 |
+|---|---|
+| 대표 원인 코드 | `no_mouth_movement` (발화 없음 계열) |
+| 적합 구간 | 없음 (0.0초) |
+| 제외 구간 | 0.0~10.433초 `no_mouth_movement` |
+| 입 벌림 표본 | 157개 모두 측정됨. 중앙값 0.006, 최댓값 0.127, 반전 1번 |
+| 실행 시간 | 약 2.3초 (`scripts/run_gate.py`, 1회) |
+
+webrtcvad 민감도 0·1·2·3 어느 것으로도 결과는 같다(전체가 음성 구간 하나로 묶이고 `no_mouth_movement`).
+
+### webrtcvad 민감도 비교 (샘플 영상의 오디오, 30ms 프레임 348개)
+
+| 민감도 | 음성으로 판정한 프레임 | 비율 |
+|---|---|---|
+| 0 | 344 | 0.99 |
+| 1 | 328 | 0.94 |
+| 2 (지금 값) | 282 | 0.81 |
+| 3 | 282 | 0.81 |
+
+민감도를 올려도 이 오디오는 걸러지지 않는다.
+
+### torch 없는 VAD 후보 비교
+
+`research/gate/compare_vad.py`를 `research/gate/.venv`에서 실행했다(conda `trinity`에는 아무것도 설치하지 않았다). 결과 파일은 `data/research/gate-vad/compare_vad.json`(Git 제외).
+
+- 입력: ① 샘플 영상의 오디오(발화 없음), ② macOS `say`로 만든 **합성 음성**(한국어 Eddy, 영어 Samantha), ③ ②에 ①을 SNR 20·10·0 dB로 섞은 것.
+- ②·③의 기준(어느 30ms가 음성인가)은 깨끗한 합성 음성의 에너지로 정했다(최대 프레임 대비 -40 dB 이상).
+- 표의 값: ①은 음성으로 판정한 비율(낮을수록 좋다). ②·③은 `재현율 / 오경보율`(음성 프레임 중 잡은 비율 / 비음성 프레임 중 음성이라 한 비율).
+
+| 입력 | webrtcvad 0 | 1 | 2 | 3 | 에너지 기준선 | Silero VAD v6.0 (ONNX) | YAMNet "Speech" |
+|---|---|---|---|---|---|---|---|
+| ① 샘플 오디오 | 0.99 | 0.94 | 0.81 | 0.81 | 1.00 | 0.74 | 0.91 |
+| 한국어 깨끗함 | 1.00 / 0.30 | 1.00 / 0.30 | 1.00 / 0.24 | 0.99 / 0.22 | 0.94 / 0.00 | 0.96 / 0.09 | 1.00 / 0.61 |
+| 한국어 SNR 20 | 1.00 / 0.35 | 0.99 / 0.32 | 0.98 / 0.23 | 0.94 / 0.21 | 1.00 / 0.89 | 0.95 / 0.11 | 1.00 / 0.98 |
+| 한국어 SNR 10 | 1.00 / 0.99 | 1.00 / 0.93 | 1.00 / 0.86 | 0.98 / 0.84 | 1.00 / 1.00 | 0.96 / 0.22 | 1.00 / 0.80 |
+| 한국어 SNR 0 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 0.98 / 0.82 | 0.90 / 0.49 |
+| 영어 깨끗함 | 1.00 / 0.39 | 1.00 / 0.39 | 1.00 / 0.26 | 0.99 / 0.18 | 1.00 / 0.00 | 0.97 / 0.07 | 1.00 / 0.62 |
+| 영어 SNR 20 | 1.00 / 0.57 | 1.00 / 0.43 | 1.00 / 0.31 | 0.99 / 0.28 | 1.00 / 1.00 | 0.98 / 0.10 | 1.00 / 0.98 |
+| 영어 SNR 10 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 0.98 / 0.13 | 1.00 / 0.98 |
+| 영어 SNR 0 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 0.98 / 0.52 | 0.57 / 0.24 |
+
+후보: webrtcvad(지금 쓰는 것), Silero VAD v6.0의 ONNX 모델을 `onnxruntime` 1.32.0으로 직접 실행(파이썬 패키지 `silero-vad`는 torch가 필요해 쓰지 않았다), MediaPipe Audio Classifier의 YAMNet "Speech" 점수(이미 설치된 mediapipe로 실행, 약 1초 창이라 시간 해상도가 낮다. 임계값 0.3은 임의로 정했다), 에너지 기준선(-45 dBFS). TEN VAD는 실행하지 않았다(이용 조건 확인 필요).
+
+읽는 법과 한계:
+
+- **서로 다른 세 방식이 모두 샘플 오디오 대부분을 음성으로 판정했다.** YAMNet의 창별 "Speech" 점수는 앞 5초에서 0.67~0.85, 평균 0.55이고 다음 순위(Music 0.04)와 차이가 크다. 이 오디오에 **사람 목소리(화면 밖이나 주변 사람)가 실제로 들어 있을 가능성**이 있다. 들어 보고 확인하지 않았다(**확인 필요**, 저장소 소유자). 그렇다면 VAD의 오판이 아니고, 어떤 VAD로 바꿔도 이 영상은 걸러지지 않는다. 걸러 내는 것은 입 움직임 확인이다.
+- 같은 이유로 ③의 "소음"에는 음성처럼 들리는 소리가 섞여 있을 수 있다. ③의 오경보율은 그만큼 부풀려졌을 수 있다.
+- 합성 음성은 실제 발화가 아니다. 녹음은 하나, 목소리는 둘이다. **이 표로 VAD의 정확도를 주장하지 않는다.**
+- 이 표 안에서는 Silero VAD가 섞은 조건의 오경보율이 가장 낮았다(SNR 10 dB 이상에서 0.10~0.22, webrtcvad는 0.21~1.00). 재현율은 0.95 이상으로 비슷했다.
+
+결정:
+
+- **VAD는 webrtcvad 민감도 2 그대로 둔다.** 바꿔도 샘플 문제는 풀리지 않고, 실제 발화 영상이 없어 재현율을 확인할 수 없다.
+- Silero VAD(ONNX)는 교체 후보로 남긴다. 서버 환경에 `onnxruntime`과 모델 파일이 추가로 필요하다. 이용 조건은 **확인 필요**. 실제 발화 영상으로 다시 비교한 뒤 정한다.
+
+### 받은 모델 파일 (공식 출처, 2026-11-15)
+
+| 파일 | 출처 | sha256 | 용도 |
+|---|---|---|---|
+| `data/models/gate/face_landmarker.task` | `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task` | `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff` | Gate (해시는 `configs/gate_models.json`, 다르면 실행 거부) |
+| `data/research/gate-vad/silero_vad_v6.0.onnx` | `https://github.com/snakers4/silero-vad/raw/v6.0/src/silero_vad/data/silero_vad.onnx` | `597d30b3ec076608d059477bb14cfeffdf951bf5cae370d38f65d33bbfe82004` | VAD 비교만 |
+| `data/research/gate-vad/yamnet.tflite` | `https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite` | `4d8b4a53282dc83ef04e3e7dbc4fbc98082e34e44ed798e16c3a0cdd4c584faf` | VAD 비교만 |
+
+세 파일 모두 Git 밖에 있다. 이용 조건은 **확인 필요**(이번에 확인하지 않았다).
+
+### 검증하지 않은 것 (이번 보완)
+
+- **말하는 영상**: 한 사람이 화면을 보고 말하는 영상에서 적합 구간이 나오는지. 허가 영상을 `data/research/samples/speaking/`에 넣으면 `tests/test_gate_media.py`의 `test_speaking_video_has_eligible_segment`가 돈다. 지금은 건너뛴다.
+- 입 움직임 임계값 전부(반전 폭 0.02, 반전 3번, 간격 0.75초). 근거는 샘플 영상의 닫힌 입 잡음 수준(중앙값 0.006)과 합성 시계열뿐이다. 작게 말하는 사람, 옆얼굴, 마스크, 낮은 프레임률, 빠르게 한두 마디만 하는 경우에 발화를 놓칠 수 있다.
+- 말하지 않고 입만 움직이는 경우(씹기, 웃음)에 음성으로 판정된 소리가 겹치면 발화로 잘못 인정할 수 있다.
+- 화면 밖 목소리와 보이는 사람의 입 움직임이 우연히 겹치는 경우. 음성과 입 움직임의 시간 대응(동기)은 보지 않는다. 그것은 SyncNet(백로그 11번)의 일이다.
+- 긴 영상에서의 실행 시간(특징점 검출은 음성 구간에서 초당 15장).
+
+## 알려진 문제 (2026-11-12, 저장소 소유자 확인) — 위 보완으로 수정함
 
 - 샘플 영상은 실제로 **발화가 없다**(야외, 주변 소음). 그런데 VAD가 대부분을 음성으로 판정했다(30ms 프레임 348개 중 282개).
 - 따라서 단일 발화 테스트의 기대값이 틀렸을 수 있다. `tests/test_gate_media.py`의 `test_single_speaker_video_has_eligible_segment`는 이 영상에 적합 구간이 있다고 기대하지만, 발화가 없는 영상이라면 적합 구간이 없어야 맞다.
 - 입 움직임 확인 추가와 VAD 비교가 필요하다.
 - 발화가 있는 영상은 아직 없다.
 - 영향을 받는 서술: 아래 "실행 결과"의 "원본 (단일 발화)" 행과 적합 구간 0~10.433초, README §14.1 6번 행의 "단일 발화 ... 확인". 실제로 확인된 것은 "소음을 음성으로 판정한 구간에 얼굴이 하나 있으면 적합 구간으로 낸다"는 동작뿐이다. 오디오 제거본·검은 화면본·무음 오디오본의 원인 코드 분리는 이 문제와 무관하다.
-- **Gate 수정은 미뤘다. 코드는 그대로다. 이 브랜치(`feat/gate-speech-segments`)는 `main`에 합치지 않는다.**
+- (2026-11-12 당시) Gate 수정은 미뤘다. 2026-11-15에 새 브랜치 `feat/gate-mouth-motion`에서 위와 같이 고쳤다. 아래 본문의 "원본 (단일 발화)" 서술은 당시 기록이며 표에 정정을 달았다.
 
 ## 하는 일
 
@@ -116,7 +207,7 @@ README §10에 추가했다.
 
 | 입력 | 만드는 방법 | 대표 원인 코드 | 적합 구간 |
 |---|---|---|---|
-| 원본 (단일 발화) | — | 없음 (`null`) | 0.0~10.433초 1개 |
+| 원본 (**발화 없음**. 2026-11-12에는 "단일 발화"로 잘못 적었다) | — | `no_mouth_movement` (2026-11-15부터. 그 전에는 `null`) | 없음 (그 전에는 0.0~10.433초 1개로 잘못 나왔다) |
 | 오디오 제거본 | `-c:v copy -an` | `audio_missing` | 없음 |
 | 검은 화면본 | `drawbox` 검은색 채움, `libx264` | `no_face_detected` | 없음 |
 | 무음 오디오본 | `anullsrc` 무음 트랙으로 교체 | `no_speech_detected` | 없음 |
@@ -144,11 +235,13 @@ README §10에 추가했다.
 conda activate trinity
 pip install -r requirements-gate.txt          # torch 없음. research/gate/requirements.lock.txt와 같은 버전
 
-# 얼굴 검출 모델 (Git 제외 경로)
+# 얼굴 검출·얼굴 특징점 모델 (Git 제외 경로)
 mkdir -p data/models/gate
+curl -fL -o data/models/gate/face_landmarker.task \
+  https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 curl -fL -o data/models/gate/blaze_face_short_range.tflite \
   https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite
-shasum -a 256 data/models/gate/blaze_face_short_range.tflite   # configs/gate_models.json의 값과 같아야 한다
+shasum -a 256 data/models/gate/blaze_face_short_range.tflite data/models/gate/face_landmarker.task   # configs/gate_models.json의 값과 같아야 한다
 
 python scripts/run_gate.py data/research/samples/<허가 영상>.mp4
 pytest -q
@@ -157,3 +250,13 @@ pytest -q
 URL이 `latest`를 가리키므로 나중에 받은 파일은 해시가 다를 수 있다. 그 경우 Gate가 실행을 거부한다. 새 파일을 확인한 뒤 `configs/gate_models.json`을 갱신한다.
 
 샘플 영상, Gate 의존성, 모델 파일, ffmpeg 중 하나라도 없으면 `tests/test_gate_media.py`는 건너뛴다(`pytest -q -rs`로 사유 확인). `tests/test_gate_segments.py`는 항상 실행된다.
+
+VAD 비교를 다시 하려면(연구용, 서버 환경과 별개):
+
+```bash
+research/gate/.venv/bin/pip install -r research/gate/requirements.lock.txt -r research/gate/requirements-compare.txt
+# 모델 두 개를 data/research/gate-vad/ 에 받는다(출처와 sha256은 위 "받은 모델 파일" 표)
+research/gate/.venv/bin/python research/gate/compare_vad.py \
+  --noise data/research/samples/<발화 없는 허가 영상>.mp4 --work data/research/gate-vad
+```
+

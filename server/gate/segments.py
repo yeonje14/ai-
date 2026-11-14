@@ -1,6 +1,7 @@
 """발화 구간 규칙. 순수 함수이며 표준 라이브러리만 쓴다.
 
-1차 규칙: 음성 구간 동안 주된 얼굴이 정확히 하나일 때만 발화 구간으로 인정한다.
+1차 규칙: 음성 구간 동안 주된 얼굴이 정확히 하나이고, 그 얼굴의 입이 움직일 때만 발화 구간으로 인정한다.
+음성으로 판정된 소리만 있고 입 움직임이 없으면 no_mouth_movement로 제외한다(소음, 화면 밖 목소리).
 주된 얼굴이 둘 이상이면 speaker_unconfirmed로 보류한다(발화자 선택은 백로그 11번).
 """
 
@@ -15,6 +16,7 @@ from server.gate.types import (
     FACE_TOO_SMALL,
     LOW_RESOLUTION,
     NO_FACE_DETECTED,
+    NO_MOUTH_MOVEMENT,
     NO_SPEECH_DETECTED,
     SEGMENT_TOO_SHORT,
     SPEAKER_UNCONFIRMED,
@@ -68,10 +70,14 @@ def build_result(
     speech: Optional[Sequence[Interval]],
     frames: Sequence[FrameFaces],
     config: GateConfig = GateConfig(),
+    mouth_active: Optional[Sequence[Interval]] = None,
+    mouth_summary: Optional[dict] = None,
 ) -> GateResult:
     """음성 구간과 (track_id가 붙은) 얼굴 표본으로 적합·제외 구간을 만든다.
 
     speech가 None이면 오디오 스트림이 없다는 뜻이다.
+    mouth_active는 입을 여닫는 움직임이 반복된 구간이다. None이면 입 움직임을 재지 않은 것이고
+    음성과 얼굴만으로 판단한다(단위 테스트용. run_gate는 항상 잰다).
     """
     duration = media.duration_sec
     if speech is None:
@@ -91,8 +97,17 @@ def build_result(
 
     for a, b in speech:
         for start, end, state, faces in _runs_in_interval(a, b, frames, main_min_h, config):
-            seg = _judge(start, end, state, faces, short_side, config)
-            (eligible if seg.reason_code is None else excluded).append(seg)
+            single_face = state not in (_NONE, _MULTI, "short")
+            if mouth_active is None or not single_face:
+                pieces = [(start, end, True)]
+            else:
+                pieces = _split_by_activity(start, end, mouth_active)
+            for p_start, p_end, moving in pieces:
+                if moving:
+                    seg = _judge(p_start, p_end, state, faces, short_side, config)
+                else:
+                    seg = Segment(_r(p_start), _r(p_end), NO_MOUTH_MOVEMENT)
+                (eligible if seg.reason_code is None else excluded).append(seg)
 
     excluded.sort(key=lambda s: s.start_sec)
     reason = None if eligible else _dominant_reason(excluded)
@@ -102,7 +117,28 @@ def build_result(
         eligible_segments=tuple(eligible),
         excluded_segments=tuple(excluded),
         speech_segments=tuple((_r(a), _r(b)) for a, b in speech),
+        mouth_active_segments=None if mouth_active is None else tuple(
+            (_r(a), _r(b)) for a, b in mouth_active
+        ),
+        mouth_summary=mouth_summary,
     )
+
+
+def _split_by_activity(start: float, end: float, active: Sequence[Interval]):
+    """[start, end]를 입이 움직인 조각(True)과 움직이지 않은 조각(False)으로 나눈다."""
+    pieces = []
+    cursor = start
+    for a, b in sorted(active):
+        a, b = max(a, start), min(b, end)
+        if b - a <= 1e-6:
+            continue
+        if a - cursor > 1e-6:
+            pieces.append((cursor, a, False))
+        pieces.append((max(a, cursor), b, True))
+        cursor = max(cursor, b)
+    if end - cursor > 1e-6:
+        pieces.append((cursor, end, False))
+    return pieces
 
 
 def _runs_in_interval(a, b, frames, main_min_h, config):

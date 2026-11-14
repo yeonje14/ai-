@@ -18,18 +18,27 @@ class GateSetupError(RuntimeError):
     """모델 파일이 없거나 해시가 다르다. 미디어의 문제가 아니다."""
 
 
-def resolve_face_model(model_dir: Path, models_config_path: Path) -> Path:
+def resolve_model(model_dir: Path, models_config_path: Path, key: str) -> Path:
     """configs/gate_models.json의 해시와 일치하는 모델 파일 경로를 돌려준다."""
     try:
-        entry = json.loads(Path(models_config_path).read_text(encoding="utf-8"))["face_detector"]
-    except (OSError, ValueError, KeyError) as exc:
-        raise GateSetupError("gate 모델 설정을 읽을 수 없다") from exc
-    path = Path(model_dir) / entry["file"]
+        entry = json.loads(Path(models_config_path).read_text(encoding="utf-8"))[key]
+        name, sha256 = entry["file"], entry["sha256"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise GateSetupError(f"gate 모델 설정을 읽을 수 없다: {key}") from exc
+    path = Path(model_dir) / name
     if not path.is_file():
-        raise GateSetupError(f"얼굴 검출 모델 파일이 없다: {path} (docs/gate.md 참고)")
-    if hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
-        raise GateSetupError("얼굴 검출 모델 파일의 sha256이 설정과 다르다")
+        raise GateSetupError(f"gate 모델 파일이 없다: {path} (docs/gate.md 참고)")
+    if hashlib.sha256(path.read_bytes()).hexdigest() != sha256:
+        raise GateSetupError(f"gate 모델 파일의 sha256이 설정과 다르다: {key}")
     return path
+
+
+def resolve_face_model(model_dir: Path, models_config_path: Path) -> Path:
+    return resolve_model(model_dir, models_config_path, "face_detector")
+
+
+def resolve_landmark_model(model_dir: Path, models_config_path: Path) -> Path:
+    return resolve_model(model_dir, models_config_path, "face_landmarker")
 
 
 def detect_faces(
