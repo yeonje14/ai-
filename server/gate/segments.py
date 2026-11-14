@@ -109,6 +109,10 @@ def build_result(
                     seg = Segment(_r(p_start), _r(p_end), NO_MOUTH_MOVEMENT)
                 (eligible if seg.reason_code is None else excluded).append(seg)
 
+    # 얼굴/입 움직임의 경계가 1ms 미만으로 어긋나면 반올림 뒤 빈 조각이 생길 수 있다.
+    # 내부 실행 결과도 유효한 반열린 구간만 전달한다.
+    eligible = [s for s in eligible if s.start_sec < s.end_sec]
+    excluded = [s for s in excluded if s.start_sec < s.end_sec]
     excluded.sort(key=lambda s: s.start_sec)
     reason = None if eligible else _dominant_reason(excluded)
     return GateResult(

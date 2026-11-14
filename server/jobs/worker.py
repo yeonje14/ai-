@@ -23,6 +23,9 @@ from typing import Any, Callable
 from server import fusion
 from server.axes import AxisContext, alignment, physics, signal as signal_axis
 from server.config import Settings
+from server.gate import report as gate_report
+from server.gate.runner import run_gate_process
+from server.gate.types import GateResult
 from server.ingest.media_resolver import AuthorizedMediaRegistry
 from server.ingest.youtube_url import is_valid_video_id
 from server.jobs.queue import LEASE_CANCEL, LEASE_LOST, Job, JobQueue
@@ -80,22 +83,33 @@ def build_coverage(
     media_info: dict[str, Any],
     segments: tuple[tuple[float, float], ...],
     signal_completed: bool,
+    gate: GateResult | None = None,
 ) -> dict[str, Any]:
     """분석한 양만 적는다(정확도·신뢰도가 아니다). 알 수 없는 값은 null이다.
 
-    Gate가 없으므로 적합 구간(eligible_*)은 알 수 없다. 분석한 구간은 signal 축이
-    실제로 끝낸 구간을 영상 길이에 맞춰 자르고 겹친 부분을 합친 것이다.
+    Gate는 원본/적합 길이를 제공한다. analyzed_*는 signal 축이 성공한 경우만
+    채우며, 디코딩한 길이를 넘지 않도록 자르고 겹친 구간을 합친다.
+    개발용 수동 구간에서는 적합 구간(eligible_*)을 알 수 없다.
     """
     coverage = _empty_coverage()
     fps, frame_count = media_info.get("fps"), media_info.get("frame_count")
-    if not (isinstance(fps, (int, float)) and isinstance(frame_count, int) and fps > 0 and frame_count > 0):
+    decoded_duration = None
+    if isinstance(fps, (int, float)) and isinstance(frame_count, int) and fps > 0 and frame_count > 0:
+        decoded_duration = frame_count / fps
+    if gate is not None:
+        coverage.update(gate.coverage())
+        coverage["analyzed_segments"] = []
+        duration = gate.media.duration_sec if gate.media else None
+    else:
+        duration = decoded_duration
+    if duration is None:
         return coverage
-    duration = frame_count / fps
     coverage["video_duration_sec"] = round(duration, 3)
     if not signal_completed:
         return coverage
     merged: list[list[float]] = []
-    for start, end in sorted((s, min(e, duration)) for s, e in segments if s < duration):
+    analyzed_end = min(duration, decoded_duration) if decoded_duration is not None else duration
+    for start, end in sorted((s, min(e, analyzed_end)) for s, e in segments if s < analyzed_end):
         if merged and start <= merged[-1][1]:
             merged[-1][1] = max(merged[-1][1], end)
         else:
@@ -106,6 +120,9 @@ def build_coverage(
     ]
     coverage["analyzed_duration_sec"] = round(analyzed, 3)
     coverage["full_video_coverage"] = round(analyzed / duration, 4)
+    eligible = coverage["eligible_duration_sec"]
+    if eligible is not None and eligible > 0:
+        coverage["eligible_coverage"] = round(analyzed / eligible, 4)
     return coverage
 
 
@@ -189,6 +206,25 @@ def build_result(
         "coverage": coverage if coverage is not None else _empty_coverage(),
         "axes": axes,
         "explanations": explanations,
+    }
+
+
+def build_gate_rejection(job: Job, provenance: str, gate: GateResult) -> dict[str, Any]:
+    reason = gate.reason_code
+    analysis, verdict = gate_report.REJECTION_STATES[reason]
+    error = reason in {"gate_error", "gate_timeout"}
+    return {
+        "analysis_id": job.analysis_id, "youtube_video_id": job.youtube_video_id,
+        "job_status": "finished", "analysis_status": analysis, "verdict_status": verdict,
+        "verdict_label": None, "overall_score": None,
+        "abstention_reason": None if verdict == "not_applicable" else (
+            "speaker_unconfirmed" if reason == "speaker_unconfirmed" else "insufficient_evidence"
+        ),
+        "reason_code": reason, "media_provenance": provenance, "gate_bypassed": False,
+        "coverage": build_coverage({}, (), False, gate),
+        "axes": {name: _axis_not_run(name, reason, "error" if error else "insufficient_input")
+                 for _, name, _ in AXES},
+        "explanations": gate_report.explanations(gate),
     }
 
 
@@ -279,13 +315,27 @@ def process(
         job_dir.mkdir(parents=True, exist_ok=True)
         media_path = job_dir / f"media{media.local_path.suffix.lower()}"
         shutil.copyfile(media.local_path, media_path)
-        completed.append("preprocessing")
-
-        # Gate는 아직 연결하지 않았다. 개발 전용 수동 구간이 켜져 있을 때만 구간이 있다.
         segments = settings.dev_manual_segments
         gate_bypassed = bool(segments)
+        gate = None
         if gate_bypassed:
             log.warning("job %s gate bypassed by dev manual segments", job.analysis_id)
+        else:
+            try:
+                gate = run_gate_process(
+                    media_path, job_dir, settings=settings,
+                    timeout_seconds=max(deadline - time.monotonic(), 0.0), on_tick=heartbeat,
+                )
+            except Exception:
+                # Gate 내부 실패는 작업 전체를 실패시키거나 내용을 로그에 노출하지 않는다.
+                gate = GateResult(None, "gate_error")
+            if interrupted:
+                raise interrupted[0]
+            segments = tuple((s.start_sec, s.end_sec) for s in gate.eligible_segments)
+        completed.append("preprocessing")
+        if gate is not None and not segments:
+            finalize(build_gate_rejection(job, media.provenance, gate))
+            return
 
         ctx = AxisContext(
             job_dir=job_dir,
@@ -309,9 +359,12 @@ def process(
         completed.append("fusion")
 
         coverage = build_coverage(
-            ctx.media_info, segments, axes["signal"]["status"] == "completed"
+            ctx.media_info, segments, axes["signal"]["status"] == "completed", gate
         )
-        finalize(build_result(job, media.provenance, axes, fused, coverage, gate_bypassed))
+        result = build_result(job, media.provenance, axes, fused, coverage, gate_bypassed)
+        if gate is not None:
+            result["explanations"].extend(gate_report.explanations(gate))
+        finalize(result)
     except _LeaseLost:
         log.warning("job %s lease lost; abandoning", job.analysis_id)
     except _Cancelled:

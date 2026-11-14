@@ -69,6 +69,7 @@ class Settings:
     # Gate 모델 파일은 Git 밖에 둔다. 해시는 configs/gate_models.json과 대조한다.
     gate_model_dir: Path = Path("data/models/gate")
     gate_models_config_path: Path = Path("configs/gate_models.json")
+    gate_timeout_seconds: float = 120.0
     # README §8 초기값: 동시 분석 1건(큐가 강제), 대기 3건. 실측 후 조정한다.
     max_queued: int = 3
     lease_seconds: float = 30.0
@@ -95,6 +96,8 @@ class Settings:
     def __post_init__(self) -> None:
         parse_cors_origins(",".join(self.cors_origins))  # 코드로 넣은 값도 같은 규칙으로 본다
         parse_manual_segments(format_manual_segments(self.dev_manual_segments))
+        if not math.isfinite(self.gate_timeout_seconds) or self.gate_timeout_seconds <= 0:
+            raise ValueError("gate_timeout_seconds는 유한한 양수여야 한다")
         if not 0 < self.heartbeat_interval_seconds < self.lease_seconds:
             raise ValueError("heartbeat_interval_seconds는 0보다 크고 lease_seconds보다 짧아야 한다")
 
@@ -112,6 +115,7 @@ class Settings:
             gate_models_config_path=Path(
                 env("TRINITY_GATE_MODELS_CONFIG", str(d.gate_models_config_path))
             ),
+            gate_timeout_seconds=float(env("TRINITY_GATE_TIMEOUT_SECONDS", d.gate_timeout_seconds)),
             max_queued=int(env("TRINITY_MAX_QUEUED", d.max_queued)),
             lease_seconds=float(env("TRINITY_LEASE_SECONDS", d.lease_seconds)),
             max_attempts=int(env("TRINITY_MAX_ATTEMPTS", d.max_attempts)),

@@ -52,14 +52,16 @@ class ResultScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final tone = tones[kind]!;
-    final code = result.abstentionReason ?? result.reasonCode;
+    final code = result.reasonCode ?? result.abstentionReason;
+    final accessProblem = code == 'access_not_authorized' || code == 'video_access_unavailable';
+    final analysisFailed = kind == ScreenKind.unavailable && !accessProblem;
     final (headline, explanation, reasonTitle, reasonBody) = switch (kind) {
       ScreenKind.suspicious => ('AI 조작 의심 신호가\n발견됐어요.', suspiciousDisclaimer, null, null),
       ScreenKind.low => ('분석한 구간에서\n의심 신호가 낮았어요.', lowDisclaimer, null, null),
       ScreenKind.unavailable => (
-          '이 영상은\n분석하지 않았어요.',
-          '영상을 보지 않았으므로 $noJudgement',
-          '분석하지 않은 이유',
+          analysisFailed ? '영상 분석을\n마치지 못했어요.' : '이 영상은\n분석하지 않았어요.',
+          analysisFailed ? noJudgement : '영상을 보지 않았으므로 $noJudgement',
+          analysisFailed ? '분석하지 못한 이유' : '분석하지 않은 이유',
           reasonText(code) ?? noReason,
         ),
       ScreenKind.outOfScope => (
@@ -80,7 +82,7 @@ class ResultScreen extends StatelessWidget {
     final main = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        StatusLabel(text: labels[kind]!, tone: tone),
+        StatusLabel(text: analysisFailed ? '분석하지 못함' : labels[kind]!, tone: tone),
         const SizedBox(height: TSpace.x3),
         Semantics(header: true, child: Text(headline, style: TText.display.copyWith(color: p.ink))),
         const SizedBox(height: TSpace.x3),
@@ -97,7 +99,7 @@ class ResultScreen extends StatelessWidget {
             const SizedBox(height: TSpace.x3),
             Text(e.message, style: TText.body.copyWith(color: p.ink)),
           ],
-        if (kind == ScreenKind.unavailable) ...[
+        if (kind == ScreenKind.unavailable && accessProblem) ...[
           const SizedBox(height: TSpace.x3),
           Text(
             'TRINITY는 분석이 허가된 영상만 다룹니다. 주소가 올바르게 접수된 것과 영상을 분석한 것은 달라요.',
@@ -113,7 +115,8 @@ class ResultScreen extends StatelessWidget {
     final summary = _StatusSummary(
       job: jobStatusText[result.jobStatus]!,
       analysis: result.analysisStatus == null ? '값 없음' : analysisStatusLabel[result.analysisStatus]!,
-      verdict: verdictText(kind),
+      verdict: kind == ScreenKind.outOfScope && result.verdictStatus == VerdictStatus.abstained
+          ? '보류' : verdictText(kind),
     );
 
     return TrinityScaffold(

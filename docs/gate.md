@@ -122,7 +122,7 @@ webrtcvad 민감도 0·1·2·3 어느 것으로도 결과는 같다(전체가 �
 3. **얼굴 검출** (`server/gate/faces.py`): MediaPipe Face Detector를 초당 약 5프레임에 돌린다. 박스·점수·선명도 숫자만 남기고, 프레임과 얼굴 crop은 저장하지 않는다.
 4. **추적과 규칙** (`server/gate/segments.py`): 표본 사이에서 박스 겹침(IoU)으로 같은 얼굴을 잇고, 아래 규칙으로 구간을 나눈다. 순수 함수다.
 
-Worker에는 연결하지 않았다(백로그 7번). API 서버는 Gate 의존성을 import하지 않는다(테스트로 확인).
+2026-11-15에 Worker의 `preprocessing`에 연결했다(백로그 7번). API 서버는 Gate 의존성을 import하지 않는다(테스트로 확인).
 
 ## 1차 규칙
 
@@ -141,6 +141,7 @@ README §10에 추가했다.
 | 파일이 없거나, 읽을 수 없거나, 영상 스트림이 없음 | `media_unreadable` |
 | 오디오 스트림 없음 | `audio_missing` |
 | 오디오는 있으나 음성 구간 없음 (말하지 않는 구간) | `no_speech_detected` |
+| 음성 구간에서 반복되는 입 움직임을 확인하지 못함 | `no_mouth_movement` |
 | 음성 구간에 주된 얼굴 없음 | `no_face_detected` |
 | 음성 구간에 주된 얼굴 둘 이상 | `speaker_unconfirmed` |
 | 프레임 짧은 변이 기준 미만 | `low_resolution` |
@@ -149,7 +150,7 @@ README §10에 추가했다.
 | 구간 길이가 기준 미만 | `segment_too_short` |
 
 대표 원인 코드는 음성 구간을 가장 길게 막은 원인이다. 음성이 아예 없으면 `no_speech_detected`다.
-이 코드들을 `analysis_status`(`out_of_scope`, `insufficient_quality` 등)에 어떻게 대응시킬지는 정하지 않았다. Worker에 연결할 때(백로그 7번) 정한다.
+원인별 `analysis_status`·`verdict_status` 대응은 README §15.3 결정 8 보완(2026-11-15 사용자 승인)을 따른다.
 
 ## coverage
 
@@ -159,7 +160,7 @@ README §10에 추가했다.
 | `eligible_duration_sec` | 적합 구간 길이의 합 |
 | `analyzed_duration_sec`, `full_video_coverage`, `eligible_coverage`, `analyzed_segments` | `null` |
 
-뒤의 네 필드는 실제로 추론한 양이다. Gate는 추론하지 않으므로 `0`이 아니라 `null`로 둔다. 백로그 7번에서 채운다.
+뒤의 네 필드는 실제로 추론한 양이다. Gate 자체는 `null`로 두고, Worker가 WaveRep 성공 후 채운다. 미실행·실패의 분석 길이와 비율은 `null`, 분석 구간 목록은 `[]`이다. 적합 구간이 없음을 확인한 경우 적합 길이는 `0`이다. 숫자 0인 점수와 혼동하지 않는다.
 `coverage`는 분석할 수 있는 양일 뿐이고 정확도나 신뢰도가 아니다.
 
 ## 임시 임계값 (`GateConfig`, 전부 미검증)
@@ -260,3 +261,45 @@ research/gate/.venv/bin/python research/gate/compare_vad.py \
   --noise data/research/samples/<발화 없는 허가 영상>.mp4 --work data/research/gate-vad
 ```
 
+
+## Worker 연결 (2026-11-15)
+
+- 실행 환경: conda `trinity` Python 3.11.18. mediapipe 1.2.3,
+  webrtcvad-wheels 2.0.14.post1, opencv-contrib-python 5.0.0.93, numpy 2.4.6.
+  연결 전·실제 실행 시 torch가 없는 것을 확인했다. 패키지를 추가하거나 바꾸지 않았다.
+  `research/gate/.venv`는 VAD 비교용, `research/waverep/.venv`는 WaveRep 추론용으로 유지한다.
+- `server/gate/runner.py`는 같은 Python으로 `server.gate.process`를 실행한다.
+  명령은 인자 리스트이고 작업 폴더의 요청 JSON 경로만 넘긴다. 미디어는 서버가 복사한 작업 폴더 안 파일이다.
+- 자식 프로세스는 기존 `run_gate`를 그대로 실행한다. 결과 형식·원인·구간 범위를 검사하고,
+  깨진 출력·비정상 종료·설정/의존성 오류는 `gate_error`, 전체 Gate 제한시간 초과는 `gate_timeout`이다.
+- `TRINITY_GATE_TIMEOUT_SECONDS` 기본 120초. Worker는 기다리는 동안 heartbeat를 보낸다.
+  취소·lease 상실·작업 제한시간에는 Gate와 같은 프로세스 그룹의 FFmpeg까지 종료한다.
+  내부 요청·결과 JSON과 미디어 복사본은 끝나면 삭제한다. stderr는 결과/로그에 남기지 않는다.
+- 적합 구간이 없으면 `waverep`·`motionphys`·`syncnet`·`fusion` 단계를 완료 목록에 넣지 않는다.
+  `finalizing`으로 가서 대표 원인 코드와 승인된 분석·판정 상태를 기록한다.
+- API 필드 변경 없음. 적합·제외 구간의 시각, 제외 원인과 품질(있는 경우)은
+  기존 `explanations`의 `GATE_ELIGIBLE_SEGMENT` / `GATE_EXCLUDED_SEGMENT`에 담는다.
+  해상도·fps·길이는 `GATE_MEDIA`, 미검증 고지는 `GATE_UNVALIDATED`에 기록한다.
+  품질은 얼굴 높이/비율/선명도 중앙값, 영상 짧은 변, 표본 프레임 수다.
+- `coverage.video_duration_sec`는 ffprobe 길이, `eligible_duration_sec`는 Gate 적합 길이다.
+  WaveRep 성공 때만 분석 구간을 디코딩 길이로 자르고 합친 길이·비율을 채운다.
+  수동 우회에서는 적합 길이·적합 coverage가 `null`이다. coverage는 정확도가 아니다.
+- 수동 구간은 `TRINITY_DEV_MANUAL_SEGMENTS`를 명시한 개발·테스트에서만 Gate를 건너뛴다.
+  기본은 꺼짐이다. 우회한 결과는 `gate_bypassed=true`, `partial` / `abstained`다.
+
+실제 재현 명령:
+
+```bash
+conda activate trinity
+python scripts/smoke_gate_worker.py
+```
+
+기존 발화 없는 샘플(10.433초) 1회: `finished`, `out_of_scope`, `not_applicable`,
+`no_mouth_movement`, 적합 길이 0초, 분석 길이·비율 `null`, 분석 구간 `[]`.
+WaveRep 단계·logit 없음, `raw_score`·`overall_score=null`, 작업 폴더 삭제 확인.
+실행 약 2.79초. 스모크 전용 heartbeat 0.2초/lease 2초 설정에서 preprocessing의
+서로 다른 lease 만료 시각 13개를 관찰했다. 기본 heartbeat 10초보다 짧은 영상이므로
+이 설정은 실제 연장 관찰을 위한 것이다. 처리 속도나 정확도 평가가 아니다.
+
+말하는 영상의 Gate 통과 → 실제 WaveRep 실행은 **미검증**이다.
+가짜 Gate 적합 결과의 구간 전달과 기존 WaveRep 어댑터 테스트는 별도로 통과했다.

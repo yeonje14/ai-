@@ -50,6 +50,39 @@ Future<void> scrollToEnd(WidgetTester tester) async {
 }
 
 void main() {
+  for (final code in ['media_unreadable', 'gate_error', 'gate_timeout']) {
+    testWidgets('$code는 접근 불가가 아닌 분석하지 못함으로 안내한다', (tester) async {
+      final json = mockResultJson(MockScenario.unavailable, 'gate-failed');
+      json['reason_code'] = code;
+      json['abstention_reason'] = 'insufficient_evidence';
+      json['explanations'] = <dynamic>[];
+      final res = AnalysisResult.fromJson(json);
+      await pumpScreen(tester, ResultScreen(
+        kind: resolveScreen(res, allowVerdictLabels: false), result: res,
+        onShowDetail: noop, onRestart: noop,
+      ));
+      expect(find.text('분석하지 못함'), findsOneWidget);
+      expect(find.text('영상 접근 불가'), findsNothing);
+      expect(find.textContaining('영상을 보지 않았으므로'), findsNothing);
+      expect(find.textContaining('TRINITY는 분석이 허가된 영상만'), findsNothing);
+      expect(find.text(reasonText(code)!), findsOneWidget);
+      expect(find.textContaining(ResultScreen.noJudgement), findsOneWidget);
+    });
+  }
+  for (final status in ['unsupported', 'insufficient_quality']) {
+    testWidgets('$status의 abstained 판정 상태를 보류로 표시한다', (tester) async {
+      final json = mockResultJson(MockScenario.outOfScope, 'gate-rejected');
+      json['analysis_status'] = status;
+      json['verdict_status'] = 'abstained';
+      final res = AnalysisResult.fromJson(json);
+      await pumpScreen(tester, ResultScreen(
+        kind: resolveScreen(res, allowVerdictLabels: false), result: res,
+        onShowDetail: noop, onRestart: noop,
+      ));
+      expect(find.text('보류', skipOffstage: false), findsOneWidget);
+      expect(find.text('해당 없음', skipOffstage: false), findsNothing);
+    });
+  }
   group('모든 화면', () {
     screens().forEach((name, bare) {
       // 실제 앱처럼 상단 메뉴(영상 확인 / 이용 안내)가 있는 상태로 본다
