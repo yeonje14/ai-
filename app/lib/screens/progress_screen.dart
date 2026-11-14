@@ -24,25 +24,38 @@ class ProgressScreen extends StatelessWidget {
   final String? failureReasonCode;
   final VoidCallback onRestart;
 
+  static const notVerdict = '결과가 없습니다. 영상에 대한 판정이 아니에요.';
+
+  Widget _row(String stage, Set<String> done) => StageRow(
+        label: stageLabels[stage]!,
+        state: done.contains(stage)
+            ? StageState.done
+            : (stage == state.stage && state.jobStatus == JobStatus.processing ? StageState.current : StageState.pending),
+      );
+
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final job = state.jobStatus;
     final stopped = job == JobStatus.failed || job == JobStatus.cancelled;
     final (label, tone, headline, body) = switch (job) {
-      JobStatus.queued => ('대기 중', StatusTone.muted, '분석 순서를 기다리고 있습니다', '앞선 분석이 끝나면 시작합니다.'),
-      JobStatus.failed => ('분석 실패', StatusTone.warning, '분석을 끝내지 못했습니다', '결과가 없습니다. 영상에 대한 판정이 아닙니다.'),
-      JobStatus.cancelled => ('취소됨', StatusTone.muted, '분석이 취소됐습니다', '결과가 없습니다. 영상에 대한 판정이 아닙니다.'),
-      JobStatus.finished => ('작업 종료', StatusTone.muted, '결과를 불러오고 있습니다', '잠시만 기다려 주세요.'),
-      _ => ('분석 중', StatusTone.muted, '영상을 분석하고 있습니다', '단계가 끝날 때마다 아래 목록이 바뀝니다.'),
+      JobStatus.queued => ('대기 중', StatusTone.muted, '분석 순서를 기다리고 있어요.', '앞선 분석이 끝나면 시작합니다.'),
+      JobStatus.failed => ('분석 실패', StatusTone.warning, '분석을 끝내지 못했어요.', notVerdict),
+      JobStatus.cancelled => ('취소됨', StatusTone.muted, '분석이 취소됐어요.', notVerdict),
+      JobStatus.finished => ('작업 종료', StatusTone.muted, '결과를 불러오고 있어요.', '잠시만 기다려 주세요.'),
+      _ => ('분석 중', StatusTone.muted, '영상을 살펴보고 있어요.', '영상 접근을 확인한 뒤, 말하는 사람이 나오는 구간을 살펴봅니다.'),
     };
     final done = state.completedStages.toSet();
+    final half = (stageOrder.length / 2).ceil();
     return TrinityScaffold(
       children: [
+        const Overline('ANALYSIS IN PROGRESS'),
+        const SizedBox(height: TSpace.x2),
         StatusLabel(text: label, tone: tone),
         const SizedBox(height: TSpace.x3),
-        Semantics(header: true, liveRegion: true, child: Text(headline, style: TText.display)),
+        Semantics(header: true, liveRegion: true, child: Text(headline, style: TText.display.copyWith(color: p.ink))),
         const SizedBox(height: TSpace.x2),
-        Text(body, style: TText.body),
+        Text(body, style: TText.body.copyWith(color: p.muted)),
         if (stopped) ...[
           const SizedBox(height: TSpace.x3),
           InfoBox(
@@ -54,18 +67,22 @@ class ProgressScreen extends StatelessWidget {
         if (connectionLost && !stopped) ...[
           const SizedBox(height: TSpace.x3),
           const InfoBox(
-            title: '연결이 끊겼습니다',
+            title: '연결이 끊겼어요',
             body: '상태를 다시 확인하고 있습니다. 분석은 서버에서 계속됩니다.',
             tone: StatusTone.warning,
           ),
         ],
-        const SectionTitle('단계'),
-        for (final stage in stageOrder)
-          StageRow(
-            label: stageLabels[stage]!,
-            state: done.contains(stage)
-                ? StageState.done
-                : (stage == state.stage && job == JobStatus.processing ? StageState.current : StageState.pending),
+        const SizedBox(height: TSpace.x4),
+        if (isAppLayout(context))
+          for (final stage in stageOrder) _row(stage, done)
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: Column(children: [for (final s in stageOrder.take(half)) _row(s, done)])),
+              const SizedBox(width: TSpace.x5),
+              Expanded(child: Column(children: [for (final s in stageOrder.skip(half)) _row(s, done)])),
+            ],
           ),
         if (stopped) ...[
           const SizedBox(height: TSpace.x4),

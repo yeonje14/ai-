@@ -38,16 +38,45 @@ ScreenKind resolveScreen(AnalysisResult r, {required bool allowVerdictLabels}) {
   return ScreenKind.abstained;
 }
 
+/// 단계 이름. 서버의 여덟 단계와 1:1이다. 모델 이름 대신 하는 일을 적는다.
 const stageLabels = <String, String>{
   'validating': '주소 확인',
-  'access_check': '영상 접근 권한 확인',
-  'preprocessing': '발화 구간 준비',
-  'waverep': '신호 분석 (WaveRep)',
-  'motionphys': '움직임 분석 (MotionPhys)',
-  'syncnet': '입술·음성 동기화 측정 (SyncNet)',
-  'fusion': '결과 종합',
-  'finalizing': '마무리',
+  'access_check': '분석 권한 확인',
+  'preprocessing': '분석 구간 준비',
+  'waverep': '영상 신호 확인',
+  'motionphys': '움직임 확인',
+  'syncnet': '입술·음성 확인',
+  'fusion': '근거 종합',
+  'finalizing': '결과 정리',
 };
+
+/// "이번 요청의 상태"에 쓰는 말. 작업·분석·판정은 서로 다른 상태다.
+const jobStatusText = <JobStatus, String>{
+  JobStatus.queued: '대기',
+  JobStatus.processing: '진행 중',
+  JobStatus.finished: '종료',
+  JobStatus.failed: '실패',
+  JobStatus.cancelled: '취소',
+  JobStatus.unknown: '알 수 없음',
+};
+
+const analysisStatusLabel = <AnalysisStatus, String>{
+  AnalysisStatus.completed: '완료',
+  AnalysisStatus.partial: '부분 분석',
+  AnalysisStatus.outOfScope: '범위 밖',
+  AnalysisStatus.unsupported: '미지원',
+  AnalysisStatus.insufficientQuality: '품질 부족',
+  AnalysisStatus.analysisUnavailable: '분석 불가',
+  AnalysisStatus.unknown: '알 수 없음',
+};
+
+/// 화면이 보여 주는 판정 상태. 화면 종류에서 정하므로 요약의 라벨과 어긋나지 않는다.
+String verdictText(ScreenKind kind) => switch (kind) {
+      ScreenKind.suspicious || ScreenKind.low => '판정함',
+      ScreenKind.outOfScope => '해당 없음',
+      ScreenKind.jobFailed => '없음',
+      _ => '보류',
+    };
 
 const _reasonText = <String, String>{
   // 보류 원인 (README §10)
@@ -104,10 +133,16 @@ String formatDuration(double seconds) {
   return '$m분 $s초';
 }
 
+/// 초 → "4:32". 막대 끝의 시각 표시에 쓴다.
+String formatClock(double seconds) {
+  final total = seconds.floor();
+  return '${total ~/ 60}:${(total % 60).toString().padLeft(2, '0')}';
+}
+
 /// 분석 범위 문구. 값이 없으면 없다고 말한다.
 String coverageCaption(Coverage? c) {
   final total = c?.videoDurationSec, done = c?.analyzedDurationSec;
-  if (total == null || done == null) return '분석 범위 정보가 없습니다.';
+  if (total == null || done == null) return '분석한 구간이 기록되지 않았습니다.';
   return '영상 ${formatDuration(total)} 가운데 ${formatDuration(done)}를 분석했습니다.';
 }
 

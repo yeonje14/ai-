@@ -6,6 +6,7 @@ import 'package:trinity_app/api/models.dart';
 import 'package:trinity_app/app.dart';
 import 'package:trinity_app/config.dart';
 import 'package:trinity_app/screens/detail_screen.dart';
+import 'package:trinity_app/screens/guide_screen.dart';
 import 'package:trinity_app/screens/progress_screen.dart';
 import 'package:trinity_app/screens/result_screen.dart';
 
@@ -22,7 +23,11 @@ Future<void> start(WidgetTester tester, AnalysisApi api, {ApiMode mode = ApiMode
 Future<void> submit(WidgetTester tester, String text) async {
   await tester.enterText(find.byType(TextField), text);
   // 시나리오를 고르느라 내려간 화면을 맨 위로 되돌린다
-  await tester.drag(find.byType(SingleChildScrollView), const Offset(0, 5000));
+  await tester.drag(find.byType(SingleChildScrollView), const Offset(0, 8000));
+  await tester.pump();
+  await tester.ensureVisible(find.text('분석 요청'));
+  await tester.pump();
+  await tester.drag(find.byType(SingleChildScrollView), const Offset(0, 120));
   await tester.pump();
   await tester.tap(find.text('분석 요청'));
   await tester.pump();
@@ -61,7 +66,7 @@ class FlakyApi extends FakeServerApi {
 void main() {
   testWidgets('mock: 입력 → 분석 중 → 판단 보류 → 상세 → 요약 → 처음', (tester) async {
     await start(tester, MockAnalysisApi());
-    expect(find.text('가상 결과 고르기'), findsOneWidget);
+    expect(find.text('가상 결과 고르기', skipOffstage: false), findsOneWidget);
     await submit(tester, url);
     expect(find.byType(ProgressScreen), findsOneWidget);
     expect(find.text('대기 중'), findsOneWidget);
@@ -72,15 +77,15 @@ void main() {
     expect(find.byType(ResultScreen), findsOneWidget);
     expect(find.text('판단 보류'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('판단 근거 보기'));
-    await tester.tap(find.text('판단 근거 보기'));
+    await tester.ensureVisible(find.text('판단 근거 살펴보기', skipOffstage: false));
+    await tester.pump();
+    await tester.tap(find.text('판단 근거 살펴보기'));
     await tester.pump();
     expect(find.byType(DetailScreen), findsOneWidget);
-    await tester.tap(find.text('결과 요약으로 돌아가기').first);
+    await tester.tap(find.text('결과 요약으로'));
     await tester.pump();
     expect(find.byType(ResultScreen), findsOneWidget);
-    await tester.ensureVisible(find.text('다른 영상 분석'));
-    await tester.tap(find.text('다른 영상 분석'));
+    await tester.tap(find.text('새 영상 확인'));
     await tester.pump();
     expect(find.byType(TextField), findsOneWidget);
   });
@@ -96,14 +101,19 @@ void main() {
   outcomes.forEach((scenario, label) {
     testWidgets('mock ${scenario.name} → "$label"', (tester) async {
       await start(tester, MockAnalysisApi());
-      await tester.ensureVisible(find.text(scenario.label));
+      await tester.ensureVisible(find.text('가상 결과 고르기', skipOffstage: false));
+      await tester.pump();
+      await tester.tap(find.text('가상 결과 고르기'));
+      await tester.pump();
+      await tester.ensureVisible(find.text(scenario.label, skipOffstage: false));
+      await tester.pump();
       await tester.tap(find.text(scenario.label));
       await tester.pump();
       await submit(tester, url);
       await runToEnd(tester);
       expect(find.text(label), findsOneWidget);
       for (final other in outcomes.values.where((l) => l != label)) {
-        expect(find.text(other), findsNothing);
+        expect(find.text(other, skipOffstage: false), findsNothing);
       }
       expect(find.text('모델 미연결 · 가상 데이터'), findsOneWidget);
     });
@@ -112,7 +122,8 @@ void main() {
   for (final scenario in [MockScenario.suspicious, MockScenario.low]) {
     testWidgets('실제 서버 모드: ${scenario.name} 라벨이 와도 판단 보류로 보인다', (tester) async {
       await start(tester, FakeServerApi(scenario), mode: ApiMode.server);
-      expect(find.text('가상 결과 고르기'), findsNothing);
+      expect(find.text('가상 결과 고르기', skipOffstage: false), findsNothing);
+      expect(find.text('예시로 둘러보기', skipOffstage: false), findsNothing);
       await submit(tester, url);
       await runToEnd(tester);
       expect(find.text('판단 보류'), findsOneWidget);
@@ -134,9 +145,57 @@ void main() {
     await submit(tester, url);
     await tester.pump(tick);
     await tester.pump();
-    expect(find.text('연결이 끊겼습니다'), findsOneWidget);
+    expect(find.text('연결이 끊겼어요'), findsOneWidget);
     await runToEnd(tester);
-    expect(find.text('연결이 끊겼습니다'), findsNothing);
+    expect(find.text('연결이 끊겼어요'), findsNothing);
     expect(find.text('판단 보류'), findsOneWidget);
+  });
+
+  testWidgets('이용 안내는 어느 화면에서든 열리고, 닫으면 보던 화면으로 돌아온다', (tester) async {
+    await start(tester, MockAnalysisApi());
+    await tester.tap(find.text('이용 안내'));
+    await tester.pump();
+    expect(find.byType(GuideScreen), findsOneWidget);
+    expect(find.text('모델 미연결 · 가상 데이터'), findsOneWidget);
+    await tester.tap(find.text('영상 확인'));
+    await tester.pump();
+    expect(find.byType(TextField), findsOneWidget);
+
+    await submit(tester, url);
+    await runToEnd(tester);
+    expect(find.byType(ResultScreen), findsOneWidget);
+    await tester.tap(find.text('이용 안내'));
+    await tester.pump();
+    expect(find.byType(GuideScreen), findsOneWidget);
+    await tester.tap(find.text('영상 확인'));
+    await tester.pump();
+    expect(find.byType(ResultScreen), findsOneWidget); // 결과를 잃지 않는다
+    expect(find.text('판단 보류'), findsOneWidget);
+  });
+
+  testWidgets('mock: "예시로 둘러보기"는 고른 가상 결과로 끝까지 간다', (tester) async {
+    await start(tester, MockAnalysisApi());
+    await tester.ensureVisible(find.text('예시로 둘러보기', skipOffstage: false));
+    await tester.pump();
+    await tester.tap(find.text('예시로 둘러보기'));
+    await tester.pump();
+    await runToEnd(tester);
+    expect(find.text('판단 보류'), findsOneWidget);
+  });
+
+  testWidgets('넓은 화면에서도 끝까지 간다', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(TrinityApp(config: const AppConfig(pollInterval: tick), api: MockAnalysisApi()));
+    expect(find.text('영상 속 단서, 차분히 확인하세요.'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), url);
+    await tester.tap(find.text('분석 요청'));
+    await tester.pump();
+    await runToEnd(tester);
+    expect(find.text('판단 보류'), findsOneWidget);
+    await tester.tap(find.text('이용 안내'));
+    await tester.pump();
+    expect(find.byType(GuideScreen), findsOneWidget);
   });
 }
