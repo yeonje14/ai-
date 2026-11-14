@@ -1,6 +1,38 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-14 · 브랜치 `feat/compression-emulator`
+마지막 갱신: 2026-11-14 · 브랜치 `feat/flutter-app-shell`
+
+## 백로그 13번: Flutter 앱 (진행 중, 앞부분만. 웹에서만 확인)
+
+모델 미연결이다. 화면의 결과는 가상 데이터이며 모든 화면 상단에 "모델 미연결 · 가상 데이터" 띠가 있다. 자세한 내용은 `docs/design-system.md`, `app/README.md`.
+
+- **API 계약 변경(README §9, 결정 8)**: 결과에 `verdict_label`(`suspicious_signals` / `low_suspicion` / `null`)을 추가했다. 요약 화면이 숫자 없이 발견과 낮음을 구분하기 위한 필드다. `verdict_status=assessed`일 때만 값을 가질 수 있고(스키마가 거부), 검증된 결합 모델이 없어 **서버는 항상 `null`을 보낸다.**
+- **서버 CORS**: `TRINITY_CORS_ORIGINS`(기본 `http://localhost:8080,http://127.0.0.1:8080`). localhost·127.0.0.1만 받고 `*`와 다른 호스트는 시작할 때 거부한다. 메서드는 GET·POST, 헤더는 `Content-Type`·`X-Client-Token`만 연다. 빈 값이면 끈다.
+- **만든 파일**: `app/`(Flutter 웹 프로젝트), `docs/design-system.md`, `tests/test_cors_and_label.py`. 바꾼 파일: `server/{config.py,api/__init__.py,schemas/__init__.py,jobs/worker.py}`, `tests/test_api.py`(계약 키 목록).
+- **디자인 시스템**: 색 토큰 8개(초록 없음, 강조색은 "의심 신호 발견"에만), Inter Tight + JetBrains Mono + Noto Sans KR, 모서리 반경 0, 8pt 그리드, 좌우 여백 20. 공통 위젯 8종. 본문 16, 보조 13, 줄간격 1.5, 글자 대비 5.2:1 이상, 터치 영역 48.
+- **글꼴**: 쓰는 굵기 5개만 `app/assets/fonts/`에 넣었다(약 4.9MB). OFL 원문은 `app/assets/fonts/licenses/`. Fontsource 배포본을 받았고 파일 해시를 문서에 적었다.
+- **화면 8개**: 입력, 분석 중(단계명만, 숫자 % 없음), 결과 3종(발견 / 낮음 / 판단 보류, 숫자 점수 없음), 판단 근거 상세(원시 지표에 "확률 아님", `null`은 "값 없음"), 영상 접근 불가, 분석 대상 아님. 작업 실패·취소는 분석 중 화면의 "끝내지 못함" 상태로 보여 준다.
+- **모드**: `--dart-define=TRINITY_API_MODE=mock|server`, `TRINITY_API_BASE_URL`. mock은 입력 화면에서 가상 결과 6종을 고른다. **실제 서버 모드에서는 라벨이 와도 발견·낮음을 보여 주지 않는다**(판단 보류로 표시).
+- **실행**:
+  ```bash
+  cd app && flutter pub get
+  flutter run -d chrome --web-port 8080 --no-web-resources-cdn                      # mock
+  flutter run -d chrome --web-port 8080 --no-web-resources-cdn \
+    --dart-define=TRINITY_API_MODE=server --dart-define=TRINITY_API_BASE_URL=http://localhost:8000   # 서버와 Worker가 떠 있을 때
+  flutter analyze && flutter test
+  dart run tool/smoke_server.dart http://localhost:8000 'https://www.youtube.com/watch?v=TRINITYtest'
+  ```
+- **검증**:
+  - `flutter analyze` 문제 없음, `flutter test` 122개 통과(Flutter 3.41.6). 화면마다 글자 크기 1.3배·2배(360×640, 320×568)에서 넘침 없음.
+  - `pytest -q` 315개 통과, 1개 건너뜀(conda `trinity`).
+  - `flutter build web --no-web-resources-cdn` 성공. Chrome(headless)에서 mock 모드 입력 화면이 번들 글꼴로 뜨는 것을 확인했다.
+  - 실제 서버 + Worker에 앱의 API 클라이언트로 요청: 등록 ID는 8단계를 거쳐 `partial / abstained / verdict_label=null`(판단 보류 화면), 미등록 ID는 `analysis_unavailable`(접근 불가 화면), YouTube가 아닌 주소는 422. `localhost:8080` 출처의 CORS 사전 요청은 200, 다른 출처는 400.
+- **미검증·확인 필요**:
+  - 실제 서버 모드를 Chrome에서 손으로 눌러 끝까지 가 본 것은 아니다.
+  - iOS·Android 기기, 화면 낭독기, 실제 노년층 사용자 가독성.
+  - Fontsource 패키지의 정확한 버전(`@latest`로 받음), Noto Sans KR OFL의 Reserved Font Name 조항과 부분집합 파일의 관계.
+- **남은 일 (13번)**: YouTube 공유 시트 수신(iOS·Android), 플랫폼 빌드 설정, 미디어 확인 화면(제목·썸네일), 취소·삭제, 새로고침 뒤 작업 복원(토큰 저장은 백로그 14번의 인증과 함께), 모델 연결 뒤 고지 띠 제거 조건 정하기.
+
 
 ## 백로그 9번: 압축 에뮬레이터 (범용 프로파일까지. 플랫폼 파라미터 추정은 하지 않음)
 

@@ -81,6 +81,7 @@ def build_unavailable_result(job: Job, reason_code: str) -> dict[str, Any]:
         "job_status": "finished",
         "analysis_status": "analysis_unavailable",
         "verdict_status": "abstained",
+        "verdict_label": None,
         "overall_score": None,
         "abstention_reason": reason_code,
         "reason_code": reason_code,
@@ -110,6 +111,8 @@ def build_result(
         "job_status": "finished",
         "analysis_status": "completed" if all_completed else "partial",
         "verdict_status": fused["verdict_status"],
+        # 검증된 결합 모델이 없으므로 라벨을 붙이지 않는다 (README §9)
+        "verdict_label": None,
         "overall_score": fused["overall_score"],
         "abstention_reason": fused["abstention_reason"],
         "reason_code": None,

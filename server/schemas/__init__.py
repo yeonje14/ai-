@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class JobStatus(str, Enum):
@@ -33,6 +33,13 @@ class VerdictStatus(str, Enum):
     assessed = "assessed"
     abstained = "abstained"
     not_applicable = "not_applicable"
+
+
+class VerdictLabel(str, Enum):
+    """결과 요약의 라벨. 서버가 고정된 임계값으로 정한다. low_suspicion은 진짜라는 뜻이 아니다."""
+
+    suspicious_signals = "suspicious_signals"
+    low_suspicion = "low_suspicion"
 
 
 class AxisStatus(str, Enum):
@@ -145,6 +152,8 @@ class AnalysisResult(BaseModel):
     job_status: JobStatus
     analysis_status: Optional[AnalysisStatus] = None
     verdict_status: Optional[VerdictStatus] = None
+    # 검증된 결합 모델이 없으면 null이다. assessed가 아닌 결과에는 붙일 수 없다 (README §9).
+    verdict_label: Optional[VerdictLabel] = None
     overall_score: Optional[float] = None
     abstention_reason: Optional[str] = None
     reason_code: Optional[str] = None
@@ -152,6 +161,12 @@ class AnalysisResult(BaseModel):
     coverage: Optional[Coverage] = None
     axes: Optional[Axes] = None
     explanations: list[Explanation] = []
+
+    @model_validator(mode="after")
+    def _label_only_when_assessed(self) -> "AnalysisResult":
+        if self.verdict_label is not None and self.verdict_status != VerdictStatus.assessed:
+            raise ValueError("verdict_label은 verdict_status=assessed일 때만 쓸 수 있다")
+        return self
 
 
 def dump(model: BaseModel) -> dict[str, Any]:
