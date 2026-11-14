@@ -33,7 +33,7 @@ heartbeat·취소·lease 상실·작업 제한시간을 관리한다. WaveRep �
 - [x] pytest -q 전체, 실제 서버·Worker·기존 발화 없는 샘플로 Gate 차단 확인.
 - [x] docs/HANDOFF.md, docs/gate.md, docs/waverep-adapter.md, README 갱신.
 - [x] 독립 검토, 필요한 수정과 재검증.
-- [ ] 커밋·push·PR. main에는 merge하지 않는다.
+- [x] 커밋·push·PR. main에는 merge하지 않는다.
 
 ## 검토 집중 항목
 
@@ -56,3 +56,4 @@ heartbeat·취소·lease 상실·작업 제한시간을 관리한다. WaveRep �
   임시 작업 폴더 삭제. 말하는 영상 미검증.
 - 결정: API 필드 추가 금지 조건에 따라 품질과 제외 구간은 기존 explanations에 기록한다.
   별도 구조화 품질 필드를 요구하는 후속 클라이언트는 향후 계약 검토가 필요하다.
+- 구현 커밋 f39d203 push 완료. PR #11 생성: https://github.com/yeonje14/ai-/pull/11 (미병합).
