@@ -2,7 +2,10 @@
 
 임의 URL을 내려받지 않는다. 등록되지 않은 ID는 None을 돌려주고,
 호출자는 analysis_unavailable / access_not_authorized로 끝낸다.
-이 단계(백로그 4번)에서는 다운로드가 stub이라 실제 미디어 파일을 다루지 않는다.
+
+허가 미디어 파일은 운영자가 레지스트리에 `local_path`로 적는다(사용자 입력이 아니다).
+`local_path`는 미디어 루트 안의 상대 경로만 받는다. 파일이 없으면 호출자는
+analysis_unavailable / video_access_unavailable로 끝낸다. 미디어를 내려받지 않는다.
 """
 
 from __future__ import annotations
@@ -21,6 +24,23 @@ DEFAULT_PROVENANCE = "registered_authorized_source"
 class AuthorizedMedia:
     youtube_video_id: str
     provenance: str
+    # 허가 미디어 파일의 절대 경로. 등록만 되고 파일이 연결되지 않았으면 None.
+    local_path: Optional[Path] = None
+
+
+def _resolve_local_path(value: object, media_root: Optional[Path]) -> Path:
+    if media_root is None:
+        raise ValueError("local_path를 쓰려면 미디어 루트가 필요하다")
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ValueError("authorized_media의 local_path는 비어 있지 않은 문자열이어야 한다")
+    rel = Path(value)
+    if rel.is_absolute() or ".." in rel.parts:
+        raise ValueError("authorized_media의 local_path는 미디어 루트 안의 상대 경로여야 한다")
+    root = Path(media_root).resolve()
+    resolved = (root / rel).resolve()  # 심볼릭 링크로 루트 밖을 가리키는 것도 막는다
+    if not resolved.is_relative_to(root):
+        raise ValueError("authorized_media의 local_path가 미디어 루트 밖을 가리킨다")
+    return resolved
 
 
 class AuthorizedMediaRegistry:
@@ -28,7 +48,9 @@ class AuthorizedMediaRegistry:
         self._entries = dict(entries)
 
     @classmethod
-    def from_file(cls, path: Path) -> "AuthorizedMediaRegistry":
+    def from_file(
+        cls, path: Path, media_root: Optional[Path] = None
+    ) -> "AuthorizedMediaRegistry":
         """파일이 없으면 빈 레지스트리다(모든 ID가 미허가)."""
         if not Path(path).is_file():
             return cls({})
@@ -38,9 +60,13 @@ class AuthorizedMediaRegistry:
             video_id = item.get("youtube_video_id")
             if not is_valid_video_id(video_id):
                 raise ValueError("authorized_media에 형식이 잘못된 video ID가 있다")
+            local_path = None
+            if item.get("local_path") is not None:
+                local_path = _resolve_local_path(item["local_path"], media_root)
             entries[video_id] = AuthorizedMedia(
                 youtube_video_id=video_id,
                 provenance=item.get("provenance", DEFAULT_PROVENANCE),
+                local_path=local_path,
             )
         return cls(entries)
 

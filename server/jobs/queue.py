@@ -2,6 +2,7 @@
 
 - queued → processing 선점은 BEGIN IMMEDIATE 트랜잭션 하나로 원자적으로 한다.
 - 동시 분석은 1건이다. lease가 살아 있는 processing 작업이 있으면 선점하지 않는다.
+- 긴 추론 중에는 heartbeat()로 lease를 주기적으로 연장한다.
 - lease가 만료된 processing 작업은 재시도 상한 안에서 queued로 되돌린다(재시작 복구).
 - 상태를 바꾸는 쓰기는 lease_owner가 일치할 때만 적용한다(중복 실행 방지).
 - URL 원문은 저장하지 않는다. video ID와 소유자 토큰의 해시만 저장한다.
@@ -226,6 +227,23 @@ class JobQueue:
                     analysis_id,
                     worker_id,
                 ),
+            )
+            if cur.rowcount == 0:
+                return LEASE_LOST
+            (cancel,) = conn.execute(
+                "SELECT cancel_requested FROM jobs WHERE analysis_id = ?",
+                (analysis_id,),
+            ).fetchone()
+        return LEASE_CANCEL if cancel else LEASE_OK
+
+    def heartbeat(self, analysis_id: str, worker_id: str, lease_seconds: float) -> str:
+        """단계를 바꾸지 않고 lease만 연장한다. 긴 추론 중에 주기적으로 부른다."""
+        with self._tx() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET lease_expires_at = ?"
+                " WHERE analysis_id = ? AND lease_owner = ?"
+                " AND job_status = 'processing'",
+                (time.time() + lease_seconds, analysis_id, worker_id),
             )
             if cur.rowcount == 0:
                 return LEASE_LOST

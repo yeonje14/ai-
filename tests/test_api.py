@@ -47,7 +47,7 @@ def test_registered_id_runs_to_finished_with_contract_result(client, run_worker,
     assert set(result) == {
         "analysis_id", "youtube_video_id", "job_status", "analysis_status",
         "verdict_status", "verdict_label", "overall_score", "abstention_reason", "reason_code",
-        "media_provenance", "coverage", "axes", "explanations",
+        "media_provenance", "gate_bypassed", "coverage", "axes", "explanations",
     }
     assert result["analysis_id"] == aid
     assert result["youtube_video_id"] == REGISTERED_ID
@@ -62,7 +62,11 @@ def test_registered_id_runs_to_finished_with_contract_result(client, run_worker,
         "full_video_coverage", "eligible_coverage", "analyzed_segments",
     }
     assert set(result["axes"]) == {"signal", "physics", "alignment"}
-    # stub은 점수를 만들지 않는다.
+    # Gate가 연결되지 않았고 수동 구간도 꺼져 있다. 모델을 실행하지 않고 점수도 없다.
+    assert result["gate_bypassed"] is False
+    assert result["axes"]["signal"]["status"] == "insufficient_input"
+    assert result["axes"]["signal"]["reason_code"] == "gate_not_connected"
+    assert result["axes"]["signal"]["raw_metrics"] is None
     assert result["axes"]["signal"]["raw_score"] is None
     assert result["axes"]["physics"]["raw_score"] is None
     assert result["axes"]["alignment"]["lse_c"] is None

@@ -1,7 +1,7 @@
 """실행 중인 서버와 worker에 URL-only 수직 슬라이스를 실제로 요청해 본다.
 
 사전 조건: API 서버와 worker가 떠 있어야 한다(README 하단 "서버 실행 방법").
-사용: python scripts/smoke_slice.py [http://127.0.0.1:8000]
+사용: python scripts/smoke_slice.py [http://127.0.0.1:8000] [작업당 최대 대기 초=180]
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:8000"
+WAIT_SECONDS = float(sys.argv[2]) if len(sys.argv) > 2 else 180.0
 HEADERS = {"Content-Type": "application/json", "X-Client-Token": "local-smoke-token-0001"}
 
 
@@ -38,7 +39,8 @@ def run(label: str, video_id: str) -> None:
     show(f"[{label}] POST /analyses", status, created)
     aid = created["analysis_id"]
     seen: list[str] = []
-    for _ in range(100):
+    deadline = time.monotonic() + WAIT_SECONDS  # 실제 WaveRep 추론은 수십 초가 걸릴 수 있다
+    while time.monotonic() < deadline:
         _, st = call("GET", f"/api/v1/analyses/{aid}")
         mark = f"{st['job_status']}/{st['stage']}"
         if not seen or seen[-1] != mark:
