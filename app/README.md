@@ -24,7 +24,9 @@ flutter pub get
 flutter run -d chrome --web-port 8080 --no-web-resources-cdn
 ```
 
-입력 화면의 "가상 결과 고르기"에서 결과를 고른 뒤 YouTube 주소를 넣고 "분석 요청"을 누른다.
+"예시로 둘러보기"를 누르거나, YouTube 주소를 넣고 "분석 요청"을 누른다. 홈의 "가상 결과 고르기"를 펴면 보여 줄 결과를 바꿀 수 있다.
+
+브라우저 창이 768보다 넓으면 웹 배치(검색창 중심 홈), 그 이하면 앱 배치(세로형 홈)가 나온다. 시스템이 어두운 모드면 어두운 테마가 된다.
 
 ### 실제 서버 모드
 
@@ -71,10 +73,10 @@ dart run tool/smoke_server.dart http://localhost:8000 'https://www.youtube.com/w
 
 | 경로 | 내용 |
 |---|---|
-| `lib/design/` | 토큰, 테마, 공통 위젯 |
+| `lib/design/` | 토큰(밝은·어두운 팔레트), 테마, 공통 위젯 |
 | `lib/api/` | 응답 모델, HTTP 클라이언트, mock |
 | `lib/view_state.dart` | 서버 상태 → 화면·문구 대응 |
-| `lib/screens/` | 입력, 분석 중, 결과 3종, 판단 근거 상세, 영상 접근 불가, 분석 대상 아님 |
+| `lib/screens/` | 홈(웹형·앱형), 분석 중, 결과(발견·낮음·보류·접근 불가·대상 아님), 판단 근거 상세, 이용 안내 |
 | `lib/app.dart` | 화면 흐름과 상태 조회 반복 |
 | `assets/fonts/` | 글꼴 5개와 OFL 라이선스 |
 | `tool/smoke_server.dart` | 실제 서버 연결 확인 |

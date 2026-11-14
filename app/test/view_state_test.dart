@@ -85,13 +85,29 @@ void main() {
     expect(formatDuration(20), '20초');
     expect(metricText(null), '값 없음');
     expect(metricText(0), '0.00');
-    expect(coverageCaption(null), '분석 범위 정보가 없습니다.');
+    expect(coverageCaption(null), '분석한 구간이 기록되지 않았습니다.');
+    expect(formatClock(272), '4:32');
+    expect(formatClock(5), '0:05');
     expect(coverageCaption(const Coverage(videoDurationSec: 60, analyzedDurationSec: 20)),
         '영상 1분 0초 가운데 20초를 분석했습니다.');
     expect(reasonText('no_valid_fusion_model'), isNotNull);
     expect(reasonText('made_up_code'), isNull);
     for (final kind in ApiErrorKind.values) {
       expect(apiErrorText(ApiException(kind)), isNotEmpty);
+    }
+  });
+
+  test('요청 상태의 말: 화면 종류와 판정 표시가 어긋나지 않는다', () {
+    expect(verdictText(ScreenKind.suspicious), '판정함');
+    expect(verdictText(ScreenKind.low), '판정함');
+    expect(verdictText(ScreenKind.abstained), '보류');
+    expect(verdictText(ScreenKind.unavailable), '보류');
+    expect(verdictText(ScreenKind.outOfScope), '해당 없음');
+    for (final s in JobStatus.values) {
+      expect(jobStatusText[s], isNotNull);
+    }
+    for (final s in AnalysisStatus.values) {
+      expect(analysisStatusLabel[s], isNotNull);
     }
   });
 

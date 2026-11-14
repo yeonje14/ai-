@@ -7,7 +7,9 @@ import 'api/mock_api.dart';
 import 'api/models.dart';
 import 'config.dart';
 import 'design/theme.dart';
+import 'design/widgets.dart';
 import 'screens/detail_screen.dart';
+import 'screens/guide_screen.dart';
 import 'screens/input_screen.dart';
 import 'screens/progress_screen.dart';
 import 'screens/result_screen.dart';
@@ -24,13 +26,18 @@ class TrinityApp extends StatelessWidget {
     return MaterialApp(
       title: 'TRINITY',
       debugShowCheckedModeBanner: false,
-      theme: buildTrinityTheme(),
+      // 밝은 테마가 기본이다. 시스템이 어두운 모드면 어두운 테마를 쓴다.
+      theme: buildTrinityTheme(Brightness.light),
+      darkTheme: buildTrinityTheme(Brightness.dark),
+      themeMode: ThemeMode.system,
       home: AnalysisFlow(config: config, api: api),
     );
   }
 }
 
 enum _Phase { input, progress, result, detail }
+
+// 이용 안내는 어느 단계에서든 열 수 있고, 닫으면 보던 화면으로 돌아간다.
 
 /// 입력 → 분석 중(상태 조회 반복) → 결과 → 상세.
 class AnalysisFlow extends StatefulWidget {
@@ -53,6 +60,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
   AnalysisResult? _result;
   Timer? _timer;
   bool _polling = false;
+  bool _guide = false;
 
   MockAnalysisApi? get _mock => widget.api is MockAnalysisApi ? widget.api as MockAnalysisApi : null;
 
@@ -142,11 +150,30 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       _result = null;
       _inputError = null;
       _busy = false;
+      _guide = false;
     });
+  }
+
+  /// 상단의 "영상 확인"·로고: 이용 안내를 닫는다. 진행 중인 분석이 없으면 처음으로 간다.
+  void _goHome() {
+    if (_guide) {
+      setState(() => _guide = false);
+      return;
+    }
+    if (_phase != _Phase.progress || !_job.isActive) _restart();
   }
 
   @override
   Widget build(BuildContext context) {
+    return TrinityNav(
+      onHome: _goHome,
+      onGuide: () => setState(() => _guide = true),
+      inGuide: _guide,
+      child: _guide ? GuideScreen(onStart: () => setState(() => _guide = false)) : _screen(context),
+    );
+  }
+
+  Widget _screen(BuildContext context) {
     final result = _result;
     switch (_phase) {
       case _Phase.input:
@@ -169,16 +196,10 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       case _Phase.result:
         void detail() => setState(() => _phase = _Phase.detail);
         final kind = resolveScreen(result!, allowVerdictLabels: widget.config.allowVerdictLabels);
-        return switch (kind) {
-          ScreenKind.unavailable => UnavailableScreen(result: result, onShowDetail: detail, onRestart: _restart),
-          ScreenKind.outOfScope => OutOfScopeScreen(result: result, onShowDetail: detail, onRestart: _restart),
-          ScreenKind.jobFailed => ProgressScreen(
-              state: _job,
-              failureReasonCode: result.reasonCode,
-              onRestart: _restart,
-            ),
-          _ => ResultScreen(kind: kind, result: result, onShowDetail: detail, onRestart: _restart),
-        };
+        if (kind == ScreenKind.jobFailed) {
+          return ProgressScreen(state: _job, failureReasonCode: result.reasonCode, onRestart: _restart);
+        }
+        return ResultScreen(kind: kind, result: result, onShowDetail: detail, onRestart: _restart);
     }
   }
 }
