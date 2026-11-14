@@ -56,7 +56,7 @@ def test_allowed_origin_gets_cors_headers(client):
     assert pre.status_code == 200
     assert pre.headers["access-control-allow-origin"] == origin
     assert "x-client-token" in pre.headers["access-control-allow-headers"].lower()
-    assert "DELETE" not in pre.headers["access-control-allow-methods"]
+    assert "DELETE" in pre.headers["access-control-allow-methods"]
     assert "access-control-allow-credentials" not in pre.headers
     got = client.get("/api/v1/health", headers={"Origin": origin})
     assert got.headers["access-control-allow-origin"] == origin

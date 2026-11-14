@@ -50,6 +50,8 @@ class FakeServerApi implements AnalysisApi {
   Future<JobState> status(String id) => _inner.status(id);
   @override
   Future<ResultResponse> result(String id) => _inner.result(id);
+  @override
+  Future<void> cancel(String id) => _inner.cancel(id);
 }
 
 /// 처음 몇 번은 연결이 실패하는 API.
