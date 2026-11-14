@@ -1,6 +1,111 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-15 · 브랜치 `feat/gate-mouth-motion` (PR #9를 합친 main 위로 옮김)
+마지막 갱신: 2026-11-15 · 브랜치 `codex/connect-gate-worker` (최신 main `e324a8b`에서 생성)
+
+## 현재 작업: 백로그 7번 Gate → Worker 연결 (2026-11-15)
+
+**결과:** Gate 연결 구현과 요청한 검증을 마쳤다. 말하는 영상의 실제 통과 경로는 **미검증**이다.
+README §15.3에 날짜와 **“Codex, GPT-6 Astra 제안, 사용자 승인”**을 기록했다.
+PR 대상은 main이며 merge하지 않는다. 아래 과거 기록의 “Gate 미연결”·“PR #10 열림”은 당시 상태다.
+
+**한 일**:
+
+- 최신 main(PR #9·#10 포함)에서 새 브랜치를 만들었다.
+- Worker `preprocessing`에서 작업 폴더에 복사한 허가 미디어에 Gate를 실행한다.
+  같은 conda `trinity` Python의 별도 프로세스를 쓰고 모델 환경 분리를 유지한다.
+  설치된 Gate 패키지와 torch가 없음을 확인했고, trinity에 패키지를 설치하지 않았다.
+- Gate가 고른 구간만 WaveRep에 전달한다. 구간이 없으면 모델 단계를 실행하지 않고
+  대표 원인·분석 상태·판정 상태를 README §15.3 승인 표대로 기록한다.
+  표의 12개 원인 코드 각각을 Worker 결과 테스트로 고정했다.
+- Gate 실패/타임아웃은 `gate_error`/`gate_timeout`, `analysis_unavailable`/`abstained`,
+  모든 축 점수 `null`. heartbeat로 lease를 연장하고 취소·lease 상실·작업 전체 타임아웃에는
+  자식 프로세스 그룹을 종료한다. 작업 전체 타임아웃은 기존 `failed`/`timeout`이다.
+- 기존 API 필드와 상태 목록을 유지한다. 적합/제외 구간·원인·품질 숫자는 기존
+  `explanations`, 원본/적합/성공 분석량은 기존 `coverage`에 기록한다.
+  미실행·실패 분석 길이/비율은 `null`, 분석 구간은 `[]`. coverage는 정확도가 아니다.
+- 개발·테스트 전용 수동 구간은 기본 꺼짐. 켰을 때만 Gate 우회,
+  `gate_bypassed=true`, `partial`/`abstained`. `raw_score`/`overall_score`/판정 라벨은 계속 `null`.
+- 앱은 `access_not_authorized`·`video_access_unavailable`을 “영상 접근 불가”,
+  `media_unreadable`·`gate_error`·`gate_timeout`을 “분석하지 못함”으로 구분한다.
+  원인 코드를 보류 원인보다 우선해 표시하고, `unsupported`/`insufficient_quality`의
+  `abstained`를 “해당 없음”으로 잘못 표시하던 요약도 “보류”로 고쳤다.
+- 독립 코드 검토에서 얼굴·입 경계 반올림으로 0초 제외 조각이 생겨 정상 적합 구간까지
+  `gate_error`가 되는 결함을 재현했다. Gate 산출 단계에서 빈 조각을 제거하고
+  실제 `build_result → parse_result` 회귀 테스트의 실패→통과를 확인했다.
+
+**바꾼 파일**:
+
+- 서버: `server/jobs/worker.py`, `server/config.py`, `server/axes/signal/__init__.py`,
+  `server/gate/__init__.py`, `server/gate/segments.py`.
+- 새 Gate 실행/결과 처리: `server/gate/runner.py`, `server/gate/process.py`, `server/gate/report.py`.
+- 앱: `app/lib/view_state.dart`, `app/lib/screens/result_screen.dart`, `app/lib/screens/detail_screen.dart`.
+- 테스트: `tests/test_gate_worker.py`, `tests/test_gate_runner.py`(새 파일), `tests/test_api.py`,
+  `tests/test_queue_worker.py`, `tests/test_waverep_worker.py`, `app/test/screens_test.dart`.
+- 실제 실행 확인 도구: `scripts/smoke_gate_worker.py`(새 파일).
+- 문서: `README.md`, `docs/gate.md`, `docs/waverep-adapter.md`, `docs/HANDOFF.md`,
+  `docs/superpowers/plans/2026-11-15-gate-worker.md`.
+
+**실행한 명령과 결과** (Python은 `/opt/anaconda3/envs/trinity/bin/python` 사용):
+
+```bash
+python -m pytest -q tests/test_gate_worker.py
+python -m pytest -q tests/test_gate_runner.py
+python -m pytest -q tests/test_gate_runner.py::test_rounded_face_and_mouth_boundary_keeps_eligible_segment tests/test_gate_segments.py tests/test_gate_mouth.py
+python -m pytest -q
+python scripts/smoke_gate_worker.py
+cd app
+flutter test
+flutter analyze
+```
+
+- 변경 전 전체: 394 passed, 2 skipped.
+- 변경 후 최종 전체: **437 passed, 2 skipped**, 30.70초. 건너뜀은 기존 LightGBM 없음과 말하는 영상 없음.
+  `starlette.testclient`의 기존 httpx 폐기 예정 경고 1개는 남아 있다.
+- 최초 제한 환경 실행은 후손 프로세스 확인용 `ps` 권한 거부로 1개 실패했다.
+  권한 허용 후 해당 테스트와 전체 테스트가 통과했다. 제품 오류로 처리하지 않았다.
+- 앱: **198개 통과**, `flutter analyze` 문제 없음.
+- 실제 서버·Worker 스모크(수정 후 최종): 기존 발화 없는 허가 샘플 10.433초,
+  `finished`/`out_of_scope`/`not_applicable`, 원인 `no_mouth_movement`, 적합 길이 0초,
+  분석 길이/비율 `null`, 분석 구간 `[]`, `gate_bypassed=false`.
+  `raw_score`, `raw_metrics`, `overall_score` 모두 `null`.
+  완료 단계는 `validating → access_check → preprocessing → finalizing`이며 WaveRep 단계/실행 로그가 없다.
+  임시 작업 폴더 삭제 확인. 약 2.77초. 스모크 설정 heartbeat 0.2초/lease 2초로
+  preprocessing의 서로 다른 lease 만료 시각 13개를 관찰했다(기본 10초 간격은 아님).
+- 가짜 프로세스로 Gate 비정상 종료·깨진 JSON·오래된 결과·타임아웃·heartbeat·취소·lease 상실,
+  작업 전체 제한시간·후손 종료를 검증했다. 실제 미디어 검증은 위 샘플에 한한다.
+
+**실행 방법**:
+
+```bash
+conda activate trinity
+# 기존 Gate 의존성·모델과 WaveRep 별도 환경은 docs/gate.md, docs/waverep-adapter.md 참고
+uvicorn server.main:app --reload
+# 다른 터미널, local_path가 있는 Git 밖 레지스트리를 지정한 상태에서
+python -m server.jobs.worker
+# 독립 임시 서버·Worker로 기존 발화 없는 샘플 확인
+python scripts/smoke_gate_worker.py
+```
+
+Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우회는
+`TRINITY_DEV_MANUAL_SEGMENTS`(기본 빈 값). 저장소의 기본 레지스트리는 파일 연결이 없으므로
+일반 실행에서는 Git 밖 레지스트리에 허가 샘플의 상대 `local_path`를 지정해야 한다.
+스모크 도구는 이를 임시로 구성하고 끝나면 서버·Worker·임시 DB·복사본을 정리한다.
+
+**남은 일·미검증**:
+
+- 실제 말하는 허가 영상의 Gate 통과 → WaveRep 실행. 영상이 아직 없다.
+- Gate의 발화/입 움직임 임계값, 다중 발화, 장시간·저품질·회전·가변 프레임률 영상.
+- 실제 미디어가 오래 걸리거나 멈춘 상황의 취소·타임아웃(가짜 프로세스로 검증).
+- 큰 미디어 파일 복사 중 heartbeat는 기존대로 없음. 이번 변경은 Gate 실행 구간을 포함한다.
+- 실제 앱 브라우저·모바일 기기 조작은 미검증(Flutter 위젯 테스트·정적 검사만 실행).
+- 다음 작업은 말하는 허가 영상 확인과 백로그 8번 데이터/평가 준비를 따른다.
+  프레임 logit 집계/임계값·판정은 이번 작업 범위가 아니다. physics/alignment는 기존 stub 유지.
+- Gate 모델 파일 이용 조건의 기존 “확인 필요”는 그대로이며 새 다운로드는 없다.
+
+**막힘:** 이번 연결 작업의 구현·테스트에 막힘 없음. 실제 발화 영상 검증은 자료가 필요하다.
+
+## 이전 세션 기록
+
 
 ## 오늘 밤 결과 요약 (2026-11-15, 무인 작업)
 

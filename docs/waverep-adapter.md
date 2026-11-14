@@ -6,7 +6,7 @@ README §14.1 백로그 7번의 앞부분(어댑터). 측정일: 2026-11-12(CPU 
 > 테스트 영상에는 **발화가 없다**(본인 얼굴, 주변 소리만). 이번 작업은 발화 여부와 상관없이
 > 어댑터가 같은 입력에 같은 점수를 내는지, 얼마나 걸리고 메모리를 얼마나 쓰는지만 본다.
 > 점수는 모델의 원시 logit이다. 확률도 판정도 아니며 임계값을 적용하지 않았다. `overall_score`는 계속 `null`이다.
-> Gate와 Worker에는 연결하지 않았다.
+> 당시 측정은 Gate·Worker 연결 전이다. 현재 연결 상태는 아래 "Gate 연결" 절을 따른다.
 
 ## 결론
 
@@ -192,3 +192,16 @@ python scripts/bench_waverep_adapter.py --video data/research/samples/<허가 �
 - 실제 Worker 실행 1회(본인 촬영 샘플 10.43초 전체, 프레임 21장, mps): 추론 프로세스 6.07초, `waverep` 단계 약 6.9초. logit 평균 -0.675. 위 벤치마크 `cpu-fps2-b8`의 평균(-0.674708)과 소수 넷째 자리까지 같다. 성능 검증이 아니며 판정에 쓰지 않는다.
 - 자세한 내용과 미검증 항목은 `docs/HANDOFF.md` "백로그 7번: WaveRep을 Worker에 연결".
 
+
+## Gate 연결 (2026-11-15)
+
+Worker의 기본 경로가 허가 미디어 → 발화 구간 Gate → 적합 구간 WaveRep으로 바뀌었다.
+Gate는 torch 없는 conda `trinity`의 별도 프로세스, WaveRep은 기존
+`research/waverep/.venv`에서 실행한다. 장치·배치·샘플링 설정은 바꾸지 않았다.
+
+- Gate 적합 구간이 없으면 WaveRep을 호출하지 않는다. 원인별 상태는 README §15.3의 승인 표를 따른다.
+- Gate의 원본/적합 길이를 coverage에 보존하고, WaveRep 성공 때만 analyzed 필드를 채운다.
+- `gate_not_connected` 임시 경로를 제거했다. 수동 구간은 기본 꺼짐이며 개발·테스트 전용으로 유지한다.
+- `raw_score`, `overall_score`, `verdict_label`은 계속 `null`. logit 요약은 판정이 아니다.
+- 실제 서버·Worker에서 발화 없는 샘플의 `no_mouth_movement` 차단과 모델 단계 생략을 확인했다.
+- 실제 말하는 영상의 Gate 통과 → WaveRep은 **미검증**. 자세한 재현 명령·한계는 `docs/gate.md`.

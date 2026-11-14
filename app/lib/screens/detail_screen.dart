@@ -99,7 +99,7 @@ class DetailScreen extends StatelessWidget {
         KeyValue(name: '작업 (job_status)', value: orNone(result.rawString('job_status')), mono: true),
         KeyValue(name: '분석 (analysis_status)', value: orNone(result.rawString('analysis_status')), mono: true),
         KeyValue(name: '판정 (verdict_status)', value: orNone(result.rawString('verdict_status')), mono: true),
-        KeyValue(name: '보류·실패 원인', value: orNone(result.abstentionReason ?? result.reasonCode), mono: true),
+        KeyValue(name: '보류·실패 원인', value: orNone(result.reasonCode ?? result.abstentionReason), mono: true),
         KeyValue(name: '미디어 출처 (media_provenance)', value: orNone(result.mediaProvenance), mono: true),
         KeyValue(name: '분석 ID', value: orNone(result.analysisId), mono: true),
         KeyValue(name: 'YouTube 영상 ID', value: orNone(result.youtubeVideoId), mono: true),

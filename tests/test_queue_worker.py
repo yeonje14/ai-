@@ -92,7 +92,7 @@ def test_worker_cancels_between_stages(queue, settings, monkeypatch):
         return {"status": "insufficient_input", "raw_score": None}
 
     monkeypatch.setattr(signal_axis, "run", _cancel_during_waverep)
-    assert worker.run_once(queue, registry, settings, "w1") is True
+    assert worker.run_once(queue, registry, replace(settings, dev_manual_segments=((0, 2),)), "w1") is True
 
     job = queue.get(aid, OWNER)
     assert job.job_status == "cancelled"
@@ -124,7 +124,7 @@ def test_axis_failure_does_not_stop_other_axes(queue, settings, monkeypatch):
         raise RuntimeError("model crashed")
 
     monkeypatch.setattr(signal_axis, "run", _boom)
-    worker.run_once(queue, registry, settings, "w1")
+    worker.run_once(queue, registry, replace(settings, dev_manual_segments=((0, 2),)), "w1")
 
     job = queue.get(aid, OWNER)
     assert job.job_status == "finished"

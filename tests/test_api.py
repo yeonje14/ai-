@@ -1,6 +1,5 @@
 """백로그 4번 완료 조건: 등록 ID 완료 / 미등록 ID 보류 / 422 / 404."""
 
-from server.schemas import STAGE_ORDER
 from tests.conftest import OTHER_TOKEN, REGISTERED_ID, UNREGISTERED_ID
 
 
@@ -41,7 +40,7 @@ def test_registered_id_runs_to_finished_with_contract_result(client, run_worker,
 
     status = client.get(f"/api/v1/analyses/{aid}").json()
     assert status["job_status"] == "finished"
-    assert status["completed_stages"] == STAGE_ORDER
+    assert status["completed_stages"] == ["validating", "access_check", "preprocessing", "finalizing"]
 
     result = client.get(f"/api/v1/analyses/{aid}/result").json()
     assert set(result) == {
@@ -52,27 +51,28 @@ def test_registered_id_runs_to_finished_with_contract_result(client, run_worker,
     assert result["analysis_id"] == aid
     assert result["youtube_video_id"] == REGISTERED_ID
     assert result["job_status"] == "finished"
-    assert result["analysis_status"] == "partial"
+    assert result["analysis_status"] == "analysis_unavailable"
     assert result["verdict_status"] == "abstained"
     assert result["overall_score"] is None
-    assert result["abstention_reason"] == "no_valid_fusion_model"
+    assert result["abstention_reason"] == "insufficient_evidence"
+    assert result["reason_code"] == "media_unreadable"
     assert result["media_provenance"] == "registered_authorized_source"
     assert set(result["coverage"]) == {
         "video_duration_sec", "eligible_duration_sec", "analyzed_duration_sec",
         "full_video_coverage", "eligible_coverage", "analyzed_segments",
     }
     assert set(result["axes"]) == {"signal", "physics", "alignment"}
-    # Gate가 연결되지 않았고 수동 구간도 꺼져 있다. 모델을 실행하지 않고 점수도 없다.
+    # 허가된 파일이지만 가짜 미디어 바이트라 Gate가 거른다. API 필드 계약은 그대로다.
     assert result["gate_bypassed"] is False
     assert result["axes"]["signal"]["status"] == "insufficient_input"
-    assert result["axes"]["signal"]["reason_code"] == "gate_not_connected"
+    assert result["axes"]["signal"]["reason_code"] == "media_unreadable"
     assert result["axes"]["signal"]["raw_metrics"] is None
     assert result["axes"]["signal"]["raw_score"] is None
     assert result["axes"]["physics"]["raw_score"] is None
     assert result["axes"]["alignment"]["lse_c"] is None
     assert result["axes"]["alignment"]["lse_d"] is None
     assert result["axes"]["alignment"]["included_in_fusion"] is False
-    assert result["explanations"][0]["reason_code"] == "no_valid_fusion_model"
+    assert result["explanations"][0]["reason_code"] == "media_unreadable"
     # 임시 작업 폴더는 남지 않는다.
     assert not (settings.runtime_dir / aid).exists()
 

@@ -1,6 +1,6 @@
 """축1 · 신호 (WaveRep). Worker가 부르는 진입점 (백로그 7번).
 
-- 구간이 없으면(Gate 미연결, 수동 구간 꺼짐) 모델을 실행하지 않는다. 점수는 null이다.
+- 구간이 없으면 모델을 실행하지 않는다. 점수는 null이다.
 - 결과에는 프레임 logit 요약만 둔다. raw_score는 null이고 판정하지 않는다
   (집계 방법과 임계값은 백로그 8번 이후에 정한다).
 - 프레임별 점수, 실행 시간, stderr 같은 내부 값은 결과에 넣지 않는다.
@@ -16,10 +16,6 @@ from server.axes.signal import waverep
 from server.axes.signal.waverep import WaveRepConfig, run_waverep
 
 log = logging.getLogger("trinity.axes.signal")
-
-# Gate가 Worker에 연결되지 않아 분석할 구간이 없다 (백로그 6번을 연결하면 없어진다)
-GATE_NOT_CONNECTED = "gate_not_connected"
-
 
 def build_config(ctx: AxisContext) -> WaveRepConfig:
     s = ctx.settings
@@ -39,7 +35,7 @@ def run(ctx: AxisContext) -> dict[str, Any]:
     if not ctx.segments:
         return {
             "status": waverep.INSUFFICIENT_INPUT,
-            "reason_code": GATE_NOT_CONNECTED,
+            "reason_code": "no_segments",
             "raw_score": None,
             "raw_metrics": None,
             "model_version": waverep.MODEL_VERSION,

@@ -165,9 +165,9 @@ def test_without_segments_model_is_not_run(queue, registry, settings, monkeypatc
     aid, job = _run(queue, registry, settings)
     r = job.result
     assert r["gate_bypassed"] is False
-    assert (r["analysis_status"], r["verdict_status"]) == ("partial", "abstained")
+    assert (r["analysis_status"], r["verdict_status"]) == ("analysis_unavailable", "abstained")
     sig = r["axes"]["signal"]
-    assert (sig["status"], sig["reason_code"]) == ("insufficient_input", "gate_not_connected")
+    assert (sig["status"], sig["reason_code"]) == ("insufficient_input", "media_unreadable")
     assert sig["raw_score"] is None and sig["raw_metrics"] is None
     assert sig["model_version"] != "stub"
     assert r["coverage"]["analyzed_segments"] == [] and r["coverage"]["analyzed_duration_sec"] is None

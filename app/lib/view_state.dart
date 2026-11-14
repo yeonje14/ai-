@@ -86,6 +86,16 @@ const _reasonText = <String, String>{
   'video_access_unavailable': '영상에 접근할 수 없습니다.',
   'access_not_authorized': '분석이 허가된 미디어로 등록되지 않은 영상입니다.',
   'speaker_unconfirmed': '말하는 사람을 확인하지 못했습니다.',
+  'media_unreadable': '허가된 영상 파일을 읽지 못해 분석하지 못했습니다.',
+  'gate_error': '발화 구간을 확인하는 중 오류가 발생해 분석하지 못했습니다.',
+  'gate_timeout': '정해진 시간 안에 발화 구간 확인을 마치지 못했습니다.',
+  'no_speech_detected': '음성으로 감지된 구간이 없습니다.',
+  'no_mouth_movement': '음성 구간에서 반복되는 입 움직임을 확인하지 못했습니다.',
+  'no_face_detected': '음성 구간에서 분석할 주된 얼굴을 찾지 못했습니다.',
+  'low_resolution': '영상 해상도가 발화 구간 분석 기준보다 낮습니다.',
+  'face_too_small': '얼굴이 작아 분석할 구간을 확보하지 못했습니다.',
+  'too_blurry': '얼굴 영역이 흐려 분석할 구간을 확보하지 못했습니다.',
+  'segment_too_short': '분석할 발화 구간이 너무 짧습니다.',
   // 축별 세부 원인
   'tracking_failed': '추적에 실패했습니다.',
   'insufficient_motion': '움직임이 부족합니다.',
@@ -111,7 +121,7 @@ const axisStatusText = <String, String>{
 
 const analysisStatusText = <AnalysisStatus, String>{
   AnalysisStatus.outOfScope: '이 영상은 분석 범위(말하는 사람이 나오는 영상) 밖입니다.',
-  AnalysisStatus.unsupported: '지원하지 않는 형식의 영상입니다.',
+  AnalysisStatus.unsupported: '현재 지원하지 않는 분석 조건입니다.',
   AnalysisStatus.insufficientQuality: '영상 품질이 분석하기에 부족합니다.',
 };
 
