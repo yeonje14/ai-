@@ -9,7 +9,7 @@
 | 작업 | 상태 | 브랜치 | PR |
 |---|---|---|---|
 | 1. WaveRep을 Worker에 연결 (백로그 7번) | **완료.** 코드, 테스트, 실제 실행 확인, 커밋, push, PR까지 | `feat/waverep-worker` (`1c1c47a`) | #9 (**main에 합침**, `0e207cf`) |
-| 2. Gate 보완 (입 움직임, VAD 비교) | **완료(말하는 영상은 미검증).** 코드, 테스트, 커밋, push, PR까지 | `feat/gate-mouth-motion` | PR_NUMBER (열림) |
+| 2. Gate 보완 (입 움직임, VAD 비교) | **완료(말하는 영상은 미검증).** 코드, 테스트, 커밋, push, PR까지 | `feat/gate-mouth-motion` | #10 (열림) |
 
 **작업 1이 된 것** (자세한 내용은 아래 "백로그 7번: WaveRep을 Worker에 연결" 절):
 
