@@ -1,6 +1,87 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-15 · 브랜치 `feat/waverep-worker`
+마지막 갱신: 2026-11-15 · 브랜치 `feat/gate-mouth-motion` (PR #9를 합친 main 위로 옮김)
+
+## 오늘 밤 결과 요약 (2026-11-15, 무인 작업)
+
+밤사이 작업 1과 작업 2만 했다. 작업 3·4는 시작하지 않았다. 중간에 사용량 한도로 멈춰서 작업 2의 커밋은 모델을 바꿔 이어서 했다. 아침에 저장소 소유자의 지시로 PR #9를 먼저 main에 합쳤고, PR #10 브랜치를 그 위로 옮겨 README·HANDOFF 충돌을 두 작업 내용이 모두 남도록 해결했다.
+
+| 작업 | 상태 | 브랜치 | PR |
+|---|---|---|---|
+| 1. WaveRep을 Worker에 연결 (백로그 7번) | **완료.** 코드, 테스트, 실제 실행 확인, 커밋, push, PR까지 | `feat/waverep-worker` (`1c1c47a`) | #9 (**main에 합침**, `0e207cf`) |
+| 2. Gate 보완 (입 움직임, VAD 비교) | **완료(말하는 영상은 미검증).** 코드, 테스트, 커밋, push, PR까지 | `feat/gate-mouth-motion` | #10 (열림) |
+
+**작업 1이 된 것** (자세한 내용은 아래 "백로그 7번: WaveRep을 Worker에 연결" 절):
+
+- signal 축 stub을 WaveRep 어댑터 호출로 바꿨다. 기본값은 MPS, 배치 1, 초당 2장이다.
+- 레지스트리 `local_path`의 허가 미디어를 작업 폴더로 복사해 모델에 넘긴다.
+- 개발 전용 수동 구간 `TRINITY_DEV_MANUAL_SEGMENTS`를 추가했다. 기본은 꺼짐이다. 켜면 `gate_bypassed=true`, `partial`, `abstained`가 된다.
+- 추론 중에 주기적 heartbeat로 lease를 연장한다. 타임아웃과 실패는 점수 `null`로 격리한다.
+- 결과에는 프레임 logit 요약만 둔다. `raw_score`와 `overall_score`는 `null`이다.
+- `pytest -q` 352개 통과, 1개 건너뜀(lightgbm).
+- 서버와 Worker를 띄워 등록 테스트 ID와 샘플 영상으로 실제 WaveRep을 실행했다. 프레임 21장, mps, 추론 6.07초였다.
+- 미검증: 실제 추론이 heartbeat 간격(10초)보다 짧게 끝나서, 실제 모델 실행 중 lease가 연장되는 것은 관찰하지 못했다. 가짜 추론 프로세스 테스트로만 확인했다.
+
+**작업 2가 된 것**: 아래 "Gate 보완" 절.
+
+**아침에 확인할 것**:
+
+1. **PR #9의 동작 변화.** 등록 ID라도 `local_path`(미디어 파일)가 없으면 이제 `analysis_unavailable` / `video_access_unavailable`로 끝난다. 아무 설정 없이 `smoke_slice.py`를 돌리면 `TRINITYtest`가 접근 불가로 나온다.
+2. **PR #9의 README §15.3 변경 제안 4개.** `gate_bypassed`, `raw_metrics`, `video_access_unavailable`, 축 원인 코드에 관한 것이다. README §9·§10 본문은 바꾸지 않았다. 승인 여부를 정해야 한다.
+3. **샘플 영상의 오디오에 사람 목소리가 들어 있는지 들어 볼 것.** webrtcvad, Silero, YAMNet 세 방식이 모두 대부분을 음성으로 판정했다. 목소리가 있다면 VAD의 오판이 아니다.
+4. **말하는 영상으로 Gate 검증.** 찍은 영상을 `data/research/samples/speaking/`에 넣고 `pytest -q tests/test_gate_media.py`를 돌린다. 지금은 이 테스트를 건너뛴다.
+5. **두 PR을 합치는 순서.** 두 브랜치가 모두 `server/config.py`, `README.md`, `docs/HANDOFF.md`를 고쳐서 나중에 합치는 쪽에서 충돌이 난다. Gate를 Worker에 연결하는 일(수동 구간 대신 Gate 구간 사용, `gate_not_connected` 제거)은 두 PR이 모두 합쳐진 뒤에 한다.
+6. 받은 모델 파일 3개(`face_landmarker.task`, Silero VAD v6.0 ONNX, YAMNet)의 이용 조건. 아직 확인하지 않았다.
+7. 원래 Gate 브랜치 `feat/gate-speech-segments`는 그대로 남겨 두었다. 정리할지는 저장소 소유자가 정한다.
+
+
+## Gate 보완: 입 움직임 확인, VAD 비교 (2026-11-15 밤, 무인 작업)
+
+**계획** (작업 전 기록):
+
+- `feat/gate-speech-segments`의 커밋 2개를 최신 main 위의 새 브랜치 `feat/gate-mouth-motion`으로 옮긴다(원래 브랜치는 건드리지 않는다). CLAUDE.md 충돌은 Gate 의존성 줄을 AGENTS.md "명령"으로 옮겨 해결한다.
+- MediaPipe Face Landmarker(공식 배포 모델, sha256 기록)로 입 벌림(안쪽 입술 거리 / 두 눈 바깥꼬리 거리)을 초당 약 15장에서 잰다. 음성 구간 안에서 입 벌림이 변하는 부분만 발화로 인정한다.
+- webrtcvad 민감도 0~3과 torch 없는 VAD 후보를 `research/gate/.venv`에서 비교한다. trinity 환경에는 아무것도 설치하지 않는다.
+- 샘플(야외, 발화 없음)이 발화 없음 계열 원인 코드로 걸러지는지 확인하고, 기대값이 틀린 테스트를 고친다.
+- 말하는 영상 검증은 하지 않는다("미검증").
+
+**결과**:
+
+- **브랜치**: `feat/gate-speech-segments`의 커밋 2개를 최신 main(`283c4d1`) 위로 옮겼다(새 커밋 `9f8fcb2`, `77df736`). 충돌은 세 군데에서 났다.
+  - CLAUDE.md: main 쪽(`@AGENTS.md` 한 줄)을 남기고, Gate 의존성 줄은 AGENTS.md "명령"으로 옮겼다.
+  - README §14.1: main 쪽 표에 Gate의 6번 행만 넣었다.
+  - HANDOFF: 두 쪽을 다 남겼다.
+- **새 파일과 바꾼 파일**:
+  - `server/gate/mouth.py`: 입 벌림 측정(Face Landmarker).
+  - `server/gate/mouth_activity.py`: 반전 세기와 움직인 구간을 찾는 순수 함수.
+  - `segments.py`: 음성 구간을 입이 움직인 조각과 아닌 조각으로 나눈다.
+  - `types.py`: `no_mouth_movement`, `NO_SPEECH_FAMILY`, 임시 임계값, 결과 필드를 추가했다.
+  - `faces.py`: 모델 해시 확인을 공통 함수로 바꿨다.
+  - `configs/gate_models.json`: `face_landmarker` 항목과 해시를 넣었다.
+  - `research/gate/compare_vad.py`, `research/gate/requirements-compare.txt`.
+  - `tests/test_gate_mouth.py`(새 파일), `tests/test_gate_media.py`(기대값 수정).
+- **규칙**: 음성과 입 움직임이 함께 있을 때만 발화로 인정한다. 입 움직임은 입 벌림이 0.02 이상 되돌아간 반전을 세서 정한다. 0.75초 안에 반전이 3번 이상 이어지면 움직인 것으로 본다. 한 번 벌렸다 닫는 것(샘플 0.3~1.0초)은 발화로 세지 않는다. 임계값은 전부 임시값이다.
+- **샘플(야외, 발화 없음)**: 이제 `no_mouth_movement`(발화 없음 계열)로 끝나고 적합 구간은 0초다. webrtcvad 민감도 0~3 모두 같은 결과다.
+- **고친 테스트**: `test_single_speaker_video_has_eligible_segment`가 이 영상에 적합 구간이 있다고 기대했는데, 그 기대가 틀렸다. `test_sample_without_speech_has_no_eligible_segment`로 바꿨다. 원인 코드 분리 테스트는 변형본 3개(오디오 없음, 검은 화면, 무음)로만 비교한다.
+- **VAD 비교** (표는 `docs/gate.md`):
+  - 샘플 오디오를 음성으로 판정한 비율: webrtcvad 0.99/0.94/0.81/0.81(민감도 0~3), Silero VAD(ONNX) 0.74, YAMNet 0.91.
+  - 합성 음성에 샘플 오디오를 섞은 조건의 오경보율은 Silero가 가장 낮았다.
+  - 결정: **VAD는 webrtcvad 민감도 2를 그대로 쓴다.** Silero는 교체 후보로 남긴다.
+  - 합성 음성은 실제 발화가 아니다. 이 비교로 정확도를 주장하지 않는다.
+- **설치와 다운로드**:
+  - `research/gate/.venv`에만 `onnxruntime` 1.32.0과 `protobuf` 7.36.2를 설치했다. dry-run으로 torch가 딸려 오지 않는 것을 먼저 확인했다. conda `trinity`에는 아무것도 설치하지 않았다.
+  - 모델은 공식 출처(MediaPipe 모델 저장소, Silero 공식 GitHub 태그 v6.0)에서만 받았다. sha256은 `docs/gate.md`에 적었다.
+
+**검증** (2026-11-15):
+
+- `pytest -q`: 357개 통과, 2개 건너뜀. 건너뛴 것은 lightgbm 테스트(전부터 그랬다)와 말하는 영상 테스트(영상 없음)다.
+- `python scripts/run_gate.py`로 샘플 영상을 돌렸다. `no_mouth_movement`, 입 벌림 표본 157개를 모두 쟀고 반전은 1번, 실행 약 2.3초였다.
+
+**미검증**: 말하는 영상(내일 저장소 소유자가 찍은 영상으로 확인), 입 움직임 임계값, 다중 발화, 긴 영상의 실행 시간, 씹기·웃음처럼 말하지 않고 입이 움직이는 경우.
+
+**남은 일**: 말하는 영상으로 임계값을 확인한다. 그다음 Gate를 Worker에 연결한다(PR #9가 합쳐진 뒤, 백로그 7번의 남은 일). Silero VAD 교체는 실제 발화 영상으로 다시 비교한 뒤 정한다.
+
+**막힘**: 없음.
 
 ## 백로그 7번: WaveRep을 Worker에 연결 (2026-11-15 밤, 무인 작업)
 
@@ -261,6 +342,43 @@ README 설계 문구와 접근 기록을 바꾸고, MAVOS-DD 표본 목록을 �
 - **정정**: 지난 갱신에서 `docs/dataset-access.md`의 TalkingHeadBench "확인 필요" 표에 잘못 넣은 Deepfake-Eval-2024 거절 관련 두 줄을 Deepfake-Eval-2024 절로 옮겼다.
 - **검증**: `pytest -q` 124개 통과(conda `trinity`). 문서 변경이라 새 테스트는 없다.
 
+## 백로그 6번: 최소 발화 구간 Gate (구현함, 알려진 문제 있음, main에 합치지 않음)
+
+**알려진 문제 (2026-11-12, 저장소 소유자 확인):**
+
+- 샘플 영상은 실제로 발화가 없다(야외, 주변 소음). 그런데 VAD가 대부분을 음성으로 판정했다.
+- 단일 발화 테스트의 기대값이 틀렸을 수 있다(`tests/test_gate_media.py::test_single_speaker_video_has_eligible_segment`).
+- 입 움직임 확인 추가와 VAD 비교가 필요하다.
+- 발화가 있는 영상은 아직 없다.
+- Gate 수정은 미뤘다. 코드는 고치지 않았다. **이 브랜치(`feat/gate-speech-segments`)는 `main`에 합치지 않는다.**
+- 아래의 "원본 `null`(적합 구간 0~10.433초)"과 README §14.1 6번 행의 "단일 발화 ... 확인"은 이 문제의 영향을 받는다. 그대로 믿지 않는다.
+- `docs/waverep-spike.md`의 입력 설명을 "본인 얼굴, 주변 소리, 발화 없음"으로 정정했다. `docs/media-access.md` §3의 "본인 얼굴과 본인 음성만"은 허가 미디어의 범위 규칙이라 고치지 않았다. 현재 샘플에 본인 음성(발화)이 없다는 점은 거기에 적혀 있지 않다.
+
+허가 미디어 파일 하나를 받아 적합 발화 구간과 원인 코드를 돌려주는 `server/gate` 모듈이다. 모델 추론은 하지 않는다. Worker에는 연결하지 않았다. 자세한 내용은 `docs/gate.md`.
+
+- **구성**: `probe.py`(ffprobe), `vad.py`(FFmpeg PCM 파이프 + `webrtcvad`), `faces.py`(MediaPipe Face Detector), `segments.py`(추적과 규칙, 순수 함수), `types.py`(자료형·원인 코드·임시 임계값). 진입점은 `server.gate.run_gate(media_path)`.
+- **규칙**: 음성 구간 동안 주된 얼굴이 정확히 하나일 때만 적합 구간이다. 둘 이상이면 `speaker_unconfirmed`.
+- **원인 코드**: `media_unreadable`, `audio_missing`, `no_speech_detected`, `no_face_detected`, `speaker_unconfirmed`, `low_resolution`, `face_too_small`, `too_blurry`, `segment_too_short`. README §10에 추가했다.
+- **coverage**: `video_duration_sec`와 `eligible_duration_sec`만 채운다. `analyzed_*`와 비율은 `null`(백로그 7번에서 채운다).
+- **의존성**: `requirements-gate.txt`(버전 고정)를 conda `trinity`에 설치했다. `mediapipe` 1.2.3, `webrtcvad-wheels` 2.0.14.post1, `opencv-contrib-python` 5.0.0.93, `numpy` 2.4.6 등. **torch는 없다**(설치 전 dry-run과 설치 후 모두 확인). 먼저 `research/gate/.venv`에서 스모크했고 lockfile은 `research/gate/requirements.lock.txt`.
+- **모델 파일**: `data/models/gate/blaze_face_short_range.tflite`(Git 제외). sha256은 `configs/gate_models.json`. 해시가 다르면 실행을 거부한다.
+- **실행**:
+  ```bash
+  conda activate trinity
+  pip install -r requirements-gate.txt
+  python scripts/run_gate.py data/research/samples/<허가 영상>.mp4
+  pytest -q
+  ```
+  모델 파일을 받는 방법은 `docs/gate.md` "재현 방법".
+- **검증**: `pytest -q` 96개 통과(conda `trinity`, 건너뛴 테스트 없음). 실제 영상 4종의 대표 원인 코드: 원본 `null`(적합 구간 0~10.433초), 오디오 제거본 `audio_missing`, 검은 화면본 `no_face_detected`, 무음 오디오본 `no_speech_detected`. 변형은 테스트 중 임시 폴더에 만들고 끝나면 지운다.
+- **미검증·확인 필요**:
+  - 여러 명이 말하는 영상(동의받은 영상 없음). `speaker_unconfirmed`는 합성 표본을 넣은 규칙 단위 테스트로만 확인했다.
+  - 임계값 전부(임시값). 품질 원인 코드는 실제 저품질 영상으로 실행하지 않았다.
+  - 화면 밖 발화자는 구분하지 못한다(보이는 얼굴이 말한다고 가정).
+  - VAD가 샘플 전체를 한 음성 구간으로 묶었다. 실제 발화와 맞는지 사람이 대조하지 않았다. `webrtcvad`의 정확도는 비교하지 않았다.
+  - MediaPipe 얼굴 검출 모델 파일의 이용 조건, 세로(회전) 영상에서의 프레임 방향.
+- **백로그 7번에서 할 일**: Gate를 Worker의 `preprocessing` 단계에 연결, 원인 코드를 `analysis_status`에 대응, `analyzed_*` coverage 채우기, Gate 실행 중 heartbeat, 서버가 발급한 작업 경로만 넘기기.
+
 ## 백로그 1·3번: 접근 기록 문서화 (둘 다 진행 중)
 
 문서만 만들었다. 코드는 바꾸지 않았다.
@@ -335,6 +453,7 @@ README 설계 문구와 접근 기록을 바꾸고, MAVOS-DD 표본 목록을 �
 
 ```bash
 conda activate trinity                # 없으면: conda create -n trinity python=3.11 -y && pip install -r requirements.txt
+pip install -r requirements-gate.txt  # Gate용(선택). torch 없음
 pytest -q
 uvicorn server.main:app --reload      # 터미널 1
 python -m server.jobs.worker          # 터미널 2
@@ -344,7 +463,7 @@ python scripts/smoke_slice.py         # 터미널 3
 ## 남은 일
 
 - 백로그 1·3번은 기록을 만들었고 둘 다 진행 중이다(`docs/media-access.md`, `docs/dataset-access.md`). 4번은 원래 1번에, 5번은 3번에 의존한다.
-- 다음 순서: 백로그 6번(최소 발화 구간 Gate). 1·3번의 확인 필요 항목은 병렬로 처리한다. 데이터셋 승인은 기다려야 한다.
+- 다음 순서: 6번 Gate의 알려진 문제(발화 없는 영상을 음성으로 판정)를 먼저 해결할지 정한다. 발화가 있는 허가 영상이 필요하다. 그 전에는 7번에서 Gate를 Worker에 연결하지 않는다. 1·3번의 확인 필요 항목은 병렬로 처리한다. 데이터셋 승인은 기다려야 한다.
 - 백로그 14번으로 미룬 것: `DELETE /api/v1/analyses/{id}` 엔드포인트(큐의 `request_cancel`은 이미 있음), 정식 인증, rate limit, 비정상 종료 잔여 파일 24시간 정리.
 - 실제 모델을 연결하면(백로그 7번) heartbeat를 단계 경계가 아니라 주기적으로 보내야 한다. 지금은 stub이 즉시 끝나서 단계 경계 heartbeat로 충분하다.
 
