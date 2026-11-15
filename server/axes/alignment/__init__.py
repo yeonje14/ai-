@@ -1,23 +1,29 @@
-"""축3 · 정합 (SyncNet). 진위 분류기가 아니라 동기화 보조 지표다.
-
-백로그 4번 단계에서는 stub이다. 지표는 null이다.
-"""
-
-from __future__ import annotations
-
-from typing import Any
-
+"""Gate 적합 구간의 SyncNet 실행. 대표값 집계와 진위 판정은 하지 않는다."""
 from server.axes import AxisContext
+from . import syncnet
+from .report import MODEL_VERSION
 
-STUB_REASON = "stub_not_executed"
+
+def build_config(ctx: AxisContext) -> syncnet.SyncNetConfig:
+    timeout = 600.0
+    if ctx.timeout_seconds is not None:
+        timeout = min(timeout, ctx.timeout_seconds)
+    return syncnet.SyncNetConfig(timeout_sec=timeout)
 
 
-def run(ctx: AxisContext) -> dict[str, Any]:
-    return {
-        "status": "insufficient_input",
-        "reason_code": STUB_REASON,
-        "lse_c": None,
-        "lse_d": None,
-        "included_in_fusion": False,
-        "model_version": "stub",
-    }
+def run(ctx: AxisContext) -> dict:
+    result = {'status': 'insufficient_input', 'reason_code': 'no_segments',
+              'lse_c': None, 'lse_d': None, 'included_in_fusion': False,
+              'model_version': MODEL_VERSION}
+    if ctx.settings.dev_manual_segments:
+        result['reason_code'] = 'speaker_unconfirmed'
+        return result
+    if not ctx.segments:
+        return result
+    if ctx.media_path is None:
+        result.update(status='error', reason_code='media_unreadable')
+        return result
+    raw = syncnet.run_syncnet(ctx.media_path, ctx.segments, ctx.job_dir, build_config(ctx),
+                             on_tick=ctx.heartbeat, tick_sec=ctx.settings.heartbeat_interval_seconds)
+    result.update(status=raw['status'], reason_code=raw['reason_code'])
+    return result
