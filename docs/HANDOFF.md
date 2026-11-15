@@ -4,23 +4,31 @@
 
 ## SyncNet 진행
 
-- **현재 조각:** 1/3, CPU 재현 스파이크 완료 (2026-11-15). 여기서 멈춘다.
-- **브랜치:** `feat/syncnet`, 최신 origin/main `3f0f2b4`에서 생성. PR을 만들지 않는다.
-- **한 일:** README §5.3·§12.1과 허가 미디어 근거 확인. Python 3.11 별도 환경 구성,
-  nawta 구현 SHA 고정, 공식 VGG 가중치 출처 확인·다운로드·해시 기록.
-  기존 무발화 허가 샘플의 CPU **실행 성공** 및 임시 폴더 삭제를 확인했다.
-  원본은 수정하지 않았고 성공한 환경을 lockfile로 고정했다. 가중치·가상환경·upstream은 Git 제외다.
-  API 계약은 변경하지 않았다.
-- **검증:** 전체 `pytest -q`: 447 passed, 2 skipped(기존 LightGBM·발화 샘플 조건),
-  기존 httpx 경고 1개. 새 테스트 10개 통과. `pip check`와 lockfile 설치 dry-run 통과.
-  새 환경의 lockfile 전체 재설치와 Flutter 테스트는 이번 조각에서 미실행.
-  독립 리뷰는 모델 사용량 제한으로 미완료이며 직접 코드 검토를 수행했다.
-- **실행 방법:** `docs/syncnet-spike.md`의 환경·가중치·허가 레지스트리 준비 후
-  `research/syncnet/.venv/bin/python research/syncnet/run_spike.py --registry data/research/syncnet-spike/authorized_media.json --media-root data/research/samples --video-id TRINITYtest`.
-- **다음 조각:** 2/3의 사용자 지시를 받은 뒤 진행한다. 이번에는 API/Worker 통합이나 출력 해석을 하지 않는다.
-- **막힌 점:** CPU 재현을 막는 문제는 없다. 가중치 상업 이용·재배포 조건과 S3FD의 파일별
-  라이선스 범위는 **확인 필요**. 실제 발화·동기화 품질은 이번 조각에서 **미검증**.
-- **기록:** `docs/syncnet-spike.md`. 발화 없는 샘플의 숫자는 문서에 적지 않는다.
+- **현재 조각:** 2/3, 독립 어댑터 구현·검증 완료 (2026-11-15).
+- **브랜치/기준:** `feat/syncnet`. 조각 1은 `ffab166`으로 커밋·push된 상태에서 시작했다.
+  README·Gate·WaveRep 검증 문서와 HANDOFF의 실내 영상 검증 절은 기존 미커밋 변경이며 보존한다.
+- **한 일:** `server/axes/alignment/syncnet.py`와 전용 실행기 구현. Gate 적합 시간 구간을
+  받아 원본 pipeline의 같은 트랙에 속한 LSE-C·LSE-D·프레임 오프셋을 내부 JSON으로 반환한다.
+  임의 전체 집계·진위 판정 없이 `included_in_fusion=false`, `raw_score=null`을 유지한다.
+  실패/미실행 지표는 null이고 구간 실패는 다음 구간으로부터 격리한다.
+  별도 CPU 프로세스·인자 리스트·타임아웃·취소 콜백·후손 종료·임시 폴더 정리를 구현했다.
+  trinity에 torch 설치/import 없음. 가중치 해시·원본 고정·Git 제외는 조각 1을 유지한다.
+  Worker와 기존 alignment stub, HTTP API는 변경하지 않았다.
+- **검증:** 대상 테스트 **49 passed**, 최종 전체 `pytest -q -rs`: **496 passed, 2 skipped**,
+  기존 httpx 경고 1개. 건너뜀은 LightGBM 없음과 자동 Gate 테스트의 speaking/*.mp4 샘플 없음이다.
+  독립 리뷰에서 발견한 깊은 중첩 JSON 예외를 실패→통과 회귀 테스트로 보완했다.
+  가짜 프로세스의 성공/실패/타임아웃/취소/후손 종료, 빈 구간, 잘못된 JSON·수치·경로,
+  같은 트랙 짝짓기, 구간 실패 격리와 임시 파일 정리를 검사했다.
+- **실행 방법:** `docs/syncnet-adapter.md`의 `run_syncnet` 호출 예시 및 검증 명령 참고.
+  `/opt/anaconda3/envs/trinity/bin/python -m pytest -q`로 전체 검증한다.
+- **다음 조각:** 3/3 사용자 지시 후 Worker 연결과 실제 발화 영상 오프셋 실험.
+  Gate 발화자와 SyncNet 트랙의 대응·외부 API 노출 형식은 연결 전에 확인한다.
+  API 계약 변경이 필요하면 README §15.3 제안을 먼저 승인받는다. 이번에는 PR을 만들지 않는다.
+- **막힌 점/미검증:** 이 어댑터 경유 실제 모델 추론·실제 발화 오프셋·Worker 취소 연결은 미검증.
+  가중치 상업 이용·재배포 조건과 S3FD 파일별 라이선스 범위는 **확인 필요**다.
+- **조각 1 기록:** Python 3.11 별도 환경, upstream SHA 고정, 공식 VGG 가중치 해시,
+  무발화 허가 샘플 CPU **실행 성공**, lockfile 고정. 지표 숫자는 기록하지 않았다.
+  상세: `docs/syncnet-spike.md`. 새 환경 lockfile 전체 재설치는 미검증.
 
 ## 이전 작업: 백로그 7번 Gate → Worker 연결 (2026-11-15)
 
