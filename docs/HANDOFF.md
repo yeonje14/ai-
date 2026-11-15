@@ -56,6 +56,34 @@ python -m pytest -q -rs
 
 ## SyncNet 진행
 
+### A.MOV 오프셋 진단 (2026-11-15, 커밋·push 보류)
+
+- 현재 feat/syncnet에서 시작했고 작업 시작 시 미커밋 변경은 없었다.
+  기존 기록을 보존하면서 A 한 개만 SyncNet 진단했다.
+- Git 밖 `data/research/syncnet-A-diagnostic/registry.json`에 `SyncNetTstA` → A.MOV 등록.
+  기존 Gate 적합 구간 중 최장 25.068–40.335초 내부의 26–34초(8초)를 선택했다.
+  경계 여유와 원본 최소 트랙 길이(50프레임)를 고려했다. Gate 설정·임계값은 그대로다.
+- 분석 FPS 25 확인. 도구에 음수·0초 및 여러 이동 조건 순차 실행을 추가했다.
+  원본 오프셋 +4, 오디오 이동 −0.20/−0.08/0/+0.08/+0.20초에서
+  오프셋 +9/+6/+4/+2/−1을 관찰했다. 원본 대비 +5/+2/0/−2/−5로 기대 변화와 일치.
+  전 조건 실행 성공, 각각 유효 트랙 1개. 트랙별 LSE-C/LSE-D 전체 표는 docs/syncnet-adapter.md.
+- 모든 조건의 분석 구간 영상 프레임 해시는 동일했다. 다만 영속 트랙 ID/프레임별 box를
+  반환하지 않으므로 정확한 트랙 대응과 Gate 발화자 동일인 여부는 미검증이다.
+  실제 실행·이동 반응 진단이며 진위 판정·탐지 정확도 검증이 아니다. B·E 진단은 하지 않았다.
+- 임시 영상·오디오·얼굴 crop 및 진단/프레임 확인 폴더 삭제 확인.
+  관련 테스트 3 passed; 전체 pytest **509 passed, 1 skipped**, 기존 경고 1개(LightGBM 없음으로 skip).
+- 재실행 명령:
+
+```bash
+research/syncnet/.venv/bin/python scripts/diagnose_syncnet_offset.py --registry data/research/syncnet-A-diagnostic/registry.json --media-root data/research/samples --video-id SyncNetTstA --start 26 --end 34 --delays -0.20 -0.08 0 0.08 0.20 > data/research/syncnet-A-diagnostic/results.json
+/opt/anaconda3/envs/trinity/bin/python -m pytest -q -rs
+```
+
+- 다음 작업: 필요 시 트랙 대응 근거 보강 및 별도 승인된 표본 확대. 이번 작업은 A 진단에서 종료.
+  가중치 이용 조건은 기존 확인 필요를 유지한다. 코드·문서만 변경, 커밋·push하지 않는다.
+- 아래 조각 1–3 기록의 미검증 표기는 당시 기준이다. 이번 진단은 위 A 구간에 한해 추가 검증했다.
+
+
 - **현재 조각:** 3/3 Worker 연결 구현 (2026-11-15), feat/syncnet. 조각 1 ffab166·조각 2 9664d3a 기반.
 - **한 일:** Gate 적합 구간만 CPU 어댑터에 전달. 수동 Gate 우회는 미실행.
   heartbeat lease 연장·취소·남은 작업 시간 제한 연결. 트랙별 LSE-C/LSE-D/오프셋 내부 계산 결과를 대역 프로세스로 확인.

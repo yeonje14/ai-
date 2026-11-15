@@ -15,10 +15,12 @@ from server.axes.alignment.syncnet import run_syncnet
 
 
 def shift_command(source: Path, target: Path, delay: float) -> list[str]:
-    if not math.isfinite(delay) or delay <= 0:
-        raise ValueError('delay must be positive seconds')
+    if not math.isfinite(delay):
+        raise ValueError('delay must be finite seconds')
+    audio_filter = (f'adelay={delay * 1000:g}:all=1' if delay > 0 else
+                    f'atrim=start={-delay:g},asetpts=PTS-STARTPTS' if delay < 0 else 'anull')
     return ['ffmpeg', '-nostdin', '-y', '-i', str(source), '-map', '0:v:0', '-map', '0:a:0',
-            '-c:v', 'copy', '-af', f'adelay={delay * 1000:g}:all=1', '-c:a', 'pcm_s16le',
+            '-c:v', 'copy', '-af', audio_filter, '-c:a', 'pcm_s16le',
             '-shortest', str(target)]
 
 
@@ -29,7 +31,9 @@ def main(argv=None):
     p.add_argument('--video-id',required=True)
     p.add_argument('--start',type=float,required=True)
     p.add_argument('--end',type=float,required=True)
-    p.add_argument('--delay',type=float,required=True)
+    group=p.add_mutually_exclusive_group(required=True)
+    group.add_argument('--delay',type=float)
+    group.add_argument('--delays',type=float,nargs='+')
     args=p.parse_args(argv)
     if not all(math.isfinite(v) for v in (args.start,args.end)) or not 0 <= args.start < args.end:
         p.error('0 <= start < end required')
@@ -40,11 +44,16 @@ def main(argv=None):
     with tempfile.TemporaryDirectory(prefix='syncnet-diagnostic-',dir=runtime) as tmp:
         work=Path(tmp);source=work/'source.mp4';shifted=work/'shifted.mkv'
         shutil.copyfile(media.local_path,source)
-        subprocess.run(shift_command(source,shifted,args.delay),check=True,timeout=120,
-                       stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-        results={name:run_syncnet(path,[(args.start,args.end)],work)
-                 for name,path in [('original',source),('audio_delayed',shifted)]}
-        print(json.dumps({'delay_seconds':args.delay,'results':results},ensure_ascii=False,allow_nan=False))
+        results={'original':run_syncnet(source,[(args.start,args.end)],work)}
+        delays=args.delays if args.delays is not None else [args.delay]
+        for delay in delays:
+            subprocess.run(shift_command(source,shifted,delay),check=True,timeout=120,
+                           stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            key=f'audio_shift_{delay:+g}s' if args.delays is not None else 'audio_delayed'
+            results[key]=run_syncnet(shifted,[(args.start,args.end)],work)
+            shifted.unlink()
+        print(json.dumps({'delay_seconds':delays if args.delays is not None else args.delay,
+                          'results':results},ensure_ascii=False,allow_nan=False))
     return 0
 
 if __name__=='__main__':
