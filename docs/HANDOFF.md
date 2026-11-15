@@ -2,6 +2,29 @@
 
 마지막 갱신: 2026-11-15 · 브랜치 `feat/syncnet` (기준 커밋 `3f0f2b4`)
 
+## 최신 작업: 실내 영상 Gate·WaveRep 검증 (2026-11-15)
+
+- **Gate:** 촬영자가 옮긴 허가 샘플 A–E를 Git 밖의 임시 레지스트리에 등록했다.
+  A(가로)·B(세로)·E(교대 발화)는 통과했고 C·D는 `no_mouth_movement`로 제외됐다.
+  D는 촬영자가 본인 음성만 사용했다고 확인했다. E의 촬영자 기준 발화 30초와
+  적합 구간이 24.224초 겹쳤고, 10–20초와 30–40초 침묵 구간은 모두 제외됐다.
+  마지막 적합 구간은 기록의 50초 경계를 0.640초 넘었다. 상세 구간은 `docs/gate.md`.
+- **WaveRep:** A의 테스트 URL을 FastAPI 테스트 클라이언트에 보내고 별도 Worker로 처리했다.
+  Gate 우회 없이 37.021초에서 CPU로 76프레임을 분석했다. 기본 heartbeat 간격 10초에서
+  WaveRep 단계의 서로 다른 lease 만료 시각 7개를 관찰했고 임시 작업 폴더 삭제를 확인했다.
+  결과는 `finished` / `partial` / `abstained`, `raw_score`·`overall_score`·`verdict_label`은
+  `null`이다. Worker 1회 실행 수치와 CPU 대체 근거는 `docs/waverep-adapter.md`.
+- **실행 방법:** conda `trinity`에서 `python scripts/run_gate.py <등록한 허가 영상 경로>`.
+  서버 연결 확인은 테스트 ID를 A에 연결한 임시 레지스트리·DB를 구성하고 분석 URL을 접수한 뒤
+  `python -m server.jobs.worker --drain` 및 결과 조회로 확인했다.
+  `python -m pytest -q -rs`는 447개 통과, 2개 건너뜀, 기존 경고 1개.
+  건너뜀은 LightGBM 부재와 자동 테스트가 별도 `samples/speaking/*.mp4`만 찾는 경우다.
+  A–E의 `.MOV` 검증은 위 Gate 도구로 따로 실행했다.
+- **다음:** 실제 WaveRep 추론 중 취소를 PR #12 브랜치에서 재현하고, A의 실제 YouTube ID로
+  앱 시연할 경로를 확인한다. 다중 발화, A의 MPS 추론, 실제 앱 시연은 미검증이다.
+  SyncNet 1–3 조각의 진행 상태와 남은 검증은 아래 절을 참고한다.
+
+
 ## SyncNet 진행
 
 - **현재 조각:** 3/3 Worker 연결 구현 (2026-11-15), feat/syncnet. 조각 1 ffab166·조각 2 9664d3a 기반.
@@ -17,7 +40,8 @@
 - **막힌 점/미검증:** 발화 영상은 확보됐으나 실제 영상 실험·정확도·탐지 추가 기여·실제 모델 Worker 취소는 미검증.
   Worker 강제 종료 후 재시작 복구는 이번 조각에서 검증하지 않았다.
   가중치 상업 이용·재배포 및 S3FD 라이선스 범위는 확인 필요. trinity에 torch 설치 없음.
-- **기존 변경:** Gate 검증 문서와 README의 6·7번, HANDOFF 실내 검증 절은 보존하며 이번 커밋에 포함하지 않는다.
+- **커밋:** Worker 연결은 `802a7e0`에 기록했다.
+  실내 Gate·WaveRep 검증과 README 6·7번 갱신은 별도 문서 커밋으로 기록한다.
 - **기록:** docs/syncnet-spike.md, docs/syncnet-adapter.md. 조각 1 무발화 샘플은 실행 성공만 기록했다.
 
 ## 이전 작업: 백로그 7번 Gate → Worker 연결 (2026-11-15)

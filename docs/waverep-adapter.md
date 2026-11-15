@@ -204,4 +204,13 @@ Gate는 torch 없는 conda `trinity`의 별도 프로세스, WaveRep은 기존
 - `gate_not_connected` 임시 경로를 제거했다. 수동 구간은 기본 꺼짐이며 개발·테스트 전용으로 유지한다.
 - `raw_score`, `overall_score`, `verdict_label`은 계속 `null`. logit 요약은 판정이 아니다.
 - 실제 서버·Worker에서 발화 없는 샘플의 `no_mouth_movement` 차단과 모델 단계 생략을 확인했다.
-- 실제 말하는 영상의 Gate 통과 → WaveRep은 **미검증**. 자세한 재현 명령·한계는 `docs/gate.md`.
+- 실제 말하는 허가 영상 A를 FastAPI 테스트 클라이언트의 URL 요청과 별도 Worker로 처리했다.
+  임시 레지스트리의 테스트 ID를 사용했다. Gate 우회 없이 적합 구간 37.021초를 분석했고,
+  76개 프레임 logit 범위는 3.144–9.627이었다.
+- 기본 MPS 설정에서 이 실행 환경의 PyTorch가 MPS를 사용할 수 없어 CPU로 대체됐다.
+  WaveRep 프로세스 64.85초, Worker 전체 102.79초가 걸렸다. 다른 검증과 시간을 겹쳐
+  실행한 1회 측정이다. 기본 heartbeat 간격 10초에서 WaveRep 단계의 서로 다른 lease
+  만료 시각 7개를 관찰했고 작업 폴더가 삭제됐다.
+- 결과는 `finished` / `partial` / `abstained`였고 `raw_score`·`overall_score`·
+  `verdict_label`은 `null`이었다. Gate 표본 결과는 `docs/gate.md`에 있다.
+  이 영상의 MPS 성능과 실제 추론 중 취소, 실제 YouTube ID로 앱에서 시연하는 경로는 미검증이다.
