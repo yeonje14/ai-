@@ -2,6 +2,55 @@
 
 마지막 갱신: 2026-11-15 · 브랜치 `codex/cancel-recovery-security` (최신 origin/main `3f0f2b4`에서 생성)
 
+## A 영상 실제 WaveRep 추론 중 취소 검증 (2026-11-15)
+
+- 범위: PR #12 `codex/cancel-recovery-security`, 커밋
+  `3fe99f01715cb07f2c57b9ec6de57b9368846f46`에서 A.MOV 한 건만 검증했다.
+  별도 worktree `/private/tmp/trinity-pr12-cancel-A`를 사용했고 원래
+  `/Users/iyeonje/ai-`의 `feat/syncnet` 작업 공간은 변경하지 않았다.
+- 독립 실제 uvicorn·Worker·SQLite·runtime을 사용했다. 임시 AuthorizedMediaRegistry에
+  `/Users/iyeonje/ai-/data/research/samples/A.MOV`를 연결했다.
+  기존 Gate 설정·임계값을 그대로 사용하고 WaveRep 장치만 `cpu`로 지정했다.
+  기존 모델별 `.venv`·upstream·가중치를 재사용했으며 설치·다운로드·모델 코드 수정은 없었다.
+- 작업 `fe18425a-2b54-43c3-99a8-e483397b5f56`은 `preprocessing`을 거쳐
+  `waverep`에 진입했다. 실제 `infer_frames.py` 자식 PID `99588`이 실행되는 동안
+  `/usr/bin/sample`로 `libtorch_cpu`의 `linear`, `addmm`, `cpublas::gemm` 스택을 확인했다.
+  DELETE 직전에 `processing/waverep`, 자식 생존, 추론 결과 파일 미생성을 다시 확인했다.
+  따라서 모델 프로세스 시작만 확인하거나 추론이 끝난 뒤 취소한 검증이 아니다.
+- 진행 중 GET에서 받은 ETag를 `If-Match`로 보낸 DELETE 응답:
+  HTTP **202**, `job_status=processing`, `stage=waverep`.
+- 최종 GET 및 결과 조회: **`job_status=cancelled`**, `overall_score=null`.
+  실제 추론 자식 종료와 해당 UUID 임시 작업 폴더 삭제를 각각 확인했다.
+  취소 요청부터 확인까지 약 **0.39초**(이번 1회 관찰값)였으며 Worker 종료 코드는 0이었다.
+  종료 작업을 삭제하는 두 번째 DELETE는 보내지 않았다.
+- 실행 후 검증용 서버·Worker를 종료하고 임시 레지스트리·DB·runtime을 정리했다.
+  원본 영상·가중치·환경은 보존했다. 검증용 환경 연결 심볼릭 링크도 제거했다.
+
+**로컬 재현 명령** (이 세션의 검증 스크립트는 Git 밖 `/private/tmp/pr12_cancel_a.py`에 보존):
+
+```bash
+cd /private/tmp/trinity-pr12-cancel-A
+ln -s /Users/iyeonje/ai-/research/waverep/.venv research/waverep/.venv
+ln -s /Users/iyeonje/ai-/research/waverep/upstream research/waverep/upstream
+/opt/anaconda3/envs/trinity/bin/python /private/tmp/pr12_cancel_a.py
+# 실행 후 위에서 만든 심볼릭 링크 두 개만 제거한다(원본 환경·upstream 보존).
+unlink research/waverep/.venv
+unlink research/waverep/upstream
+git diff --check
+```
+
+스크립트는 기존 `scripts/smoke_cancel_worker.py`를 기반으로 A와 실제 WaveRep 자식을
+관찰하도록 만든 세션 전용 실행기다. Gate 제한 120초, 전체 작업 제한 300초,
+heartbeat 1초·lease 4초, WaveRep CPU를 사용한다. 자식 관찰 후 15초 대기와 1초 스택
+샘플링을 수행하며, 실제 연산·진행 상태가 확인되지 않으면 성공으로 처리하지 않는다.
+재현에는 이 로컬 스크립트·허가 원본·기존 모델 환경이 필요하다(`/private/tmp` 정리 시 스크립트 소실 가능).
+스택 원본은 `/private/tmp/pr12-A-stack.txt`에 있으며 미디어 내용은 포함하지 않는다.
+
+**검증 범위·남은 일:** 이번 A 한 건의 CPU 추론 중 취소 성공만 확인했다.
+MPS 추론 취소·다른 영상·반복 안정성은 미검증이다. 코드 변경이 없어 전체 pytest는
+다시 실행하지 않았다. API·Gate 판정·임계값을 변경하지 않았고 커밋·push는 하지 않았다.
+막힌 점 없음.
+
 ## 현재 작업: 백로그 14번 중 취소·삭제·Worker 복구·정리
 
 **결과:** 요청한 부분의 구현·테스트·실제 서버 취소 확인을 마쳤다. 백로그 14번 전체 완료는 아니다.
