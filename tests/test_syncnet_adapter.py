@@ -176,7 +176,7 @@ Path(a.output).with_name('private_crop.jpg').write_bytes(b'private')
                     pass
 
 
-def test_old_result_is_not_reused_and_worker_entry_stays_stub(tmp_path, job):
+def test_old_result_is_not_reused_and_empty_worker_input_is_skipped(tmp_path, job):
     from server.axes import AxisContext
     from server.axes import alignment
     work, video = job
@@ -186,4 +186,4 @@ def test_old_result_is_not_reused_and_worker_entry_stays_stub(tmp_path, job):
     out = adapter().run_syncnet(video, [(0, 3)], work, cfg)
     assert out['status'] == 'error'
     assert old.read_text() == 'old result from another invocation'
-    assert alignment.run(AxisContext(job_dir=work))['reason_code'] == 'stub_not_executed'
+    assert alignment.run(AxisContext(job_dir=work))['reason_code'] == 'no_segments'

@@ -4,31 +4,21 @@
 
 ## SyncNet 진행
 
-- **현재 조각:** 2/3, 독립 어댑터 구현·검증 완료 (2026-11-15).
-- **브랜치/기준:** `feat/syncnet`. 조각 1은 `ffab166`으로 커밋·push된 상태에서 시작했다.
-  README·Gate·WaveRep 검증 문서와 HANDOFF의 실내 영상 검증 절은 기존 미커밋 변경이며 보존한다.
-- **한 일:** `server/axes/alignment/syncnet.py`와 전용 실행기 구현. Gate 적합 시간 구간을
-  받아 원본 pipeline의 같은 트랙에 속한 LSE-C·LSE-D·프레임 오프셋을 내부 JSON으로 반환한다.
-  임의 전체 집계·진위 판정 없이 `included_in_fusion=false`, `raw_score=null`을 유지한다.
-  실패/미실행 지표는 null이고 구간 실패는 다음 구간으로부터 격리한다.
-  별도 CPU 프로세스·인자 리스트·타임아웃·취소 콜백·후손 종료·임시 폴더 정리를 구현했다.
-  trinity에 torch 설치/import 없음. 가중치 해시·원본 고정·Git 제외는 조각 1을 유지한다.
-  Worker와 기존 alignment stub, HTTP API는 변경하지 않았다.
-- **검증:** 대상 테스트 **49 passed**, 최종 전체 `pytest -q -rs`: **496 passed, 2 skipped**,
-  기존 httpx 경고 1개. 건너뜀은 LightGBM 없음과 자동 Gate 테스트의 speaking/*.mp4 샘플 없음이다.
-  독립 리뷰에서 발견한 깊은 중첩 JSON 예외를 실패→통과 회귀 테스트로 보완했다.
-  가짜 프로세스의 성공/실패/타임아웃/취소/후손 종료, 빈 구간, 잘못된 JSON·수치·경로,
-  같은 트랙 짝짓기, 구간 실패 격리와 임시 파일 정리를 검사했다.
-- **실행 방법:** `docs/syncnet-adapter.md`의 `run_syncnet` 호출 예시 및 검증 명령 참고.
-  `/opt/anaconda3/envs/trinity/bin/python -m pytest -q`로 전체 검증한다.
-- **다음 조각:** 3/3 사용자 지시 후 Worker 연결과 실제 발화 영상 오프셋 실험.
-  Gate 발화자와 SyncNet 트랙의 대응·외부 API 노출 형식은 연결 전에 확인한다.
-  API 계약 변경이 필요하면 README §15.3 제안을 먼저 승인받는다. 이번에는 PR을 만들지 않는다.
-- **막힌 점/미검증:** 이 어댑터 경유 실제 모델 추론·실제 발화 오프셋·Worker 취소 연결은 미검증.
-  가중치 상업 이용·재배포 조건과 S3FD 파일별 라이선스 범위는 **확인 필요**다.
-- **조각 1 기록:** Python 3.11 별도 환경, upstream SHA 고정, 공식 VGG 가중치 해시,
-  무발화 허가 샘플 CPU **실행 성공**, lockfile 고정. 지표 숫자는 기록하지 않았다.
-  상세: `docs/syncnet-spike.md`. 새 환경 lockfile 전체 재설치는 미검증.
+- **현재 조각:** 3/3 Worker 연결 구현 (2026-11-15), feat/syncnet. 조각 1 ffab166·조각 2 9664d3a 기반.
+- **한 일:** Gate 적합 구간만 CPU 어댑터에 전달. 수동 Gate 우회는 미실행.
+  heartbeat lease 연장·취소·남은 작업 시간 제한 연결. 트랙별 LSE-C/LSE-D/오프셋 내부 계산 결과를 대역 프로세스로 확인.
+  모든 구간에 유효 트랙이 있어야 completed. API 대표값은 null, fusion false, explanations에 대표값 집계 보류 표시.
+  일부/전체 트랙 없음은 insufficient_input/tracking_failed, 실행 오류는 error/inference_error이며 다른 축 결과를 보존한다.
+  README §9·§10·§15.3에 승인된 의미를 기록하고 §14.1 11번 진행 상태를 갱신했다.
+  진단 도구 scripts/diagnose_syncnet_offset.py 작성·테스트, 실제 영상 실행 없음.
+- **검증:** 최종 전체 `pytest -q -rs`: **504 passed, 2 skipped**, 기존 httpx 경고 1개. 건너뜀은 LightGBM 없음과 자동 Gate 테스트의 speaking/*.mp4 샘플 없음. 독립 코드 리뷰에서 중요 수정 사항 없음.
+- **실행 방법:** conda trinity의 `python -m pytest -q -rs`. 진단 도구 사용법은 docs/syncnet-adapter.md.
+- **다음 작업:** 실제 발화 A·B·E의 오프셋 실험과 해석, Gate 발화자와 SyncNet 트랙 대응 검증.
+- **막힌 점/미검증:** 발화 영상은 확보됐으나 실제 영상 실험·정확도·탐지 추가 기여·실제 모델 Worker 취소는 미검증.
+  Worker 강제 종료 후 재시작 복구는 이번 조각에서 검증하지 않았다.
+  가중치 상업 이용·재배포 및 S3FD 라이선스 범위는 확인 필요. trinity에 torch 설치 없음.
+- **기존 변경:** Gate 검증 문서와 README의 6·7번, HANDOFF 실내 검증 절은 보존하며 이번 커밋에 포함하지 않는다.
+- **기록:** docs/syncnet-spike.md, docs/syncnet-adapter.md. 조각 1 무발화 샘플은 실행 성공만 기록했다.
 
 ## 이전 작업: 백로그 7번 Gate → Worker 연결 (2026-11-15)
 

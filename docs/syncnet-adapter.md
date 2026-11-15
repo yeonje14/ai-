@@ -1,8 +1,8 @@
 # SyncNet 어댑터 — 조각 2/3
 
 2026-11-15. `server/axes/alignment/syncnet.py`의 독립 어댑터다.
-Worker가 호출하는 `server/axes/alignment/__init__.py`는 기존 stub을 유지한다.
-HTTP API·앱·Fusion 계약은 변경하지 않았다. 모델 재현·공식 가중치 출처·라이선스는
+조각 3에서 Worker가 호출하는 `server/axes/alignment/__init__.py`를 실제 어댑터에 연결했다.
+API 필드는 유지하며 completed/null의 의미는 README §9·§10·§15.3 승인 보완을 따른다. 모델 재현·공식 가중치 출처·라이선스는
 [syncnet-spike.md](syncnet-spike.md)에 있다.
 
 ## 호출과 환경
@@ -96,3 +96,22 @@ Gate 발화자와 SyncNet 트랙의 대응, Worker 연결 및 실제 취소, MPS
 
 독립 리뷰의 중첩 JSON `RecursionError` 격리 문제를 회귀 테스트로 재현하고 수정했다.
 매우 큰 정수의 `OverflowError`도 null 실패로 격리하도록 회귀 검증했다.
+
+## 조각 3: Worker 연결 (2026-11-15)
+
+Gate 적합 구간만 실행하며 개발용 수동 구간 우회는 `insufficient_input/speaker_unconfirmed`로 미실행한다.
+모든 구간에 유효 트랙이 있어야 completed이고 API 대표값은 null이다. 기존 explanations에 집계 보류를 적는다.
+일부 또는 전체 트랙 없음은 insufficient_input/tracking_failed, 실행 오류는 error/inference_error다.
+오류가 하나라도 있으면 error가 우선하며 성공한 다른 축 결과는 보존한다.
+전체 작업의 남은 시간과 모델 600초 중 작은 제한을 적용한다. heartbeat는 lease 연장과 취소를 확인한다.
+내부 트랙 지표는 호출 중 검증하고 API/로그에는 노출하지 않는다.
+
+진단 도구는 `scripts/diagnose_syncnet_offset.py`다. 실제 영상 실행은 이번 조각에서 하지 않았다.
+추후 승인된 발화 구간에 다음처럼 사용한다(지연 단위: 초, 양수는 오디오 지연).
+
+```bash
+python scripts/diagnose_syncnet_offset.py --registry <허가_레지스트리> --media-root <허가_폴더> --video-id <등록_ID> --start <시작_초> --end <끝_초> --delay 0.4
+```
+
+원본과 지연본의 같은 시간 구간에 대해 트랙별 지표를 JSON으로 출력한다. 자동 차이 집계·정답 판정은 하지 않는다.
+A·B·E 발화 영상은 확보되어 있으나 실제 오프셋 실험과 해석, Gate 발화자/SyncNet 트랙 대응은 미검증이다.
