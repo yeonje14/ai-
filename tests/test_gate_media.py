@@ -4,17 +4,17 @@
 테스트 중 FFmpeg로 만든 변형(오디오 제거본, 검은 화면본, 무음 오디오본).
 변형은 임시 폴더에 만들고 테스트가 끝나면 지운다.
 
-샘플 영상에는 발화가 없다(야외 촬영, 저장소 소유자 확인). 얼굴은 하나 나온다.
+변형에 쓰는 원본에는 발화가 없다(야외 촬영, 저장소 소유자 확인). 얼굴은 하나 나온다.
 그래서 이 영상에는 적합 구간이 없어야 한다.
 
-말하는 영상은 아직 없다(미검증). data/research/samples/speaking/ 에 허가 영상을 넣으면
-맨 아래 테스트가 돈다. 여러 명이 말하는 영상은 동의받은 것이 없어 다루지 않는다(미검증).
-샘플 영상·Gate 의존성·모델 파일·ffmpeg 중 하나라도 없으면 건너뛴다.
+발화 테스트는 실내 촬영 A·B·E와 speaking/에 별도로 둔 허가 영상을 사용한다.
+해당 샘플이나 Gate 실행에 필요한 의존성이 없으면 관련 테스트를 건너뛴다.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import subprocess
 import tempfile
@@ -31,16 +31,21 @@ from server.gate.types import (
     NO_SPEECH_DETECTED,
     NO_SPEECH_FAMILY,
 )
+from server.ingest.media_resolver import AuthorizedMediaRegistry
 
 from tests.conftest import REPO_ROOT
 
-SAMPLES = sorted((REPO_ROOT / "data/research/samples").glob("*.mp4"))
-SPEAKING = sorted((REPO_ROOT / "data/research/samples/speaking").glob("*.mp4"))
+SAMPLE_ROOT = REPO_ROOT / "data/research/samples"
+SAMPLES = sorted(SAMPLE_ROOT.glob("*.mp4"))
+INDOOR_SPEAKING = (SAMPLE_ROOT / name for name in ("A.MOV", "B.MOV", "E.MOV"))
+SPEAKING = list(INDOOR_SPEAKING) + sorted(
+    path for path in (SAMPLE_ROOT / "speaking").glob("*")
+    if path.is_file() and path.suffix.lower() in {".mov", ".mp4"}
+)
 MODEL_DIR = REPO_ROOT / Settings().gate_model_dir
 MISSING = [
     name
     for name, ok in {
-        "허가 샘플 영상(data/research/samples/*.mp4)": bool(SAMPLES),
         "Gate 의존성(requirements-gate.txt)": all(
             importlib.util.find_spec(m) for m in ("cv2", "mediapipe", "webrtcvad")
         ),
@@ -49,6 +54,7 @@ MISSING = [
             MODEL_DIR / "face_landmarker.task"
         ).is_file(),
         "ffmpeg": shutil.which("ffmpeg") is not None,
+        "ffprobe": shutil.which("ffprobe") is not None,
     }.items()
     if not ok
 ]
@@ -65,6 +71,8 @@ def _ffmpeg(*args: str) -> None:
 @pytest.fixture(scope="module")
 def media(monkeypatch_module):
     """원본과 변형 세 개. 변형은 끝나면 삭제한다."""
+    if not SAMPLES:
+        pytest.skip("무발화 허가 샘플 없음(data/research/samples/*.mp4)")
     monkeypatch_module.chdir(REPO_ROOT)
     src = SAMPLES[0]
     work = Path(tempfile.mkdtemp(prefix="trinity-gate-test-"))
@@ -167,11 +175,24 @@ def test_unreadable_inputs(media):
     assert result.coverage()["video_duration_sec"] is None
 
 
-@pytest.mark.skipif(not SPEAKING, reason="말하는 허가 영상 없음(data/research/samples/speaking/*.mp4). 미검증")
+@pytest.mark.skipif(not SPEAKING, reason="말하는 허가 영상 없음(실내 A·B·E 또는 samples/speaking/). 미검증")
 @pytest.mark.parametrize("path", SPEAKING, ids=lambda p: p.name)
-def test_speaking_video_has_eligible_segment(path, media):
+def test_speaking_video_has_eligible_segment(path, tmp_path, monkeypatch):
     """한 사람이 화면을 보고 말하는 영상에는 적합 구간이 있어야 한다."""
-    result = run_gate(path)
+    if not path.is_file():
+        pytest.skip(f"말하는 허가 영상 없음: {path.name}. 미검증")
+    monkeypatch.chdir(REPO_ROOT)
+    video_id = "GateSmoke0A"
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(json.dumps({"authorized_media": [{
+        "youtube_video_id": video_id,
+        "local_path": path.relative_to(SAMPLE_ROOT).as_posix(),
+    }]}), encoding="utf-8")
+    registry = AuthorizedMediaRegistry.from_file(registry_path, SAMPLE_ROOT)
+    authorized = registry.resolve(video_id)
+    assert authorized is not None and authorized.local_path is not None
+
+    result = run_gate(authorized.local_path)
     assert result.reason_code is None, result.to_dict()
     assert result.eligible_duration_sec > 0
     assert result.mouth_active_segments

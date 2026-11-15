@@ -2,6 +2,35 @@
 
 마지막 갱신: 2026-11-15 · 브랜치 `feat/syncnet` (기준 커밋 `3f0f2b4`)
 
+
+## Gate 실제 영상 자동 테스트 마무리 (2026-11-15)
+
+- 직전 세션의 `tests/test_gate_media.py` 변경을 이어서 확인했다. 실내 허가 영상
+  `data/research/samples/A.MOV`, `B.MOV`, `E.MOV`를 기존 발화 테스트의 개별 사례로 포함한다.
+  `samples/speaking/`의 기존 MP4 및 MOV 수집도 유지한다. 현재 그 폴더의 추가 샘플은 없어 별도 실행은 미검증이다.
+- 발화 테스트는 무발화 샘플 fixture에 의존하지 않는다. 각 파일이 없으면 해당 사례를 skip하며,
+  Gate 의존성·모델·ffmpeg/ffprobe가 없으면 실제 미디어 테스트를 skip한다.
+  테스트용 AuthorizedMediaRegistry로 허가 샘플 경로를 확인한다.
+- Gate 판정 로직과 임계값은 변경하지 않았다. 기존 기준으로 적합 구간과 입 움직임 구간 존재,
+  보류 원인 없음이 A·B·E 각각에서 확인됐다. 정확도나 모든 발화 조건의 검증을 뜻하지 않는다.
+- 시작 시 실행 중인 pytest 프로세스가 없었고, 직전 실행의 최종 결과를 확인할 수 없어
+  conda trinity Python으로 전체 테스트를 다시 실행했다.
+- 결과: **507 passed, 1 skipped, 기존 httpx 경고 1개**, 84.63초.
+  건너뜀은 `tests/test_motionphys_train.py`의 LightGBM 미설치다.
+  결과 XML에서 `test_speaking_video_has_eligible_segment[A.MOV]`, `[B.MOV]`, `[E.MOV]` 모두
+  실패·오류·skip 없이 **PASS**임을 확인했다.
+- 재실행(저장소 루트):
+
+```bash
+conda activate trinity
+python -m pytest -q -rs
+# 이번 실행: 개별 영상 통과 증거도 기록
+/opt/anaconda3/envs/trinity/bin/python -m pytest -q -rs --junitxml=/private/tmp/trinity-gate-media-final.xml
+```
+
+- 변경 파일: `tests/test_gate_media.py`, `docs/HANDOFF.md`만. 영상·가중치·가상환경은 Git 제외 확인.
+  사용자 지시에 따라 스테이징·커밋·push하지 않았다. 이 작업에서 멈춘다.
+
 ## 최신 작업: 실내 영상 Gate·WaveRep 검증 (2026-11-15)
 
 - **Gate:** 촬영자가 옮긴 허가 샘플 A–E를 Git 밖의 임시 레지스트리에 등록했다.
