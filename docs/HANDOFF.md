@@ -1,5 +1,238 @@
 # HANDOFF
 
+## Flutter 실제 서버 모드 A 예행 (2026-11-16)
+
+- 기준: `codex/pr12-pr13-integration`, `c8fc7b75789bd9b6e871eeb88d24a95714bc3191`.
+  제품 코드 변경 없이 Chrome에서 한 건만 요청했다. 실제 A YouTube URL이 제공되지 않아
+  `https://www.youtube.com/watch?v=TRINITYtest`를 사용했다. 실제 YouTube ID 시연은 미검증.
+- Git 밖 `data/runtime/web-demo-A/registry.json`에서 TRINITYtest를
+  `/Users/iyeonje/ai-/data/research/samples/A.MOV`에 연결했다. 서버와 Worker에 같은
+  레지스트리·DB·runtime을 적용했다. WaveRep·SyncNet 기존 venv/upstream/가중치를
+  임시 심볼릭 링크로 연결했고 CPU를 사용했다. 다운로드·Gate 우회·임계값 변경 없음.
+- Flutter web-server를 띄우고 실제 Chrome으로 `http://127.0.0.1:8080`을 열었다.
+  접근성 버튼을 켜서 화면 문구와 컨트롤을 확인했다. 서비스 모드는 server다.
+
+**화면별 관찰과 서버 대조**
+
+| 화면 | 관찰 |
+|---|---|
+| 입력 | 테스트 URL을 붙여넣고 분석 요청 클릭 |
+| 접수 | 대기 중 / 분석 순서를 기다리고 있어요 표시; DB 작업 1건 생성 |
+| 진행 | 분석 구간 준비 → 영상 신호 확인 → 입술·음성 확인 진행 표시; 서버 preprocessing → waverep → syncnet과 일치 |
+| 결과 | 판단 보류 / 판단을 보류했어요; 검증된 종합 판정 모델 없음. 작업 종료·부분 분석·판정 보류 표시 |
+| 근거 | WaveRep 측정됨, MotionPhys 입력 부족, SyncNet 측정됨. LSE-C/D 값 없음, 종합 판정 포함 아니오. 서버 상태 finished/partial/abstained 및 테스트 ID 표시 |
+
+- 작업 ID `58edf304-aa9f-4970-b159-6c74fdb7b160`.
+  임시 서버 DB의 저장 결과는 `job_status=finished`, `analysis_status=partial`,
+  `verdict_status=abstained`, `overall_score=null`, `verdict_label=null`이었다.
+  화면의 서버 상태·분석 ID와 대조했다. 토큰을 추출하거나 별도 분석 요청을 만들지 않았다.
+- 실제 WaveRep은 CPU 76프레임 completed(모델 보고 total_sec 40.5411), SyncNet도 completed.
+  alignment.lse_c/lse_d=null, included_in_fusion=false이며 모든 Gate 적합 구간의
+  트랙별 계산 완료·대표값 집계 보류 설명이 결과 화면에 표시됐다.
+  physics는 insufficient_input/stub_not_executed다. 분석량은 화면에서 41초 중 37초로 표시됐다.
+- 로그상 시작 06:26:08, SyncNet 진입 06:27:06, finalizing 06:41:52(+10:00).
+  이 시각 차이를 순수 추론 시간이나 기본 제한 준수의 증거로 해석하지 않는다.
+  중간 시스템 시간 경과·일시 중단 여부와 제한 시간의 실제 경과는 별도 계측하지 않아 확인 필요다.
+
+**확인된 표시 문제(수정하지 않음)**
+
+- 실제 서버·모델 결과인데도 전 화면 상단에 "모델 미연결 · 가상 데이터"가 표시된다.
+- 근거 화면에도 "아래는 가상 데이터입니다"가 표시된다.
+  코드의 고정 문구 위치는 app/lib/design/widgets.dart와 app/lib/screens/detail_screen.dart다.
+- app/README.md의 모델 미연결·취소 없음 등 일부 설명도 현재 동작보다 오래된 내용이다.
+  실제 상태와 판단 보류 표시는 일치했지만 위 문구까지 올바른 시연이라고 보고하지 않는다.
+
+**재현 명령** (먼저 모델별 기존 환경·upstream 및 data/models/gate·syncnet 준비):
+
+```bash
+cd /Users/iyeonje/.codex/worktrees/3603/ai-
+conda activate trinity
+mkdir -p data/runtime/web-demo-A
+# registry.json:
+# {"authorized_media":[{"youtube_video_id":"TRINITYtest","local_path":"A.MOV"}]}
+export TRINITY_AUTHORIZED_MEDIA="$PWD/data/runtime/web-demo-A/registry.json"
+export TRINITY_AUTHORIZED_MEDIA_ROOT=/Users/iyeonje/ai-/data/research/samples
+export TRINITY_DB_PATH="$PWD/data/runtime/web-demo-A/queue.sqlite3"
+export TRINITY_RUNTIME_DIR="$PWD/data/runtime/web-demo-A/jobs"
+export TRINITY_WAVEREP_DEVICE=cpu
+# 위 환경을 동일하게 적용한 별도 터미널에서 각각 실행
+python -m uvicorn server.main:app --host 127.0.0.1 --port 8000 --no-access-log
+python -m server.jobs.worker
+# 앱 터미널
+cd app
+flutter run -d web-server --web-hostname 127.0.0.1 --web-port 8080 --no-web-resources-cdn \
+  --dart-define=TRINITY_API_MODE=server --dart-define=TRINITY_API_BASE_URL=http://127.0.0.1:8000
+# Chrome: http://127.0.0.1:8080 → 테스트 URL 입력 → 분석 요청 → 결과 → 판단 근거
+```
+
+- 실행기 `/private/tmp/trinity-web-demo.py`는 위 환경·서비스·임시 모델 링크를 구성한
+  세션용 스크립트다. 같은 포트가 비어 있어야 하며 재실행 후 종료·정리가 필요하다.
+- **정리:** Worker가 UUID 작업 폴더를 삭제한 것을 먼저 확인했다.
+  이번 서버·Worker·Flutter에 SIGTERM을 보내 종료를 확인했다. 이후 추가 SIGKILL 시도에서
+  권한 오류가 있어 개별 PID 상태를 재조회했고 모두 Z(실행 종료)임을 확인한 뒤 실행기도 종료했다.
+  임시 레지스트리·DB·로그·runtime, 이번 환경 링크, Flutter .dart_tool/build를 삭제했다.
+  Chrome 시연 탭도 닫았다. 원본 A와 모델 환경·가중치, 기존 Gate/sample 연결은 보존했다.
+- 변경은 이 HANDOFF뿐이다. 문서만 변경하여 전체 테스트는 다시 실행하지 않았고
+  git diff --check를 확인했다. 커밋·push·main 병합 없음.
+- **미검증:** 실제 YouTube ID·YouTube 처리본, B/E 앱 시연, 앱에서 취소 버튼 실행,
+  실제 모델 SIGKILL 복구, 연구 성능·진위 정확도. 다음은 실제 URL 확보와 위 표시 문구 정비다.
+
+
+## 로컬 통합 브랜치 저장 (2026-11-16)
+
+- 사용자 승인에 따라 기존 충돌 해결, SyncNet supervisor 수정, 새 복구 회귀 테스트,
+  통합·검증 기록을 하나의 로컬 병합 커밋에 저장한다.
+- 부모 순서: #12 `bd0e2c849e04661cd26df4436d21d58f057d4483`,
+  #13 `0eafb3be61fd7f973fe46ba131e66a4619fb3e89`.
+  저장 브랜치: `codex/pr12-pr13-integration`.
+- 기존 전체 실행 로그·JUnit 및 파일 수정 시각을 대조했다. 539 passed, 5 skipped,
+  경고 1개 이후 변경은 HANDOFF뿐이며 코드·테스트 변경은 없다. 전체 테스트 재실행 없음.
+  새 복구 테스트의 retry/exhausted/cancel 세 사례도 JUnit에서 통과를 확인했다.
+- 영상·가중치·가상환경은 저장하지 않는다. 아래 미커밋 표기는 이전 세션 당시 상태다.
+  GitHub push 및 main 병합은 사용자에게 남긴다. 실제 모델 SIGKILL 검증은 여전히 미검증이다.
+
+
+## SyncNet Worker 강제 종료·복구 보완 (2026-11-16)
+
+- 기존 아래 "PR #12 → #13 통합 검증"과 충돌 해결 내용을 보존했다.
+  같은 통합 worktree에서 HEAD `bd0e2c8`, MERGE_HEAD `0eafb3b`를 유지했다.
+  새 merge commit·GitHub 병합·push는 하지 않았다. 원래 feat/syncnet도 변경하지 않았다.
+- **재현:** 실제 별도 Worker·SQLite·SyncNet 어댑터를 사용하고 계산 프로세스만
+  대역으로 바꿨다. 대역 SyncNet은 FFmpeg 역할의 후손을 띄우고 임시 crop 표시 파일을
+  계속 작성한다. `processing/syncnet`과 두 PID 생존을 확인한 뒤 Worker에 SIGKILL을 보냈다.
+  수정 전 재시도/상한/취소 3개 사례 모두 5초 후에도 두 프로세스가 생존해 실패했다.
+  재현 로그: `/private/tmp/syncnet-recovery-red.log` (3 failed).
+  테스트 finally에서 고아 대역 프로세스를 정리했다.
+- **원인:** SyncNet의 직접 Popen + finally killpg 경로는 Worker SIGKILL 때 실행되지 않는다.
+  Gate·WaveRep과 달리 독립 supervisor의 생존 파이프 감시를 거치지 않았다.
+- **최소 수정:** `server/axes/alignment/syncnet.py`가 기존
+  `server/jobs/child_process.py`의 start_process/stop_process를 사용하도록 변경했다.
+  supervisor 코드 자체는 수정하지 않았다. Worker 사망 시 pipe EOF로 모델 그룹을 종료하고,
+  정리까지 runtime 잠금을 유지하는 기존 동작을 재사용한다.
+  정상 종료·취소·타임아웃도 같은 정리 경로를 거친다. API·상태·원인 코드 변경 없음.
+- **새 회귀 테스트:** `tests/test_syncnet_recovery.py`의 3개 매개변수 사례.
+  두 자식의 종료를 먼저 확인하고 lease를 자연 만료시킨 뒤 별도 Worker를 재시작한다.
+  재시도는 attempts=2 및 정합 completed/작업 finished, 재시도 상한은
+  failed/max_attempts_exceeded, 취소 요청이 있던 작업은 cancelled를 확인했다.
+  재시도 전에 이전 crop이 제거되고 종료 뒤 UUID 폴더가 사라져 다시 생성되지 않는지도 확인했다.
+- **관련 검증:** 60 passed, 기존 경고 1개, 9.55초.
+  강제 종료 복구 3개와 기존 Gate·WaveRep 복구, SyncNet 정상 취소·타임아웃·
+  callback 오류·후손 정리 및 Worker heartbeat/lease 연장이 포함된다.
+  첫 수정 후 실행에서는 테스트가 큐의 failure_reason 대신 result를 읽어 1개 실패했다.
+  기존 저장 계약에 맞게 테스트를 바로잡은 뒤 모두 통과했다(제품 계약 변경 없음).
+- **전체 검증:** 539 passed, 5 skipped, 기존 httpx 경고 1개, 72.26초, 종료 코드 0.
+  skip은 LightGBM 없음 1개, MAVOS 표본 목록 미연결 1개,
+  MotionPhys 모델 미연결 2개, WaveRep venv·가중치 미연결 1개로 이전 통합 검증과 같다.
+  로그 `/private/tmp/syncnet-recovery-full.log`, XML `/private/tmp/syncnet-recovery-full.xml`.
+  git diff --check 및 git diff --cached --check 통과, 미해결 충돌 없음.
+
+**재현·회귀 명령** (이 통합 worktree, conda trinity):
+
+```bash
+cd /Users/iyeonje/.codex/worktrees/3603/ai-
+python -m pytest -q -rs tests/test_syncnet_recovery.py
+python -m pytest -q -rs tests/test_syncnet_recovery.py tests/test_syncnet_adapter.py tests/test_syncnet_worker.py tests/test_job_lifecycle.py
+python -m pytest -q -rs --junitxml=/private/tmp/syncnet-recovery-full.xml
+```
+
+실행에는 `/opt/anaconda3/envs/trinity/bin/python`을 명시적으로 사용했다.
+수정 전 증상은 제품 어댑터가 기존 직접 Popen 경로일 때 첫 명령으로 재현된다.
+이번 추가/수정 파일은 어댑터·새 회귀 테스트·이 HANDOFF 세 개이며 기존 통합 staged 변경은 보존했다.
+
+**범위와 다음:** 이번 SIGKILL은 대역 SyncNet과 FFmpeg 역할의 Python 후손으로 검증했다.
+실제 SyncNet 모델·실제 FFmpeg를 사용한 강제 종료 및 복구는 **미검증**이다.
+이전 실제 A 영상 취소·오프셋 결과를 이번 검증과 혼동하지 않는다.
+아래 통합 기록의 SyncNet SIGKILL 미검증은 당시 상태이며, 대역 검증에 한해서 이번에 보완했다.
+사용자가 통합 변경 검토·병합·push 여부를 결정한다. 막힌 점 없음.
+
+
+## PR #12 → #13 통합 검증 (2026-11-16)
+
+- 원격 확인: 두 PR 모두 OPEN, mergedAt/mergeCommit 없음. 최신 main은
+  `3f0f2b4bba37154e977e6bd48626ede570f555ec`.
+  #12 head `bd0e2c849e04661cd26df4436d21d58f057d4483`,
+  #13 head `0eafb3be61fd7f973fe46ba131e66a4619fb3e89`.
+  #12 원격 HANDOFF의 A 실제 WaveRep 취소 기록과 #13 원격 HANDOFF 및
+  docs/syncnet-adapter.md의 A 오프셋 진단 수치·한계를 확인했다.
+  아래 과거 기록의 커밋·push 보류 문구는 당시 상태이며 지금은 두 기록 모두 원격에 있다.
+- 격리 worktree: `/Users/iyeonje/.codex/worktrees/3603/ai-`.
+  main에서 #12를 fast-forward하고 #13을 `--no-commit --no-ff`로 통합했다.
+  README §15.3 승인 결정 추가와 HANDOFF의 앞부분 기록에 충돌이 있었다.
+  두 승인 결정 및 두 PR의 기록을 모두 보존해 해결했다. API·동작 변경 판단은 필요 없었다.
+  server/jobs/worker.py는 자동 병합됐다. 제품 코드의 수동 수정은 없다.
+  원래 feat/syncnet 작업 공간과 별도 #12 작업 공간은 보존했다.
+- 검증 대상은 새 커밋이 아니라 위 두 head의 로컬 통합 트리다.
+  기록 추가 전 트리 OID: `8b1354295f5c6c1a23e5870fa807a6dc43b1b65a`.
+  HEAD는 #12이며 MERGE_HEAD는 #13인 미커밋 통합 상태를 남겼다.
+  GitHub merge·push 및 로컬 merge commit은 하지 않았다.
+
+**재현 명령** (새 격리 worktree에서 위 main을 checkout한 뒤):
+
+```bash
+git merge --ff-only bd0e2c849e04661cd26df4436d21d58f057d4483
+git merge --no-commit --no-ff 0eafb3be61fd7f973fe46ba131e66a4619fb3e89
+# README §15.3 및 HANDOFF 충돌에서 양쪽 추가 기록을 모두 보존
+git add README.md docs/HANDOFF.md
+# data/research/samples와 data/models/gate에 기존 허가 샘플·Gate 모델 연결
+/opt/anaconda3/envs/trinity/bin/python -m pytest -q -rs --junitxml=/private/tmp/trinity-pr12-pr13-integration.xml
+git diff --cached --check
+git diff --check
+```
+
+**이번 통합 테스트:** 536 passed, 5 skipped, 1 warning, 68.10초, 종료 코드 0.
+로그 `/private/tmp/trinity-pr12-pr13-integration.log`, JUnit XML은 위 경로.
+DELETE 13개, 취소·복구·정리(test_job_lifecycle) 18개, SyncNet Worker 7개,
+SyncNet 어댑터 32개·runner 17개, 실제 Gate 미디어 11개 모두 통과했다.
+Gate 미디어에는 로컬 A·B·E가 포함된다. 기존 httpx 폐기 예정 경고 1개가 남았다.
+
+건너뜀 5개:
+
+- LightGBM 미설치: test_motionphys_train 1개.
+- 이 worktree에 MAVOS-DD 실제 표본 목록 미연결: test_mavos_external 1개.
+- MotionPhys 모델 파일 미연결로 실제 얼굴 특징 전제 미충족: test_motionphys_extract 2개.
+- WaveRep 전용 .venv·가중치 미연결: 실제 CPU 2프레임 추론 1개.
+
+**실제 모델 검증과의 구분:** 이전 #12의 A CPU 추론 중 취소(202 → cancelled,
+자식 종료·폴더 삭제)와 #13의 A 26–34초 SyncNet 이동 진단은 각각의 브랜치에서 수행한
+기존 결과다. 이번에는 통합 상태의 자동 테스트를 수행했고 실제 WaveRep 취소 및 SyncNet
+오프셋 실험을 다시 실행하지 않았다. 대역 모델 테스트 통과를 실제 모델 통합 실행으로
+해석하지 않는다. 진위 판정·연구 성능 검증도 아니다.
+
+**남은 통합 확인:** SyncNet의 정상 heartbeat 취소·타임아웃은 테스트되지만,
+Worker SIGKILL 중 SyncNet 자식 종료·재시작 복구는 미검증이다.
+코드상 SyncNet `_run`은 직접 Popen과 finally의 killpg를 사용하며,
+#12의 Gate·WaveRep용 생존 파이프 supervisor를 사용하지 않는다.
+따라서 Worker 강제 종료 시 SyncNet 고아 자식 방지까지 보장된다고 볼 수 없다.
+기존 Worker 사망 테스트는 Gate·WaveRep 경로만 대상으로 한다.
+이는 코드 검토로 확인한 적용 범위 차이이며 실제 SIGKILL 증상 재현은 하지 않았다.
+필요하면 후속 작업에서 재현·공통 supervisor 적용 여부를 판단한다. 이번에는 변경하지 않았다.
+
+**실제 YouTube URL 시연 준비:**
+
+1. 본인 촬영 A·B·E 중 시연 영상의 실제 YouTube ID와 허가 로컬 원본을 대응시킨다.
+   Git 밖 AuthorizedMediaRegistry의 youtube_video_id 및 local_path를 설정한다.
+   서버·Worker에 같은 TRINITY_AUTHORIZED_MEDIA, TRINITY_AUTHORIZED_MEDIA_ROOT,
+   DB·runtime 환경을 적용한다. 임의 URL 다운로드는 하지 않는다.
+2. conda trinity의 Gate 의존성·모델, WaveRep와 SyncNet 각각의 격리 .venv·고정 upstream·
+   공식 가중치를 준비한다. trinity에는 torch를 설치하지 않는다. 수동 Gate 우회는 끈다.
+   전체 작업 기본 600초 안에 처리되는지는 실제 통합 모델 실행으로 확인 필요하다.
+3. `uvicorn server.main:app --port 8000`과 `python -m server.jobs.worker`를 실행한다.
+   앱은 app 폴더에서 다음 명령으로 실제 서버 모드를 사용한다.
+
+```bash
+flutter run -d chrome --web-port 8080 --no-web-resources-cdn \
+  --dart-define=TRINITY_API_MODE=server --dart-define=TRINITY_API_BASE_URL=http://localhost:8000
+```
+
+- 브라우저 출처·CORS와 소유자 토큰 유지, 등록 URL 접수·결과·취소를 시연 전에 확인해야 한다.
+  실제 YouTube ID 등록과 앱 종단 시연은 이번 작업에서 미검증이다.
+  SyncNet 대표 지표 null·fusion false, 전체 점수 null 및 판단 보류 의미를 유지한다.
+- DeepSpeak v2는 사용자 확인 기준 심사 대기다. 본인 촬영 허가 영상 시연과 별개이며
+  접근 승인을 우회하지 않는다. 모델 라이선스의 기존 확인 필요 항목도 유지한다.
+- 다음: 사용자가 두 PR 병합·push 여부를 결정한다. 이 worktree의 통합 결과만 검증했고
+  기존 브랜치 및 원격에 반영하지 않았다.
+
+
 마지막 갱신: 2026-11-15 · 브랜치 `codex/cancel-recovery-security` (최신 origin/main `3f0f2b4`에서 생성)
 
 ## A 영상 실제 WaveRep 추론 중 취소 검증 (2026-11-15)
@@ -166,6 +399,107 @@ flutter test
   별도 운영 스케줄러·알림은 추가하지 않았다. 기존 서버를 교체할 때는 이전 Worker/자식을 먼저 종료한다.
 
 **막힘:** 요청 범위의 구현·검증에 남은 막힘 없음. 아래는 이전 작업 기록이다.
+
+마지막 갱신: 2026-11-15 · 브랜치 `feat/syncnet` (기준 커밋 `3f0f2b4`)
+
+
+## Gate 실제 영상 자동 테스트 마무리 (2026-11-15)
+
+- 직전 세션의 `tests/test_gate_media.py` 변경을 이어서 확인했다. 실내 허가 영상
+  `data/research/samples/A.MOV`, `B.MOV`, `E.MOV`를 기존 발화 테스트의 개별 사례로 포함한다.
+  `samples/speaking/`의 기존 MP4 및 MOV 수집도 유지한다. 현재 그 폴더의 추가 샘플은 없어 별도 실행은 미검증이다.
+- 발화 테스트는 무발화 샘플 fixture에 의존하지 않는다. 각 파일이 없으면 해당 사례를 skip하며,
+  Gate 의존성·모델·ffmpeg/ffprobe가 없으면 실제 미디어 테스트를 skip한다.
+  테스트용 AuthorizedMediaRegistry로 허가 샘플 경로를 확인한다.
+- Gate 판정 로직과 임계값은 변경하지 않았다. 기존 기준으로 적합 구간과 입 움직임 구간 존재,
+  보류 원인 없음이 A·B·E 각각에서 확인됐다. 정확도나 모든 발화 조건의 검증을 뜻하지 않는다.
+- 시작 시 실행 중인 pytest 프로세스가 없었고, 직전 실행의 최종 결과를 확인할 수 없어
+  conda trinity Python으로 전체 테스트를 다시 실행했다.
+- 결과: **507 passed, 1 skipped, 기존 httpx 경고 1개**, 84.63초.
+  건너뜀은 `tests/test_motionphys_train.py`의 LightGBM 미설치다.
+  결과 XML에서 `test_speaking_video_has_eligible_segment[A.MOV]`, `[B.MOV]`, `[E.MOV]` 모두
+  실패·오류·skip 없이 **PASS**임을 확인했다.
+- 재실행(저장소 루트):
+
+```bash
+conda activate trinity
+python -m pytest -q -rs
+# 이번 실행: 개별 영상 통과 증거도 기록
+/opt/anaconda3/envs/trinity/bin/python -m pytest -q -rs --junitxml=/private/tmp/trinity-gate-media-final.xml
+```
+
+- 변경 파일: `tests/test_gate_media.py`, `docs/HANDOFF.md`만. 영상·가중치·가상환경은 Git 제외 확인.
+  사용자 지시에 따라 스테이징·커밋·push하지 않았다. 이 작업에서 멈춘다.
+
+## 최신 작업: 실내 영상 Gate·WaveRep 검증 (2026-11-15)
+
+- **Gate:** 촬영자가 옮긴 허가 샘플 A–E를 Git 밖의 임시 레지스트리에 등록했다.
+  A(가로)·B(세로)·E(교대 발화)는 통과했고 C·D는 `no_mouth_movement`로 제외됐다.
+  D는 촬영자가 본인 음성만 사용했다고 확인했다. E의 촬영자 기준 발화 30초와
+  적합 구간이 24.224초 겹쳤고, 10–20초와 30–40초 침묵 구간은 모두 제외됐다.
+  마지막 적합 구간은 기록의 50초 경계를 0.640초 넘었다. 상세 구간은 `docs/gate.md`.
+- **WaveRep:** A의 테스트 URL을 FastAPI 테스트 클라이언트에 보내고 별도 Worker로 처리했다.
+  Gate 우회 없이 37.021초에서 CPU로 76프레임을 분석했다. 기본 heartbeat 간격 10초에서
+  WaveRep 단계의 서로 다른 lease 만료 시각 7개를 관찰했고 임시 작업 폴더 삭제를 확인했다.
+  결과는 `finished` / `partial` / `abstained`, `raw_score`·`overall_score`·`verdict_label`은
+  `null`이다. Worker 1회 실행 수치와 CPU 대체 근거는 `docs/waverep-adapter.md`.
+- **실행 방법:** conda `trinity`에서 `python scripts/run_gate.py <등록한 허가 영상 경로>`.
+  서버 연결 확인은 테스트 ID를 A에 연결한 임시 레지스트리·DB를 구성하고 분석 URL을 접수한 뒤
+  `python -m server.jobs.worker --drain` 및 결과 조회로 확인했다.
+  `python -m pytest -q -rs`는 447개 통과, 2개 건너뜀, 기존 경고 1개.
+  건너뜀은 LightGBM 부재와 자동 테스트가 별도 `samples/speaking/*.mp4`만 찾는 경우다.
+  A–E의 `.MOV` 검증은 위 Gate 도구로 따로 실행했다.
+- **다음:** 실제 WaveRep 추론 중 취소를 PR #12 브랜치에서 재현하고, A의 실제 YouTube ID로
+  앱 시연할 경로를 확인한다. 다중 발화, A의 MPS 추론, 실제 앱 시연은 미검증이다.
+  SyncNet 1–3 조각의 진행 상태와 남은 검증은 아래 절을 참고한다.
+
+
+## SyncNet 진행
+
+### A.MOV 오프셋 진단 (2026-11-15, 커밋·push 보류)
+
+- 현재 feat/syncnet에서 시작했고 작업 시작 시 미커밋 변경은 없었다.
+  기존 기록을 보존하면서 A 한 개만 SyncNet 진단했다.
+- Git 밖 `data/research/syncnet-A-diagnostic/registry.json`에 `SyncNetTstA` → A.MOV 등록.
+  기존 Gate 적합 구간 중 최장 25.068–40.335초 내부의 26–34초(8초)를 선택했다.
+  경계 여유와 원본 최소 트랙 길이(50프레임)를 고려했다. Gate 설정·임계값은 그대로다.
+- 분석 FPS 25 확인. 도구에 음수·0초 및 여러 이동 조건 순차 실행을 추가했다.
+  원본 오프셋 +4, 오디오 이동 −0.20/−0.08/0/+0.08/+0.20초에서
+  오프셋 +9/+6/+4/+2/−1을 관찰했다. 원본 대비 +5/+2/0/−2/−5로 기대 변화와 일치.
+  전 조건 실행 성공, 각각 유효 트랙 1개. 트랙별 LSE-C/LSE-D 전체 표는 docs/syncnet-adapter.md.
+- 모든 조건의 분석 구간 영상 프레임 해시는 동일했다. 다만 영속 트랙 ID/프레임별 box를
+  반환하지 않으므로 정확한 트랙 대응과 Gate 발화자 동일인 여부는 미검증이다.
+  실제 실행·이동 반응 진단이며 진위 판정·탐지 정확도 검증이 아니다. B·E 진단은 하지 않았다.
+- 임시 영상·오디오·얼굴 crop 및 진단/프레임 확인 폴더 삭제 확인.
+  관련 테스트 3 passed; 전체 pytest **509 passed, 1 skipped**, 기존 경고 1개(LightGBM 없음으로 skip).
+- 재실행 명령:
+
+```bash
+research/syncnet/.venv/bin/python scripts/diagnose_syncnet_offset.py --registry data/research/syncnet-A-diagnostic/registry.json --media-root data/research/samples --video-id SyncNetTstA --start 26 --end 34 --delays -0.20 -0.08 0 0.08 0.20 > data/research/syncnet-A-diagnostic/results.json
+/opt/anaconda3/envs/trinity/bin/python -m pytest -q -rs
+```
+
+- 다음 작업: 필요 시 트랙 대응 근거 보강 및 별도 승인된 표본 확대. 이번 작업은 A 진단에서 종료.
+  가중치 이용 조건은 기존 확인 필요를 유지한다. 코드·문서만 변경, 커밋·push하지 않는다.
+- 아래 조각 1–3 기록의 미검증 표기는 당시 기준이다. 이번 진단은 위 A 구간에 한해 추가 검증했다.
+
+
+- **현재 조각:** 3/3 Worker 연결 구현 (2026-11-15), feat/syncnet. 조각 1 ffab166·조각 2 9664d3a 기반.
+- **한 일:** Gate 적합 구간만 CPU 어댑터에 전달. 수동 Gate 우회는 미실행.
+  heartbeat lease 연장·취소·남은 작업 시간 제한 연결. 트랙별 LSE-C/LSE-D/오프셋 내부 계산 결과를 대역 프로세스로 확인.
+  모든 구간에 유효 트랙이 있어야 completed. API 대표값은 null, fusion false, explanations에 대표값 집계 보류 표시.
+  일부/전체 트랙 없음은 insufficient_input/tracking_failed, 실행 오류는 error/inference_error이며 다른 축 결과를 보존한다.
+  README §9·§10·§15.3에 승인된 의미를 기록하고 §14.1 11번 진행 상태를 갱신했다.
+  진단 도구 scripts/diagnose_syncnet_offset.py 작성·테스트, 실제 영상 실행 없음.
+- **검증:** 최종 전체 `pytest -q -rs`: **504 passed, 2 skipped**, 기존 httpx 경고 1개. 건너뜀은 LightGBM 없음과 자동 Gate 테스트의 speaking/*.mp4 샘플 없음. 독립 코드 리뷰에서 중요 수정 사항 없음.
+- **실행 방법:** conda trinity의 `python -m pytest -q -rs`. 진단 도구 사용법은 docs/syncnet-adapter.md.
+- **다음 작업:** 실제 발화 A·B·E의 오프셋 실험과 해석, Gate 발화자와 SyncNet 트랙 대응 검증.
+- **막힌 점/미검증:** 발화 영상은 확보됐으나 실제 영상 실험·정확도·탐지 추가 기여·실제 모델 Worker 취소는 미검증.
+  Worker 강제 종료 후 재시작 복구는 이번 조각에서 검증하지 않았다.
+  가중치 상업 이용·재배포 및 S3FD 라이선스 범위는 확인 필요. trinity에 torch 설치 없음.
+- **커밋:** Worker 연결은 `802a7e0`에 기록했다.
+  실내 Gate·WaveRep 검증과 README 6·7번 갱신은 별도 문서 커밋으로 기록한다.
+- **기록:** docs/syncnet-spike.md, docs/syncnet-adapter.md. 조각 1 무발화 샘플은 실행 성공만 기록했다.
 
 ## 이전 작업: 백로그 7번 Gate → Worker 연결 (2026-11-15)
 

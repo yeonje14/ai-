@@ -182,6 +182,11 @@ def build_result(
             "message": "검증된 종합 판정 모델이 없어 판단을 보류합니다.",
         }
     ]
+    if axes.get("alignment", {}).get("status") == "completed":
+        explanations.append({
+            "template_id": "SYNCNET_UNAGGREGATED", "reason_code": "unvalidated_condition",
+            "message": "모든 Gate 적합 구간의 트랙별 동기화 지표 계산을 완료했습니다. 대표값 집계는 보류 중이며 진위 판정이나 발화자 동일인 확인을 뜻하지 않습니다.",
+        })
     if gate_bypassed:
         explanations.append(
             {

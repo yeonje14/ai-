@@ -438,6 +438,8 @@ Flutter — REST Polling으로 상태/결과 표시
 }
 ```
 
+**SyncNet 정합 결과 보완 (2026-11-15):** 모든 Gate 적합 구간에서 각각 유효 트랙 지표가 하나 이상 계산됐을 때만 `alignment.status=completed`다. 대표값 집계는 보류하여 API의 `lse_c`·`lse_d`는 `null`, `included_in_fusion=false`를 유지한다. 기존 `explanations`로 트랙별 계산 완료와 대표값 집계 보류를 설명한다. 트랙별 지표는 내부 계산 결과이며 API 필드를 추가하지 않는다. 진위 판정이나 발화자 동일인 확인을 의미하지 않는다.
+
 **판정 라벨 `verdict_label`** (2026-11-14 추가, 결정 8): `suspicious_signals`(의심 신호 발견), `low_suspicion`(의심 신호 낮음), `null`. 결과 요약 화면이 숫자 점수 없이 둘을 구분하기 위한 필드입니다. 서버가 고정된 임계값으로 정하며 클라이언트는 `overall_score`로 라벨을 만들지 않습니다. `verdict_status=assessed`일 때만 값이 있고 그 밖에는 `null`입니다. **검증된 결합 모델이 없으면 항상 `null`**이며(지금의 서버가 그렇습니다), 클라이언트는 `assessed`인데 라벨이 없으면 판단 보류로 표시합니다. `low_suspicion`은 진짜 영상임을 뜻하지 않습니다.
 
 **접근 불가 결과:** `job_status=finished`, `analysis_status=analysis_unavailable`, `verdict_status=abstained`, `verdict_label=null`, `overall_score=null`, `reason_code=video_access_unavailable` 또는 `access_not_authorized`; 모든 축의 점수는 `null`. HTTP 요청 접수 성공과 분석/판정 성공은 다릅니다.
@@ -484,6 +486,8 @@ Flutter — REST Polling으로 상태/결과 표시
 - 원본 전체 길이, 적합 구간 길이, 성공적 분석 길이, 성공/실패 구간 목록을 남김. `coverage`는 분석한 양이지 정확도나 신뢰도가 아님.
 - OOD 검출을 보장하지 않음. 해상도·얼굴 크기·프레임레이트·길이·압축 등 **검증된 운영 범위**를 기록하고 조건 밖은 경고/보류 처리.
 - 타임라인은 먼저 **분석된 구간/제외된 구간**을 표시. 조작 위치 표시는 **구간 단위 탐지·위치 정확도 평가를 통과한 경우에만** 추가.
+
+SyncNet 일부/전체 구간의 유효 트랙 없음은 `insufficient_input` / `tracking_failed`, 구간 실행 오류나 잘못된 결과는 `error` / `inference_error`다. 오류가 섞이면 `error`를 우선한다. 구간 없음은 `insufficient_input` / `no_segments`, Gate 우회는 `insufficient_input` / `speaker_unconfirmed`이며 실행하지 않는다. 타임아웃은 `error` / `timeout`, 실행 환경 부재는 `error` / `model_unavailable`이다. 모든 구간 성공 시 대표값 미집계로 `completed`와 null 지표를 함께 반환할 수 있다. 정합 실패도 다른 축 결과를 지우지 않는다.
 
 ## 11. 결과 설명과 사용자 신뢰
 
@@ -595,12 +599,12 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 | **3** | **P0-2 / BLOCKER** | **데이터셋 접근 신청/라이선스·누수 구조 확인:** DeepSpeak, TalkingHeadBench, MAVOS-DD, Deepfake-Eval. | 접근 상태·사용 조건, 최소 테스트 샘플, 공통 manifest/분할 규칙 확보.<br>**상태(2026-11-13): 진행 중.** DeepSpeak v2는 접근 요청 후 심사 대기, Deepfake-Eval-2024는 접근 요청이 거절됨(결정 6 변경: MAVOS-DD open-set model 분할과 TalkingHeadBench로 대체, 재신청 검토), MAVOS-DD는 접근 신청 전(메타데이터·표본 숫자 미정), TalkingHeadBench는 접근 방법 확인 필요. 테스트 샘플과 manifest/분할 규칙은 없음. 기록: `docs/dataset-access.md` | 없음 (1·2와 병렬 가능) |
 | **4** | **P0-3 / 핵심** | **URL-only 최소 수직 슬라이스:** URL 검사·ID 추출 → `AuthorizedMediaRegistry` → FastAPI/SQLite 단일 Worker → 상태/보류 JSON. **모델은 임시 Stub**. | 등록된 허가 YouTube ID는 작업→결과 완료, 미등록/무권한 ID는 `analysis_unavailable`; 업로드 UI 없음. | 1·2 |
 | **5** | **P0-4 / 핵심** | **WaveRep 단독 추론 스파이크:** 공개 체크포인트·CPU 추론 → MPS 시험; 프레임 점수와 실행시간/메모리 기록. | 허가 테스트 클립에서 추론 반복 가능, 실패·장치 대안 문서화. **성능 검증과 구별**. | 2·3 |
-| **6** | **P1-1 / 핵심** | **최소 발화 구간 Gate:** ffprobe, 얼굴 추적, VAD, 발화자-얼굴 대응, 구간별 품질·coverage. | 단일 발화/무음/얼굴 없음/다중 발화 예시를 분리 처리하고 원인 코드 생성.<br>**상태(2026-11-15): 구현하고 Worker에 연결함. 말하는 영상·다중 발화는 미검증.** 음성(webrtcvad)과 입 움직임(MediaPipe 얼굴 특징점의 입 벌림 반복)이 함께 있을 때만 발화로 인정함. 발화가 없는 본인 촬영 영상 1개는 `no_mouth_movement`로 걸러지고, 오디오 제거본·검은 화면본·무음 오디오본은 각각 다른 원인 코드로 분리됨. 2026-11-12의 "단일 발화 확인"은 발화가 없는 영상을 잘못 본 것이라 철회함. 기록: `docs/gate.md` | 4·5 |
-| **7** | **P1-2 / 핵심** | **실제 WaveRep를 Worker에 연결:** 모델 어댑터, 순차 실행·실패 격리, 원시 지표 JSON. | URL→허가 미디어→WaveRep 원시 지표까지 **진짜 계산**; `overall_score=null` 유지; 추론 중 주기적 heartbeat로 lease 연장.<br>**상태(2026-11-15): Gate와 Worker 연결 구현·검증. 말하는 영상의 종단 간 실행은 미검증.** 기본 경로는 허가 미디어 → Gate → 적합 구간 → WaveRep이다. Gate가 거르면 WaveRep을 호출하지 않고 §15.3의 상태와 원인 코드를 남긴다. Gate와 모델 실행 중 heartbeat로 lease를 연장한다. 기존 발화 없는 샘플은 실제 서버·Worker 요청에서 `no_mouth_movement`, `out_of_scope`, `not_applicable`로 종료됐다. 수동 구간은 개발·테스트 전용이며 기본 꺼짐이다. `raw_score`·`overall_score`는 `null`. 기록: `docs/gate.md`, `docs/waverep-adapter.md`, `docs/HANDOFF.md` | 4·5·6 |
+| **6** | **P1-1 / 핵심** | **최소 발화 구간 Gate:** ffprobe, 얼굴 추적, VAD, 발화자-얼굴 대응, 구간별 품질·coverage. | 단일 발화/무음/얼굴 없음/다중 발화 예시를 분리 처리하고 원인 코드 생성.<br>**상태(2026-11-15): 구현하고 Worker에 연결함. 실내 샘플에서 가로·세로·교대 발화는 통과, 발화 없음과 화면 속 입 움직임 없는 음성은 제외. 다중 발화는 미검증.** 음성(webrtcvad)과 입 움직임(MediaPipe 얼굴 특징점의 입 벌림 반복)이 함께 있을 때만 발화로 인정함. 발화가 없는 본인 촬영 영상 1개는 `no_mouth_movement`로 걸러지고, 오디오 제거본·검은 화면본·무음 오디오본은 각각 다른 원인 코드로 분리됨. 2026-11-12의 "단일 발화 확인"은 발화가 없는 영상을 잘못 본 것이라 철회함. 기록: `docs/gate.md` | 4·5 |
+| **7** | **P1-2 / 핵심** | **실제 WaveRep를 Worker에 연결:** 모델 어댑터, 순차 실행·실패 격리, 원시 지표 JSON. | URL→허가 미디어→WaveRep 원시 지표까지 **진짜 계산**; `overall_score=null` 유지; 추론 중 주기적 heartbeat로 lease 연장.<br>**상태(2026-11-15): 말하는 허가 영상 A를 테스트 URL 요청부터 별도 Worker의 WaveRep까지 검증. CPU 76프레임, 추론 중 기본 heartbeat로 lease 연장 확인. 실제 YouTube ID를 사용하는 앱 시연은 미검증.** 기본 경로는 허가 미디어 → Gate → 적합 구간 → WaveRep이다. Gate가 거르면 WaveRep을 호출하지 않고 §15.3의 상태와 원인 코드를 남긴다. Gate와 모델 실행 중 heartbeat로 lease를 연장한다. 기존 발화 없는 샘플은 실제 서버·Worker 요청에서 `no_mouth_movement`, `out_of_scope`, `not_applicable`로 종료됐다. 수동 구간은 개발·테스트 전용이며 기본 꺼짐이다. `raw_score`·`overall_score`는 `null`. 기록: `docs/gate.md`, `docs/waverep-adapter.md`, `docs/HANDOFF.md` | 4·5·6 |
 | **8** | **P1-3 / 연구** | **데이터 위생·고정 평가 파이프라인:** 원본 계보 그룹 분할, 해시/편향, ROC-AUC/TPR/FPR/실패율 기록. | 누수 검사 자동화, 재현 가능한 단일축 기초 평가 리포트.<br>**상태(2026-11-13): 진행 중(뼈대).** 공통 manifest, 그룹 분할·누수 검사, 지표와 그룹 bootstrap, dev 임계값 고정, 외부 평가 잠금을 합성 데이터로 확인. 실제 데이터로는 실행하지 않았고 단일축 평가 리포트는 없음. 기록: `docs/evaluation-pipeline.md` | 3·5 |
 | **9** | **P1-4 / 연구** | **Montibeller `social_emulator` 설치·적용** + FFmpeg 범용 압축 프로파일; 원본 훼손·분할 누수 방지. | 실행 설정·해시·압축 출력 비교 리포트; 실제 YouTube 동등성은 미주장.<br>**상태(2026-11-14): 범용 프로파일까지.** 공개 코드(CC BY 4.0)를 수정 없이 실행해 동작만 확인함. 플랫폼 처리본이 없어 저자 방식의 파라미터 추정은 하지 않음. FFmpeg 범용 프로파일 12개(libx264 CRF 20/28/34 × 원본/1080/720/480), 설정·해시 기록, 같은 입력의 출력 동일성, manifest 압축 조건 열과 조건별 지표를 구현함. 본인 촬영 영상 1개로 출력 비교. 모델 점수 변화는 재지 않음. 기록: `docs/compression-emulator.md` | 2·3·8 |
 | **10** | **P2-1 / 연구** | **MotionPhys 기본→얼굴 ROI→Face Motion 비교**. | 유효 궤적 비율·AUC·TPR@5%FPR·추론 시간 비교, 축 유지/제거 결정.<br>**상태(2026-11-14): 진행 중(앞부분).** 논문 기준 재구현(공개 코드 없음), 세 후보의 특징 추출기, 합성 궤적 테스트, 압축 민감도 측정, 합성 데이터로 LightGBM 스크립트 동작 확인까지. 실제 학습과 AUC·TPR 비교, 축 유지/제거 결정은 하지 않음. 기록: `docs/motionphys-spec.md`, `docs/motionphys-spike.md` | 6·8·9 |
-| **11** | **P2-2 / 연구** | **SyncNet CPU 동기화 검증**: 실제 발화 구간과 인위적 오프셋, A/B/C 비교. | LSE-C/LSE-D/오프셋 산출, 실패 조건, 위조 탐지 추가 기여 판단. | 6·8·9 |
+| **11** | **P2-2 / 연구** | **SyncNet CPU 동기화 검증**: 실제 발화 구간과 인위적 오프셋, A/B/C 비교. | LSE-C/LSE-D/오프셋 산출, 실패 조건, 위조 탐지 추가 기여 판단.<br>**상태(2026-11-15): CPU 재현·독립 어댑터·Worker 연결 구현.** Gate 적합 구간만 실행하고 heartbeat·취소·실패 격리를 대역 프로세스로 검증. 진단 도구 작성; 실제 발화 A·B·E의 오프셋 실험·동기화 정확도·탐지 추가 기여는 **미검증**. 기록: `docs/syncnet-adapter.md` | 6·8·9 |
 | **12** | **P2-3 / 연구** | **OOF 기반 Logistic Regression·보정·임계값**: WaveRep 최강 단일 모델과 비교. | 미사용 그룹에서 비교 완료, 조합 채택/보류 결정. 3축 강제 채택 금지. | 8·10·11 |
 | **13** | **P3-1 / 제품** | **Flutter YouTube 공유 시트 + URL 붙여넣기 + 상태 Polling + 결과 요약/상세**. | YouTube 앱에서 공유→TRINITY→상태/보류/근거 화면 시연. 파일 업로드 UI 없음.<br>**상태(2026-11-14): 진행 중(앞부분).** 디자인 시스템, 화면 8개(입력, 분석 중, 결과 3종, 판단 근거 상세, 영상 접근 불가, 분석 대상 아님), mock·실제 서버 모드, 세 엔드포인트 연결을 Flutter 웹으로 만듦. 모델 미연결이라 실제 서버 모드에서는 판단 보류와 접근 불가만 나옴. 공유 시트와 iOS·Android 빌드는 없음. 같은 날 밝은 테마·둥근 모서리로 개정하고 웹형(검색창 중심)·앱형(세로) 홈과 이용 안내 화면을 추가함. 기록: `docs/design-system.md`, `app/README.md` | 4·7 |
 | **14** | **P3-2 / 안정화** | **인증·작업 소유권·취소·중복 방지·재시작 복구·임시 파일 삭제·rate limit**. | 다른 사용자 결과 접근 차단, 작업 복구/취소/정리 통합 테스트.<br>**상태(2026-11-15): 일부 구현·검증.** 소유권 적용 DELETE 취소/삭제, 진행 중 불변 ETag·조건부 취소, 앱 취소·412 재조회, Worker 재시작 복구·자식 종료·임시 폴더 정리 통합 테스트를 추가했다. 정식 인증·rate limit은 남아 있다. 기록: `docs/HANDOFF.md` | 4·7·13 (보안 기초는 4부터 적용) |
@@ -700,6 +704,10 @@ DELETE 하나로 진행 중에는 취소 접수 `202`, 종료 작업에는 결�
 조건 불일치는 변경 없이 `412`를 반환하고 앱은 오류 대신 상태·결과를 다시 표시한다.
 If-Match 없는 일반 DELETE는 그대로 유지한다. 새 상태 값·JSON API 필드는 만들지 않는다.
 세부 응답·CORS 규칙은 §9를 따른다.
+
+**결정 2·8 보완 — 2026-11-15, Codex, GPT-6 Astra 제안, 사용자 승인.**
+**SyncNet 정합 결과 보완 (2026-11-15):** 모든 Gate 적합 구간에서 각각 유효 트랙 지표가 하나 이상 계산됐을 때만 `alignment.status=completed`다. 대표값 집계는 보류하여 API의 `lse_c`·`lse_d`는 `null`, `included_in_fusion=false`를 유지한다. 기존 `explanations`로 트랙별 계산 완료와 대표값 집계 보류를 설명한다. 트랙별 지표는 내부 계산 결과이며 API 필드를 추가하지 않는다. 진위 판정이나 발화자 동일인 확인을 의미하지 않는다.
+
 
 **결정 8 보완 — 2026-11-15, Codex, GPT-6 Astra 제안, 사용자 승인.**
 Gate 적합 구간이 없으면 WaveRep을 실행하지 않는다. 기존 상태 값만 사용한다.
