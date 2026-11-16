@@ -37,7 +37,7 @@
 | 2 | 단일축·OOF 결합·보정·임계값 잠금 | **완료** (아래) |
 | 3 | 비교 리포트(JSON+Markdown)와 채택 판단 | **완료** (아래) |
 | 4 | 묶음과 서버 관문 | **완료** (아래) |
-| 검증·마무리 | 합성 종단 4종(완료), §15.3(완료), README §14.1 8·12번과 `docs/training-pipeline.md` | **문서 남음** |
+| 검증·마무리 | 합성 종단 4종, §15.3, README §14.1 8·12번, `docs/training-pipeline.md` | **완료** |
 
 **조각 1 (완료)**
 
@@ -102,17 +102,14 @@
   실제 영상 + 실제 LightGBM 모델의 종단 실행, 서버 Worker의 signal·alignment 입력 전달(가짜 축으로만 확인), 실제 데이터의 묶음.
 - 앱은 실제 서버 모드에서 라벨을 숨기는 현재 동작 그대로다(G4 뒤 별도 결정).
 
-**남은 일 (문서, 다음 세션)**
+**문서 (완료):** `docs/training-pipeline.md`(DeepSpeak 승인 후 체크리스트 포함), README §14.1 8·12번, `training/README.md`.
+PR은 만들지 않았다(사용자 지시). main 병합 없음.
 
-1. `docs/training-pipeline.md` 작성: 구조, 사전 고정 설정, 채택 규칙, 묶음, 한계, 그리고 **DeepSpeak 승인 후 실행 순서 체크리스트**:
-   (a) 라이선스 조항 읽기 → (b) 한 행을 열어 `configs/datasets/deepspeak_v2.json`의 unconfirmed 필드 확인·수정, 메타데이터를 JSON Lines로 내보내기(분할 열 포함)
-   → (c) `python -m training.datasets.adapters …`(누수·그룹 비중 확인, test 진짜 영상 수 확인) → (d) 압축 파생본 `training.emulator.pipeline`
-   → (e) `python -m training.features.extract …`(소량으로 시간 측정 먼저) → (f) `configs/training.json`의 `dev_compression_conditions`를 사용자가 정해 기입
-   → (g) `research/training/.venv/bin/python research/training/train.py …` → (h) `python -m training.report.build … --features …`
-   → (i) 판단이 채택 가능/WaveRep 단독이면 `python -m training.bundle …` → `configs/fusion_bundle.json`에 digest 커밋 → (j) 외부 평가는 잠금 해제 절차대로 한 번.
-2. README §14.1 8번·12번 상태 갱신(뼈대 → 학습·결합·판단·서버 관문까지 합성 검증, 실제 데이터 미실행).
-3. `docs/evaluation-pipeline.md`, `training/README.md`에 새 모듈 안내 한 줄씩.
-4. 이전 브랜치에서 넘어온 일: 압축 견고성 실측 재개(실패 캐시 삭제 후), `docs/robustness-selfvideo.md`, SyncNet 성능(`feat/syncnet-perf`, 보류).
+**남은 일**
+
+1. DeepSpeak v2 승인 후 `docs/training-pipeline.md`의 체크리스트 1번부터.
+2. 실제 MotionPhys venv + 실제 LightGBM 모델로 margin 경로 종단 확인(지금은 대역 프로세스로만 확인).
+3. 이전 브랜치에서 넘어온 일: 압축 견고성 실측 재개(실패 캐시 삭제 후), `docs/robustness-selfvideo.md`, SyncNet 성능(`feat/syncnet-perf`, 보류).
 
 ## MotionPhys 축·견고성 진행 (2026-11-16~, 브랜치 `feat/motionphys-axis`)
 
