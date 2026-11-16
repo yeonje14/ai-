@@ -54,6 +54,18 @@
   넘기면 `failed`/`timeout`이다. 측정 스크립트는 SyncNet 단계만 1,800초로 늘려 이 제한과 무관하다.
 - 실행: `data/research/robustness-selfvideo/full.log`. 파일럿(A 원본 Gate·MotionPhys·WaveRep) 정상: Gate 13.1초, MotionPhys 110.3초(프로세스 2회 포함), WaveRep 31.4초.
 
+**오디오 트랙 수정 (2026-11-16, 사용자 결정 A안, 완료)**
+
+- `training/emulator/video.py`: 첫 번째 AAC 트랙 하나만 `-c:a copy`. 다른 오디오 트랙은 버린다. 재인코딩 없음.
+  오디오가 있는데 AAC가 없으면 `error`로 기록하고 넘어간다. 오디오가 아예 없는 입력은 전과 같이 영상만(기존 테스트의 전제).
+  기록 `audio`에 입력 트랙 목록과 선택 트랙을 남긴다(`schema_version` 2). `docs/compression-emulator.md` §2·§3·§8 갱신.
+- A·B·E의 두 번째 트랙은 ffprobe 그대로 `codec_name=unknown`, `codec_tag_string=apac`, 4채널이다. 정체는 확인 필요.
+- **측정은 다시 돌리지 않았다(사용자가 멈춤).** 재개 전에 실패 캐시를 지워야 한다:
+  `data/research/robustness-selfvideo/variants/{A,B,E}.index.json`의 프로파일 항목(또는 파일 전체)과 `variants/*.mp4.json`.
+  그 뒤 `python scripts/robustness_selfvideo.py`를 다시 실행하면 된 조건은 건너뛴다.
+  `run_all`은 `status`가 error인 조건을 건너뛰므로 캐시를 지우지 않으면 변환본이 계속 빠진다.
+- 원본 측정이 어디까지 됐는지는 `data/research/robustness-selfvideo/full.log`와 `results/` 아래 JSON으로 확인한다.
+
 **0단계 (완료)**
 
 - `TrinityNav.serverMode`로 모드를 화면에 전달한다. mock 모드는 기존 "모델 미연결 · 가상 데이터"와
