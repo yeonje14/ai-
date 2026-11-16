@@ -36,8 +36,8 @@
 | 1 | 데이터셋 어댑터, 일괄 특징 추출, 파생본 split 상속 | **완료** (아래) |
 | 2 | 단일축·OOF 결합·보정·임계값 잠금 | **완료** (아래) |
 | 3 | 비교 리포트(JSON+Markdown)와 채택 판단 | **완료** (아래) |
-| 4 | 묶음과 서버 관문 (먼저 §15.3 문안 → 승인) | **§15.3 문안 승인 대기. 코드 없음** |
-| 검증·마무리 | 합성 종단 4종, README §14.1 8·12번, §15.3, `docs/training-pipeline.md` | 남음 |
+| 4 | 묶음과 서버 관문 | **완료** (아래) |
+| 검증·마무리 | 합성 종단 4종(완료), §15.3(완료), README §14.1 8·12번과 `docs/training-pipeline.md` | **문서 남음** |
 
 **조각 1 (완료)**
 
@@ -83,9 +83,36 @@
   (진짜 약 128개에서 보류, 약 480개에서 통과). 실제 데이터의 test 진짜 영상 수를 먼저 확인할 것.
 - 한계: TPR·FPR은 점수가 나온 영상만으로 계산한다(결측은 판정 제공 비율로 따로 본다). latency·메모리 집계 없음.
 
-**다음 할 일(조각 4):** 사용자가 §15.3 문안을 승인하면 → `training/bundle.py`(묶음 생성·digest) → `configs/fusion_bundle.json`(digest만, 기본 비어 있음)
-→ `server/fusion`이 묶음 검증 후 순수 파이썬으로 점수·라벨 계산, 축이 결합용 값을 내부로 전달 → 거부 테스트 → 문서
-(`docs/training-pipeline.md`, README §14.1 8·12번, §15.3).
+**조각 4 (완료, 2026-11-16 사용자 승인)**
+
+- README §15.3 "결정 5·8 보완 — 2026-11-16, Claude 제안, 사용자 승인"에 승인 문안을 넣었다.
+- `training/bundle.py`: 묶음 생성(`python -m training.bundle --run … --report … --out data/models/fusion/<id>`), digest, 불러올 때의 검증, 순수 파이썬 점수 계산.
+  판단이 보류인 리포트로는 묶음을 만들지 않는다. `configs/fusion_bundle.json`은 `bundle_id`·`digest`가 null(묶음 없음)이다.
+- 서버: `server/fusion.load_active`(digest·파일 해시·리포트 판단·합성 여부·특징 버전 확인, 실패 이유는 코드만 로그) → Worker가 작업마다 불러
+  `AxisContext.bundle`로 축에 전달 → 축이 결합 입력을 `ctx.fusion_inputs`에 넣음(signal: logit 중앙값, alignment: 트랙 중앙값,
+  physics: 실행기가 묶음의 LightGBM 모델로 계산한 margin) → `fusion.fuse`가 성공한 축 집합과 정확히 일치하는 후보로만 판정.
+  `build_result`는 바꾸지 않았고, 판정했을 때만 Worker가 `verdict_label`과 첫 설명 항목(`FUSION_ASSESSED`)을 채운다.
+  `Settings.allow_synthetic_bundle`은 테스트 전용(환경 변수 없음).
+- 테스트 `tests/test_fusion_bundle.py` 22개: 묶음 없음(저장소 기본) → 기존과 동일 / 유효 묶음 → assessed·라벨·기존 필드만 /
+  축 일부 실패 → 따로 검증된 부분집합 후보 또는 보류 / 입력 결측 → 보류 / Gate 우회 → 미적용 /
+  **거부 11종**(digest 불일치, bundle.json 변조, 계수·임계값·모델 파일 변조, 리포트를 보류로 바꾸고 해시까지 다시 맞춤, 합성 묶음,
+  특징 버전 불일치, 폴더 없음, 경로 벗어난 ID, 관문을 넘지 않은 후보 끼워 넣기) → 전부 null/abstained/no_valid_fusion_model.
+- `pytest -q` **690 passed, 1 skipped**(LightGBM 없음). `flutter test` 203개 통과(앱 변경 없음).
+- **미검증:** 실제 MotionPhys venv에서 묶음 모델로 margin을 계산하는 경로(`infer_axis.py`의 `_margin`)는 대역 프로세스로만 확인했다.
+  실제 영상 + 실제 LightGBM 모델의 종단 실행, 서버 Worker의 signal·alignment 입력 전달(가짜 축으로만 확인), 실제 데이터의 묶음.
+- 앱은 실제 서버 모드에서 라벨을 숨기는 현재 동작 그대로다(G4 뒤 별도 결정).
+
+**남은 일 (문서, 다음 세션)**
+
+1. `docs/training-pipeline.md` 작성: 구조, 사전 고정 설정, 채택 규칙, 묶음, 한계, 그리고 **DeepSpeak 승인 후 실행 순서 체크리스트**:
+   (a) 라이선스 조항 읽기 → (b) 한 행을 열어 `configs/datasets/deepspeak_v2.json`의 unconfirmed 필드 확인·수정, 메타데이터를 JSON Lines로 내보내기(분할 열 포함)
+   → (c) `python -m training.datasets.adapters …`(누수·그룹 비중 확인, test 진짜 영상 수 확인) → (d) 압축 파생본 `training.emulator.pipeline`
+   → (e) `python -m training.features.extract …`(소량으로 시간 측정 먼저) → (f) `configs/training.json`의 `dev_compression_conditions`를 사용자가 정해 기입
+   → (g) `research/training/.venv/bin/python research/training/train.py …` → (h) `python -m training.report.build … --features …`
+   → (i) 판단이 채택 가능/WaveRep 단독이면 `python -m training.bundle …` → `configs/fusion_bundle.json`에 digest 커밋 → (j) 외부 평가는 잠금 해제 절차대로 한 번.
+2. README §14.1 8번·12번 상태 갱신(뼈대 → 학습·결합·판단·서버 관문까지 합성 검증, 실제 데이터 미실행).
+3. `docs/evaluation-pipeline.md`, `training/README.md`에 새 모듈 안내 한 줄씩.
+4. 이전 브랜치에서 넘어온 일: 압축 견고성 실측 재개(실패 캐시 삭제 후), `docs/robustness-selfvideo.md`, SyncNet 성능(`feat/syncnet-perf`, 보류).
 
 ## MotionPhys 축·견고성 진행 (2026-11-16~, 브랜치 `feat/motionphys-axis`)
 

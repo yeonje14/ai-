@@ -694,6 +694,31 @@ TRINITY/
 
 ### 15.3 설계 결정 1~12 요약
 
+**결정 5·8 보완 — 2026-11-16, Claude 제안, 사용자 승인.**
+서버는 검증된 모델 묶음이 있을 때만 종합 판정을 낸다. 묶음은 계수·표준화·보정 파라미터, MotionPhys 모델,
+dev에서 잠근 임계값, 특징 버전, 학습 manifest·특징 해시, 검증 리포트를 한 폴더(`data/models/fusion/<id>/`, Git 제외)에
+담고 전체 digest로 고정한다. 저장소에는 `configs/fusion_bundle.json`에 digest만 커밋하며 기본값은 비어 있다(묶음 없음).
+
+서버는 다음을 모두 만족할 때만 묶음을 쓴다: (1) 묶음의 digest가 커밋된 값과 같다, (2) 검증 리포트의 판단이
+`채택 가능` 또는 `WaveRep 단독`이다, (3) 합성 데이터로 만든 묶음이 아니다(테스트 전용 설정으로만 허용하며 환경 변수로 켤 수 없다),
+(4) 묶음의 특징 버전이 서버 축의 버전·설정과 같다, (5) 이번 요청에서 성공한 축의 집합과 정확히 일치하는, 따로 관문을 넘은
+후보가 묶음에 있다. 하나라도 어긋나면 지금과 같이 `overall_score=null`, `verdict_label=null`, `verdict_status=abstained`,
+`abstention_reason=no_valid_fusion_model`이다. 결측 축을 0이나 평균으로 채우지 않는다.
+
+묶음을 쓸 때 기존 필드에 값이 채워진다. **새 API 필드와 새 상태 값은 없다.**
+
+- `axes.signal.raw_score`: 프레임 logit의 중앙값(확률 아님).
+- `axes.physics.raw_score`: MotionPhys 분류기의 원시 margin(확률 아님). 묶음의 후보가 physics를 쓸 때만.
+- `axes.alignment.lse_c`·`lse_d`: 전 구간·전 트랙의 중앙값, `included_in_fusion=true`. 묶음의 후보가 alignment를 쓸 때만.
+  그 밖에는 2026-11-15 보완대로 `null`·`false`를 유지한다.
+- `overall_score`: 보정(sigmoid)된 결합 점수. 진짜/가짜 확률이라고 표시하지 않는다(§5.4, §11).
+- `verdict_status=assessed`, `verdict_label`: 묶음의 고정 임계값으로 서버가 정한다(결정 8). 클라이언트는 점수로 라벨을 만들지 않는다.
+
+`gate_bypassed` 결과와 Gate가 거른 결과에는 적용하지 않는다. `analysis_status` 규칙은 바꾸지 않는다.
+앱은 실제 서버 모드에서 라벨을 숨기는 현재 동작을 유지하며, 라벨 표시는 G4(서비스 판정) 검증 뒤 별도로 결정한다.
+채택 조건의 수치와 학습 절차의 사전 고정 값은 `configs/training.json`에 있다(§13.3에는 숫자 기준이 없다).
+현재 저장소에는 고정된 묶음이 없으므로 서버는 항상 판단을 보류한다.
+
 **결정 3·8 보완 — 2026-11-16, Claude 제안, 사용자 승인.**
 MotionPhys를 physics 축에 특징 추출까지만 연결한다. 학습된 분류기가 없으므로 `axes.physics.raw_score`는
 항상 `null`이고 종합 판정에 포함하지 않는다. `axes.physics`의 필드는 기존 네 개(`status`, `reason_code`,

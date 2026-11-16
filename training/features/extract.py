@@ -53,9 +53,12 @@ class ExtractError(RuntimeError):
     pass
 
 
-def default_settings() -> dict:
-    """추출 설정. 서버 기본값과 같게 둔다. 캐시 키와 묶음의 특징 버전에 들어간다."""
-    s = Settings()
+def default_settings(s: Optional[Settings] = None) -> dict:
+    """추출 설정. 서버 기본값과 같게 둔다. 캐시 키와 묶음의 특징 버전에 들어간다.
+
+    서버는 자기 Settings를 넘겨 묶음의 특징 버전과 견준다(다르면 묶음을 쓰지 않는다).
+    """
+    s = s or Settings()
     return {
         "gate": {"version": GATE_VERSION, "timeout_sec": s.gate_timeout_seconds},
         "waverep": {"version": waverep.MODEL_VERSION, "device": s.waverep_device,

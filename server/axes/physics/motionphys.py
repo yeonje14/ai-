@@ -33,11 +33,13 @@ class MotionPhysConfig:
     python: Path = RESEARCH / '.venv/bin/python'
     script: Path = RESEARCH / 'infer_axis.py'
     timeout_sec: float = 120.0
+    # (후보 이름, LightGBM 모델 파일). 검증된 묶음이 있을 때만 서버가 넣는다. 없으면 점수를 내지 않는다.
+    margin_model: tuple[str, Path] | None = None
 
 
 def failure(status: str, reason: str | None) -> dict:
     return {'status': status, 'reason_code': reason, 'raw_score': None,
-            'model_version': MODEL_VERSION, 'variants': None}
+            'model_version': MODEL_VERSION, 'variants': None, 'margin': None, 'margin_variant': None}
 
 
 def _finite(value: Any) -> bool:
@@ -114,7 +116,7 @@ def _variant(raw: Any, with_features: bool = False) -> dict:
     return out
 
 
-def parse_result(raw: Any, with_features: bool = False) -> dict:
+def parse_result(raw: Any, with_features: bool = False, margin_variant: str | None = None) -> dict:
     if not isinstance(raw, dict) or type(raw.get('schema_version')) is not int or raw['schema_version'] != 1:
         raise ValueError('invalid schema')
     variants = raw.get('variants')
@@ -124,6 +126,11 @@ def parse_result(raw: Any, with_features: bool = False) -> dict:
     primary = clean[PRIMARY]
     result = failure(primary['status'], primary['reason_code'])
     result['variants'] = clean
+    if margin_variant is not None:
+        # 분류기의 원시 margin(확률 아님). 그 후보의 추출이 실패했거나 값이 이상하면 null이다
+        margin = variants[margin_variant].get('margin') if isinstance(variants.get(margin_variant), dict) else None
+        if clean[margin_variant]['status'] == 'completed' and _finite(margin):
+            result.update(margin=float(margin), margin_variant=margin_variant)
     return result
 
 
@@ -192,6 +199,10 @@ def run_motionphys(video: Path, segments: Sequence[Sequence[float]], work_dir: P
             body = {'video': str(video), 'segments': bounds}
             if include_features:
                 body['include_features'] = True
+            if config.margin_model is not None:
+                if config.margin_model[0] not in VARIANTS or not Path(config.margin_model[1]).is_file():
+                    return failure('error', 'model_unavailable')
+                body['margin_model'] = {'variant': config.margin_model[0], 'path': str(config.margin_model[1])}
             request.write_text(json.dumps(body))
             cmd = [str(config.python), str(config.script), '--request', str(request), '--output', str(output)]
             try:
@@ -200,6 +211,7 @@ def run_motionphys(video: Path, segments: Sequence[Sequence[float]], work_dir: P
                 return failure('error', 'model_unavailable')
             if reason:
                 return failure('error', reason)
-            return parse_result(json.loads(output.read_text()), include_features)
+            return parse_result(json.loads(output.read_text()), include_features,
+                                config.margin_model[0] if config.margin_model else None)
     except (OSError, ValueError, TypeError, KeyError, RecursionError):
         return failure('error', 'inference_error')

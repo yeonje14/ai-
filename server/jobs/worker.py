@@ -355,6 +355,8 @@ def process(
             media_path=media_path,
             segments=segments,
             heartbeat=heartbeat,
+            # Gate를 건너뛴 결과는 판정하지 않으므로 묶음을 쓰지 않는다
+            bundle=None if gate_bypassed else fusion.load_active(settings),
         )
         axes: dict[str, dict[str, Any]] = {}
         for stage, axis_name, module in AXES:
@@ -367,7 +369,9 @@ def process(
             completed.append(stage)
 
         enter("fusion")
-        fused = fusion.fuse(axes)
+        fused = fusion.fuse(axes, ctx.bundle, ctx.fusion_inputs)
+        for axis_name, update in fused.get("axis_updates", {}).items():
+            axes[axis_name].update(update)
         completed.append("fusion")
 
         coverage = build_coverage(
@@ -376,6 +380,14 @@ def process(
         result = build_result(job, media.provenance, axes, fused, coverage, gate_bypassed)
         # 축 설명은 종합 보류 설명 바로 뒤에 둔다. 기존 항목의 순서는 그대로다.
         result["explanations"][1:1] = ctx.explanations
+        if fused["verdict_status"] == "assessed":
+            # 검증된 묶음으로 판정했다(README §15.3). 보류 설명을 판정 설명으로 바꾼다
+            result["verdict_label"] = fused["verdict_label"]
+            result["explanations"][0] = {
+                "template_id": "FUSION_ASSESSED", "reason_code": "assessed",
+                "message": f"검증된 판정 모델({fused['candidate']})의 고정 임계값으로 판단했습니다. "
+                           "점수는 가짜일 확률이 아니며, 의심 신호가 낮다는 결과도 진짜 영상임을 뜻하지 않습니다.",
+            }
         if gate is not None:
             result["explanations"].extend(gate_report.explanations(gate))
         finalize(result)

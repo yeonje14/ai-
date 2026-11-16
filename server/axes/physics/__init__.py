@@ -32,7 +32,9 @@ def build_config(ctx: AxisContext) -> MotionPhysConfig:
     timeout = ctx.settings.motionphys_timeout_seconds
     if ctx.timeout_seconds is not None:
         timeout = min(timeout, ctx.timeout_seconds)
-    return MotionPhysConfig(timeout_sec=timeout)
+    # 묶음에 MotionPhys 분류기가 있으면 실행기가 그 모델로 margin을 함께 계산한다
+    motion = ctx.bundle.motion if ctx.bundle is not None else None
+    return MotionPhysConfig(timeout_sec=timeout, margin_model=motion)
 
 
 def _percent(rate: float | None) -> str:
@@ -92,4 +94,6 @@ def run(ctx: AxisContext) -> dict[str, Any]:
     if out["reason_code"] != "aborted":
         ctx.explanations.append(explanation(out, ctx.segments))
     result.update(status=out["status"], reason_code=out["reason_code"])
+    if ctx.bundle is not None and out.get("margin") is not None:
+        ctx.fusion_inputs[f"M-{out['margin_variant']}"] = out["margin"]
     return result
