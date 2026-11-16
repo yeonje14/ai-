@@ -64,7 +64,10 @@
   `data/research/robustness-selfvideo/variants/{A,B,E}.index.json`의 프로파일 항목(또는 파일 전체)과 `variants/*.mp4.json`.
   그 뒤 `python scripts/robustness_selfvideo.py`를 다시 실행하면 된 조건은 건너뛴다.
   `run_all`은 `status`가 error인 조건을 건너뛰므로 캐시를 지우지 않으면 변환본이 계속 빠진다.
-- 원본 측정이 어디까지 됐는지는 `data/research/robustness-selfvideo/full.log`와 `results/` 아래 JSON으로 확인한다.
+- **원본 3개 측정은 끝났다(2026-11-16 감시 확인).** 프로세스 종료, 실패한 측정 0건, 결과 JSON 12개
+  (`data/research/robustness-selfvideo/results/{A,B,E}/original/{gate,waverep,motionphys,syncnet}.json`),
+  모음 `summary.json`, 로그 `full.log`. 변환본 측정은 0건(위 실패 캐시 삭제 후 재실행 필요).
+  결과 해석과 `docs/robustness-selfvideo.md`는 아직 쓰지 않았다.
 
 **0단계 (완료)**
 
