@@ -34,7 +34,7 @@
 | 조각 | 내용 | 상태 |
 |---|---|---|
 | 1 | 데이터셋 어댑터, 일괄 특징 추출, 파생본 split 상속 | **완료** (아래) |
-| 2 | 단일축·OOF 결합·보정·임계값 잠금 | 남음 |
+| 2 | 단일축·OOF 결합·보정·임계값 잠금 | **완료** (아래) |
 | 3 | 비교 리포트(JSON+Markdown)와 채택 판단 | 남음 |
 | 4 | 묶음과 서버 관문 (먼저 §15.3 문안 → 승인) | 남음 |
 | 검증·마무리 | 합성 종단 4종, README §14.1 8·12번, §15.3, `docs/training-pipeline.md` | 남음 |
@@ -54,8 +54,21 @@
   (A 504, B 504, C 1,512차원). 재실행 시 세 축 모두 캐시 사용. SyncNet은 스모크에서 돌리지 않았다. 산출물은 지웠다.
 - **미검증:** 실제 DeepSpeak 행, 대량 추출의 소요 시간·디스크, HiDF.
 
-**다음 할 일(조각 2):** `research/training/.venv` 만들기(lockfile) → `research/training/`에 학습 스크립트
-(features.jsonl + manifest → 단일축 점수, OOF 결합, 보정, dev 임계값 잠금) → 합성 생성기.
+**조각 2 (완료)**
+
+- 환경: `research/training/.venv`(numpy 2.4.6, scikit-learn 1.9.1, lightgbm 4.7.0, `requirements.lock.txt`). trinity 변경 없음.
+- `configs/training.json` + `training/config.py`: 사전 고정 설정. 모르는 키 거부(`threshold_split` 등은 표현할 수 없다).
+  `dev_compression_conditions`는 커밋된 값이 `null`이고 그대로면 학습이 오류로 멈춘다.
+- `training/synth.py`: 합성 manifest·특징 생성기(그룹, 축별 신호·결측, 압축 파생본, 누수 주입).
+- `research/training/train.py`: 누수·그룹 비중(25%)·특징–manifest 해시 확인 → WaveRep 점수(중앙값) → MotionPhys A/B/C LightGBM 그룹 5-fold OOF
+  → 결합용 M은 dev AUC로 선택 → 후보 W, M-*, W+M, W+M+S → 결합 모델 교차 적합 OOF에 sigmoid 보정 → dev(지정 압축 조건만) 임계값 잠금.
+  산출: `scores/`(dev·test), `oof/`(train), `thresholds/`(읽기 전용), `models/<후보>.json`(계수·표준화·보정), `models/motionphys-*.txt`, `train_meta.json`.
+- 테스트 `tests/test_training_train.py` 18개: 설정 검사(항상 실행), 학습 종단(venv 서브프로세스), 결측 축은 빈칸,
+  **test 분할의 특징·라벨을 바꿔도 모델·보정·임계값이 같음**, 누수·거대 그룹·dev 조건 미지정·해시 불일치·기존 폴더 거부.
+- 한계: 스태킹은 같은 폴드를 재사용한다(완전 중첩 CV 아님, `train_meta.json`에 기록). 하이퍼파라미터 탐색 없음.
+
+**다음 할 일(조각 3):** `training/report/`(표준 라이브러리): 후보별 dev·test 지표(기존 `metrics.evaluate`), 기준 대비 짝지은 그룹 bootstrap,
+Brier·ECE, 채택 판단(결정 14·15), shortcut 진단 자리, JSON + Markdown. 그다음 조각 4 전에 §15.3 문안을 보여 주고 멈춘다.
 
 ## MotionPhys 축·견고성 진행 (2026-11-16~, 브랜치 `feat/motionphys-axis`)
 
