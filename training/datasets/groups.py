@@ -101,3 +101,42 @@ def assign_splits(
         split_of[g] = next((s for s, b in zip(names, bounds) if mid < b), names[-1])
         seen += size[g]
     return [r if r.split == "external" else r.with_split(split_of[gid[r.uid]]) for r in records]
+
+
+# 한 그룹이 내부 분할 영상의 이만큼을 넘으면 학습을 거부한다(2026-11-16 사용자 승인, 설정으로 바꿀 수 있다).
+# 얼굴 교체가 인물들을 연쇄로 이으면 그룹이 하나로 뭉쳐 그룹 분할과 그룹 bootstrap이 뜻을 잃는다.
+DEFAULT_MAX_GROUP_SHARE = 0.25
+
+
+def size_summary(records: Iterable[Record], max_share: float = DEFAULT_MAX_GROUP_SHARE) -> dict:
+    """내부 분할(external 제외) 영상의 그룹 크기 분포. 리포트에 그대로 싣는다."""
+    internal = [r for r in records if r.split != "external"]
+    gid = group_ids(internal)
+    sizes = sorted(_count(gid.values()).values(), reverse=True)
+    total = len(internal)
+    share = sizes[0] / total if total else None
+
+    def quantile(q: float) -> int:
+        return sorted(sizes)[min(len(sizes) - 1, int(q * (len(sizes) - 1) + 0.5))]
+
+    buckets = {"1": 0, "2-5": 0, "6-20": 0, "21-100": 0, "101+": 0}
+    for n in sizes:
+        buckets["1" if n == 1 else "2-5" if n <= 5 else "6-20" if n <= 20 else "21-100" if n <= 100 else "101+"] += 1
+    return {
+        "videos": total, "groups": len(sizes),
+        "largest_group_videos": sizes[0] if sizes else None,
+        "largest_group_share": share,
+        "max_group_share": max_share,
+        "within_limit": share is None or share <= max_share,
+        "median_group_videos": quantile(0.5) if sizes else None,
+        "p90_group_videos": quantile(0.9) if sizes else None,
+        "groups_by_size": buckets,
+        "top_group_videos": sizes[:5],
+    }
+
+
+def _count(values: Iterable[str]) -> dict[str, int]:
+    out: dict[str, int] = defaultdict(int)
+    for v in values:
+        out[v] += 1
+    return out

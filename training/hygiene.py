@@ -113,6 +113,22 @@ def check(records: Iterable[Record], lock: dict[str, dict]) -> HygieneReport:
     if dup:
         report.errors.append(_error("file_hash_spans_splits", len(dup), dup))
 
+    # 4-1) 압축 등 파생본은 부모의 분할·라벨을 그대로 물려받는다 (README §6.4 "분할을 확정한 뒤 압축")
+    by_uid = {r.uid: r for r in records}
+    inherit_bad, orphan = [], 0
+    for r in records:
+        if not r.parent_video_id:
+            continue
+        parent = by_uid.get(f"{r.dataset_id}:{r.parent_video_id}")
+        if parent is None:
+            orphan += 1
+        elif (r.split, r.label) != (parent.split, parent.label):
+            inherit_bad.append({"video": r.uid, "split": r.split, "parent_split": parent.split,
+                                "label": r.label, "parent_label": parent.label})
+    if inherit_bad:
+        report.errors.append(_error("derived_not_inheriting_parent", len(inherit_bad),
+                                    sorted(inherit_bad, key=lambda e: e["video"])))
+
     # 5) 잠금 대상 데이터셋이 내부 분할에 있거나, external인데 등록되지 않음
     misplaced = sorted(r.uid for r in records if r.dataset_id in lock and r.split in INTERNAL_SPLITS)
     if misplaced:
@@ -128,6 +144,8 @@ def check(records: Iterable[Record], lock: dict[str, dict]) -> HygieneReport:
         "fake_generator_missing": sum(1 for r in records if r.label == "fake" and not r.generator_id),
         "fake_manipulation_type_missing": sum(1 for r in records if r.label == "fake" and not r.manipulation_type),
         "file_hash_missing": sum(1 for r in records if not r.file_hash),
+        # 부모 행이 manifest에 없는 파생본. 상속을 확인할 수 없다
+        "derived_parent_missing": orphan,
     }
     return report
 
