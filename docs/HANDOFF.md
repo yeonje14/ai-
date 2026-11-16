@@ -40,6 +40,20 @@
 - MotionPhys 단독 37.1초 대 Worker 안 약 61초: 원인 미확인. 2단계 시간표에 측정 근거와 함께 적는다.
 - **미검증:** B·E의 Worker 종단 실행, 실제 모델 실행 중 취소·SIGKILL, 앱 화면에서의 새 설명 표시.
 
+**2단계 실측 진행 (Sonnet 5.5 감시, 코드·설계 변경 금지)**
+
+- **막힌 점 1 — 변환본 12개 전부 인코딩 실패(A 확인, B·E도 같은 형식).** 원인: 프로파일이 `-map 0:a? -c:a copy`로
+  오디오를 복사하는데, 샘플 .MOV의 오디오 스트림 2개 중 하나가 ffprobe에서 코덱 `unknown`(추정: iPhone 공간 오디오 — 미확인)이라
+  mp4에 복사할 수 없다. `reason`: "codec not currently supported in container … Could not write header". `docs/compression-emulator.md` §8에
+  "mp4에 복사할 수 없는 오디오 코덱은 확인하지 않았다(미검증)"로 적어 둔 경우가 실제로 발생한 것이다. 수정하지 않았다.
+  로그: `data/research/robustness-selfvideo/pilot.log`, 조건별 사유 `variants/*.index.json`(`reason`).
+  **이 인덱스에 error가 캐시돼 있어 코드를 고친 뒤에는 `variants/<영상>.index.json`의 해당 조건 항목과 `*.mp4.json`을 지우고 다시 실행해야 한다.**
+  결과: 변환본 측정은 0건. 원본 3개의 측정만 진행한다. 사용자 결정 필요(오디오 매핑·재인코딩 방식).
+- **막힌 점 2 — 작업 제한 600초 위험.** A 실제 Worker 실행이 506초(SyncNet 약 400초)였다. 서비스 기본
+  `TRINITY_JOB_TIMEOUT_SECONDS=600`에서 여유가 약 94초이고, 52초 영상 E는 SyncNet이 더 길어 600초를 넘길 가능성이 있다(미측정).
+  넘기면 `failed`/`timeout`이다. 측정 스크립트는 SyncNet 단계만 1,800초로 늘려 이 제한과 무관하다.
+- 실행: `data/research/robustness-selfvideo/full.log`. 파일럿(A 원본 Gate·MotionPhys·WaveRep) 정상: Gate 13.1초, MotionPhys 110.3초(프로세스 2회 포함), WaveRep 31.4초.
+
 **0단계 (완료)**
 
 - `TrinityNav.serverMode`로 모드를 화면에 전달한다. mock 모드는 기존 "모델 미연결 · 가상 데이터"와
