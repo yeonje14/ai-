@@ -35,8 +35,8 @@
 |---|---|---|
 | 1 | 데이터셋 어댑터, 일괄 특징 추출, 파생본 split 상속 | **완료** (아래) |
 | 2 | 단일축·OOF 결합·보정·임계값 잠금 | **완료** (아래) |
-| 3 | 비교 리포트(JSON+Markdown)와 채택 판단 | 남음 |
-| 4 | 묶음과 서버 관문 (먼저 §15.3 문안 → 승인) | 남음 |
+| 3 | 비교 리포트(JSON+Markdown)와 채택 판단 | **완료** (아래) |
+| 4 | 묶음과 서버 관문 (먼저 §15.3 문안 → 승인) | **§15.3 문안 승인 대기. 코드 없음** |
 | 검증·마무리 | 합성 종단 4종, README §14.1 8·12번, §15.3, `docs/training-pipeline.md` | 남음 |
 
 **조각 1 (완료)**
@@ -67,8 +67,25 @@
   **test 분할의 특징·라벨을 바꿔도 모델·보정·임계값이 같음**, 누수·거대 그룹·dev 조건 미지정·해시 불일치·기존 폴더 거부.
 - 한계: 스태킹은 같은 폴드를 재사용한다(완전 중첩 CV 아님, `train_meta.json`에 기록). 하이퍼파라미터 탐색 없음.
 
-**다음 할 일(조각 3):** `training/report/`(표준 라이브러리): 후보별 dev·test 지표(기존 `metrics.evaluate`), 기준 대비 짝지은 그룹 bootstrap,
-Brier·ECE, 채택 판단(결정 14·15), shortcut 진단 자리, JSON + Markdown. 그다음 조각 4 전에 §15.3 문안을 보여 주고 멈춘다.
+**조각 3 (완료)**
+
+- `training/report/decision.py`: 짝지은 그룹 bootstrap 차이, Brier·ECE, dev AUC로만 하는 선택, 관문, 판단(`fusion_adoptable`/`waverep_only`/`hold`),
+  shortcut 진단(해상도·fps·길이·오디오 유무; 코덱은 수집하지 않음, 경고만).
+- `training/report/build.py`: 학습 결과 폴더 → `report.json` + `report.md`. 맨 위에 dev 압축 조건과 합성 여부. 후보별 test 지표,
+  dev 값, 기준 대비 차이, 관문 표, 압축 조건별, 보류 현황, 그룹 크기 분포. 점수·임계값 파일이 학습 뒤 바뀌면 거부.
+- 구현한 판단: 결합은 자기 AUC CI 하한 > 0.5, FPR CI 상한 ≤ 10%, WaveRep과 단일 최강 각각 대비 TPR 차이 CI 하한 > 0,
+  FPR 악화 ≤ 2%p(점 추정), 판정 제공 비율 감소 ≤ 5%p. WaveRep 단독은 AUC CI 하한 > 0.5와 FPR CI 상한 ≤ 10%.
+  `servable_candidates`에는 자기 축 조합으로 따로 관문을 넘은 후보만 들어간다(조각 4가 읽는다).
+- 합성 종단 테스트(`tests/test_training_report.py`, venv 필요): 신호 없음(시드 4개) → 전부 보류 / WaveRep에만 신호 → WaveRep 단독 /
+  MotionPhys 한 후보에만 신호 → 그 단일축이 최강이고 결합 미채택 / 두 축에 신호 → 채택 가능 / 누수·변조 → 거부.
+- `pytest -q` **668 passed, 1 skipped**(LightGBM 없음, trinity).
+- 관찰(합성): test의 진짜 영상이 적으면 FPR CI 상한 ≤ 10% 관문 때문에 신호가 있어도 보류가 된다
+  (진짜 약 128개에서 보류, 약 480개에서 통과). 실제 데이터의 test 진짜 영상 수를 먼저 확인할 것.
+- 한계: TPR·FPR은 점수가 나온 영상만으로 계산한다(결측은 판정 제공 비율로 따로 본다). latency·메모리 집계 없음.
+
+**다음 할 일(조각 4):** 사용자가 §15.3 문안을 승인하면 → `training/bundle.py`(묶음 생성·digest) → `configs/fusion_bundle.json`(digest만, 기본 비어 있음)
+→ `server/fusion`이 묶음 검증 후 순수 파이썬으로 점수·라벨 계산, 축이 결합용 값을 내부로 전달 → 거부 테스트 → 문서
+(`docs/training-pipeline.md`, README §14.1 8·12번, §15.3).
 
 ## MotionPhys 축·견고성 진행 (2026-11-16~, 브랜치 `feat/motionphys-axis`)
 

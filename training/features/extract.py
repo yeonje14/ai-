@@ -216,7 +216,9 @@ def summarize_video(rec: Record, results: dict[str, dict]) -> dict:
     row = {"uid": rec.uid, "dataset_id": rec.dataset_id, "video_id": rec.video_id,
            "video_duration_sec": gate.get("video_duration_sec"),
            "eligible_duration_sec": gate.get("eligible_duration_sec"),
-           "gate_reason": gate.get("reason_code"), "axes": {}}
+           "gate_reason": gate.get("reason_code"),
+           # 해상도·fps·길이·오디오 유무. 라벨이 이것만으로 예측되는지(shortcut) 진단할 때만 쓴다. 모델 입력이 아니다
+           "media": gate.get("media"), "axes": {}}
     axes = row["axes"]
 
     w = results.get("waverep")
