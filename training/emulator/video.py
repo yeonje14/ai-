@@ -23,7 +23,7 @@ from typing import Mapping, Optional
 from training.datasets.manifest import sha256_file
 from training.emulator.profiles import ALLOWED_ENCODERS, Profile, ProfileError, get_profile
 
-METADATA_SCHEMA_VERSION = 1
+METADATA_SCHEMA_VERSION = 2  # 2: audio(입력 트랙 목록, 복사한 트랙) 추가
 STATUS_COMPLETED = "completed"
 STATUS_SKIPPED_UPSCALE = "skipped_upscale"
 STATUS_ERROR = "error"
@@ -48,13 +48,19 @@ def scale_filter(profile: Profile) -> str:
     return f"scale=w='if(lt(iw,ih),{t},-2)':h='if(lt(iw,ih),-2,{t})':flags={profile.scale_flags}"
 
 
-def build_args(ffmpeg: str, input_path: Path, output_path: Path, profile: Profile) -> list[str]:
+AUDIO_CODEC = "aac"  # 복사할 오디오 트랙의 코덱. 재인코딩하지 않는다(영상 압축의 영향만 본다)
+
+
+def build_args(ffmpeg: str, input_path: Path, output_path: Path, profile: Profile,
+               audio_index: Optional[int] = None) -> list[str]:
+    """audio_index: 복사할 오디오 스트림의 입력 내 번호(ffprobe의 index). None이면 오디오를 넣지 않는다."""
     if profile.encoder not in ALLOWED_ENCODERS:  # Profile이 이미 막지만 실행 직전에 한 번 더 본다
         raise ProfileError(f"허용하지 않는 인코더: {profile.encoder!r}")
+    audio_map = [] if audio_index is None else ["-map", f"0:{int(audio_index)}"]
     return [
         ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-n",
         "-i", str(input_path),
-        "-map", "0:v:0", "-map", "0:a?", "-sn", "-dn",
+        "-map", "0:v:0", *audio_map, "-sn", "-dn",
         "-map_metadata", "-1", "-map_chapters", "-1",
         "-vf", scale_filter(profile), "-filter_threads", "1",
         "-c:v", profile.encoder, "-preset", profile.preset, "-crf", str(profile.crf),
@@ -78,6 +84,28 @@ def ffmpeg_version(ffmpeg: str = "ffmpeg") -> str:
     if proc.returncode != 0 or not proc.stdout:
         raise EmulatorError("ffmpeg 버전을 읽지 못했다")
     return proc.stdout.splitlines()[0].strip()
+
+
+def probe_audio_streams(path: Path, ffprobe: str = "ffprobe") -> list[dict]:
+    """오디오 스트림 목록. ffprobe가 준 값을 그대로 적는다(모르는 코덱은 "unknown"으로 온다)."""
+    proc = _run([
+        ffprobe, "-v", "error", "-select_streams", "a",
+        "-show_entries", "stream=index,codec_name,codec_tag_string,channels,sample_rate",
+        "-of", "json", str(path),
+    ], 120)
+    if proc.returncode != 0:
+        raise EmulatorError(f"ffprobe 실패: {proc.stderr.strip()[:300]}")
+    return [
+        {"index": int(st["index"]), "codec_name": st.get("codec_name"),
+         "codec_tag_string": st.get("codec_tag_string"), "channels": st.get("channels"),
+         "sample_rate": st.get("sample_rate")}
+        for st in json.loads(proc.stdout).get("streams", [])
+    ]
+
+
+def select_audio_stream(streams: list[dict]) -> Optional[dict]:
+    """첫 번째 AAC 트랙 하나. 없으면 None. 다른 오디오 트랙(mp4에 복사할 수 없는 것 포함)은 버린다."""
+    return next((st for st in streams if st["codec_name"] == AUDIO_CODEC), None)
 
 
 def probe_video(path: Path, ffprobe: str = "ffprobe") -> dict:
@@ -149,8 +177,10 @@ def emulate(
         raise EmulatorError(f"출력이 이미 있다. 덮어쓰지 않는다: {output_path.name}")
 
     source = probe_video(input_path, ffprobe)
+    audio_streams = probe_audio_streams(input_path, ffprobe)
+    audio = select_audio_stream(audio_streams)
     tmp_path = output_path.with_name(output_path.name + ".partial")
-    args = build_args(ffmpeg, input_path, tmp_path, profile)
+    args = build_args(ffmpeg, input_path, tmp_path, profile, None if audio is None else audio["index"])
     result: dict = {
         "schema_version": METADATA_SCHEMA_VERSION,
         "status": STATUS_COMPLETED,
@@ -163,12 +193,19 @@ def emulate(
                         for a in args[1:]],
         "input": {"name": input_path.name, "sha256": sha256_file(input_path), **source},
         "output": None,
+        # 입력의 오디오 트랙 전부와, 그중 복사한 하나(없으면 null). 나머지 트랙은 출력에 없다
+        "audio": {"input_streams": audio_streams, "selected": audio, "codec": profile.audio},
         "lineage": {k: (lineage or {}).get(k, "") for k in LINEAGE_FIELDS},
         "note": DISCLAIMER,
     }
 
     short = min(source["width"], source["height"])
-    if profile.short_side is not None and profile.short_side > short:
+    if audio_streams and audio is None:
+        # 오디오가 있는데 AAC 트랙이 없다. 재인코딩하지 않으므로 만들지 않고 넘어간다
+        result["status"] = STATUS_ERROR
+        result["reason"] = f"복사할 {AUDIO_CODEC} 오디오 트랙이 없다: " + ", ".join(
+            str(st["codec_name"]) for st in audio_streams)
+    elif profile.short_side is not None and profile.short_side > short:
         result["status"] = STATUS_SKIPPED_UPSCALE
         result["reason"] = f"목표 짧은 변 {profile.short_side}px가 원본 {short}px보다 크다"
     else:

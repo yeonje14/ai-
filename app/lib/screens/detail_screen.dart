@@ -16,6 +16,7 @@ class DetailScreen extends StatelessWidget {
 
   static const notProbability = '확률 아님';
   static const rawNotice = '아래는 가상 데이터입니다. 원시 지표는 가짜일 확률이 아니며, 값 하나로 진위를 말할 수 없어요.';
+  static const serverRawNotice = '아래는 연구용 시제품의 계산 결과이며 참고 정보입니다. 원시 지표는 가짜일 확률이 아니며, 값 하나로 진위를 말할 수 없어요.';
   static const syncNote = 'SyncNet은 진위를 가리는 모델이 아니라 동기화를 재는 보조 지표입니다.';
   static const noOverall = '검증된 결합 모델이 없어 종합 점수는 값 없음으로 표시합니다.';
 
@@ -43,7 +44,11 @@ class DetailScreen extends StatelessWidget {
         const SizedBox(height: TSpace.x2),
         Semantics(header: true, child: Text('판단 근거를\n하나씩 살펴보세요.', style: TText.display.copyWith(color: p.ink))),
         const SizedBox(height: TSpace.x3),
-        const InfoBox(title: DetailScreen.notProbability, body: DetailScreen.rawNotice, tone: StatusTone.warning),
+        InfoBox(
+          title: DetailScreen.notProbability,
+          body: TrinityNav.isServerMode(context) ? DetailScreen.serverRawNotice : DetailScreen.rawNotice,
+          tone: StatusTone.warning,
+        ),
         const SizedBox(height: TSpace.x4),
         if (signal != null)
           AxisResultRow(

@@ -334,3 +334,85 @@ def test_evaluate_cli_report_has_by_compression(tmp_path):
     assert by["original"]["videos"] == by["x264-crf28-720p"]["videos"] == 20
     assert by["original"]["groups"] == 20 and report["counts"]["groups"] == 20  # 부모와 파생본은 한 그룹
     assert any("YouTube" in n for n in report["notes"])
+
+
+# ---------- 오디오 트랙 선택 (2026-11-16: 첫 AAC 트랙 하나만 복사) ----------
+
+def make_multi_audio(path: Path, codecs: list[str]) -> Path:
+    """오디오 트랙이 여러 개인 mov. codecs 순서대로 들어간다."""
+    args = ["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=15:duration=1"]
+    for i, _ in enumerate(codecs):
+        args += ["-f", "lavfi", "-i", f"sine=frequency={440 + 110 * i}:duration=1"]
+    args += ["-map", "0:v:0"]
+    for i, codec in enumerate(codecs):
+        args += ["-map", f"{i + 1}:a:0", f"-c:a:{i}", codec]
+    args += ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(path)]
+    subprocess.run(args, check=True, capture_output=True)
+    return path
+
+
+def test_select_audio_stream_takes_first_aac_and_ignores_unknown():
+    streams = [{"index": 2, "codec_name": "unknown", "codec_tag_string": "apac"},
+               {"index": 1, "codec_name": "aac"}, {"index": 3, "codec_name": "aac"}]
+    assert video.select_audio_stream(streams)["index"] == 1
+    assert video.select_audio_stream(streams[:1]) is None
+    assert video.select_audio_stream([]) is None
+
+
+def test_args_map_exactly_one_audio_stream_or_none():
+    p = profiles.get_profile("x264-crf28-source")
+    with_audio = video.build_args("ffmpeg", Path("in.mov"), Path("out.mp4"), p, 2)
+    maps = [with_audio[i + 1] for i, a in enumerate(with_audio) if a == "-map"]
+    assert maps == ["0:v:0", "0:2"]
+    assert with_audio[with_audio.index("-c:a") + 1] == "copy"  # 재인코딩하지 않는다
+    without = video.build_args("ffmpeg", Path("in.mov"), Path("out.mp4"), p)
+    assert [without[i + 1] for i, a in enumerate(without) if a == "-map"] == ["0:v:0"]
+    assert not any(a.startswith("0:a") for a in with_audio + without)
+
+
+@needs_ffmpeg
+def test_only_first_aac_track_is_copied_and_recorded(tmp_path):
+    src = make_multi_audio(tmp_path / "multi.mov", ["pcm_s16le", "aac", "aac"])
+    r = video.emulate(src, "x264-crf28-source", tmp_path / "out")
+    assert r["status"] == "completed"
+    assert [s["codec_name"] for s in r["audio"]["input_streams"]] == ["pcm_s16le", "aac", "aac"]
+    assert r["audio"]["selected"]["codec_name"] == "aac"
+    assert r["audio"]["selected"]["index"] == r["audio"]["input_streams"][1]["index"]
+    assert f"0:{r['audio']['selected']['index']}" in r["ffmpeg_args"]
+    out = video.probe_audio_streams(tmp_path / "out" / r["output"]["name"])
+    assert [s["codec_name"] for s in out] == ["aac"]  # 다른 트랙은 버린다
+    saved = json.loads((tmp_path / "out" / (r["output"]["name"] + ".json")).read_text(encoding="utf-8"))
+    assert saved["audio"] == r["audio"] and saved["schema_version"] == 2
+
+
+@needs_ffmpeg
+def test_audio_without_aac_track_is_error_and_makes_no_output(tmp_path):
+    src = make_multi_audio(tmp_path / "pcm.mov", ["pcm_s16le"])
+    r = video.emulate(src, "x264-crf28-source", tmp_path / "out")
+    assert r["status"] == "error" and r["output"] is None
+    assert "aac" in r["reason"] and "pcm_s16le" in r["reason"]
+    assert r["audio"]["selected"] is None
+    assert not list((tmp_path / "out").glob("*.mp4"))
+    assert list((tmp_path / "out").glob("*.json"))  # 기록은 남기고 넘어간다
+
+
+@needs_ffmpeg
+def test_input_without_audio_still_encodes_video_only(tmp_path):
+    src = make_video(tmp_path / "silent.mp4", audio=False)
+    r = video.emulate(src, "x264-crf28-source", tmp_path / "out")
+    assert r["status"] == "completed"
+    assert r["audio"] == {"input_streams": [], "selected": None, "codec": "copy"}
+    assert video.probe_audio_streams(tmp_path / "out" / r["output"]["name"]) == []
+
+
+@needs_ffmpeg
+def test_real_sample_with_uncopyable_second_track_encodes(tmp_path):
+    sample = Path(__file__).resolve().parent.parent / "data/research/samples/A.MOV"
+    if not sample.is_file():
+        pytest.skip("A.MOV 샘플 없음")
+    r = video.emulate(sample, "x264-crf34-480p", tmp_path)
+    assert r["status"] == "completed", r["reason"]
+    assert r["audio"]["selected"]["codec_name"] == "aac"
+    assert len(r["audio"]["input_streams"]) >= 1
+    assert [s["codec_name"] for s in video.probe_audio_streams(tmp_path / r["output"]["name"])] == ["aac"]

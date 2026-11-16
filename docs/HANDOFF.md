@@ -1,5 +1,83 @@
 # HANDOFF
 
+## MotionPhys 축·견고성 진행 (2026-11-16~, 브랜치 `feat/motionphys-axis`)
+
+크레딧이 끊겨도 이어갈 수 있게 단계마다 갱신한다. main에는 병합하지 않는다. 마지막에 PR 하나를 만든다.
+
+**사용자 승인 사항(2026-11-16, Claude 제안)**
+
+- physics에 새 API 필드를 추가하지 않는다. `raw_score=null`, "종합 판정에 포함하지 않음"은 `explanations`에 적는다.
+- physics 추출 성공은 `completed` + `raw_score=null`. 축 상태의 기준은 후보 A, B·C는 `explanations` 요약에만.
+- `analysis_status` 규칙과 `build_result`는 바꾸지 않는다. 세 축이 모두 돌면 기존 규칙대로 `completed`다.
+  A 실제 확인의 기대값: finished / completed(축이 하나라도 completed가 아니면 partial) / abstained, `overall_score`·`verdict_label` null.
+- 견고성 측정: Gate는 조건마다 재실행, 세 모델은 원본의 Gate 구간으로 고정. WaveRep은 Worker 기본값.
+  측정 스크립트에서만 SyncNet 제한 1,800초. 1080p 프로파일은 원본 해상도 출력과 해시가 같으면 "원본과 동일(해시)"로 적고 재측정하지 않는다.
+  A 원본 실측에서 SyncNet이 조건당 10분을 넘으면 SyncNet은 원본 + CRF 20/34 × 원본/720만 돌리고 나머지는 "미측정".
+  480p의 WaveRep `unsupported_input`은 그대로 기록.
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 0 | 앱 실제 서버 모드 문구, app/README 현행화 | **완료** (아래) |
+| 1 | MotionPhys를 physics 축으로 연결, 테스트, A 실제 Worker 확인 | **완료** (아래) |
+| 2 | A·B·E × 범용 프로파일 12개 3축 압축 견고성 실측 (`scripts/robustness_selfvideo.py`, `docs/robustness-selfvideo.md`) | 남음 |
+| 3 | B·E SyncNet 오디오 밀기 실험, M3 16GB 축별 시간·메모리 표 | 남음 |
+| 마무리 | README §14.1 10번, §15.3 기록, 전체 테스트, PR | 남음 |
+
+**1단계 (완료)**
+
+- 추가: `server/axes/physics/motionphys.py`(어댑터), `research/motionphys/infer_axis.py`(A→B→C 실행기).
+  `server/axes/physics/__init__.py`의 stub을 실제 진입점으로 바꿨다. `AxisContext.explanations`를 추가해
+  축 설명을 결과의 `explanations` 인덱스 1에 넣는다(`build_result` 변경 없음). `Settings.motionphys_timeout_seconds`
+  (`TRINITY_MOTIONPHYS_TIMEOUT_SECONDS`, 기본 300초 임시값). 상태 표와 세부는 `docs/motionphys-adapter.md`.
+- README §14.1 10번 상태, §15.3 "결정 3·8 보완 — 2026-11-16, Claude 제안, 사용자 승인", 환경 변수 목록을 갱신했다.
+- 테스트: `pytest -q` **603 passed, 1 skipped**(2단계 스크립트 테스트 4개 제외)(LightGBM 없음), 기존 httpx 경고 1개. A·B·E 실제 미디어 테스트 3개가 이 기기에서 실행됐다.
+  기존 기대값 2곳(`tests/test_queue_worker.py`, `tests/test_waverep_worker.py`의 "physics는 insufficient_input")은
+  stub 전제여서 `error`/`model_unavailable`로 바꿨다. conftest가 테스트에서 실제 MotionPhys venv 실행을 막는다.
+- 실제 확인(1회): A를 임시 레지스트리 + 별도 Worker로 처리. finished / completed / abstained,
+  `overall_score`·`verdict_label` null, 세 축 completed. Gate 약 18초, WaveRep(MPS) 약 26초, MotionPhys 약 61초,
+  SyncNet(CPU) 약 400초, 전체 506초. 임시 레지스트리·DB·로그는 삭제했다.
+- SyncNet이 A에서 조건당 10분 미만(약 6.7분)이라 2단계는 SyncNet도 30조건 전부 돌린다.
+- MotionPhys 단독 37.1초 대 Worker 안 약 61초: 원인 미확인. 2단계 시간표에 측정 근거와 함께 적는다.
+- **미검증:** B·E의 Worker 종단 실행, 실제 모델 실행 중 취소·SIGKILL, 앱 화면에서의 새 설명 표시.
+
+**2단계 실측 진행 (Sonnet 5.5 감시, 코드·설계 변경 금지)**
+
+- **막힌 점 1 — 변환본 12개 전부 인코딩 실패(A 확인, B·E도 같은 형식).** 원인: 프로파일이 `-map 0:a? -c:a copy`로
+  오디오를 복사하는데, 샘플 .MOV의 오디오 스트림 2개 중 하나가 ffprobe에서 코덱 `unknown`(추정: iPhone 공간 오디오 — 미확인)이라
+  mp4에 복사할 수 없다. `reason`: "codec not currently supported in container … Could not write header". `docs/compression-emulator.md` §8에
+  "mp4에 복사할 수 없는 오디오 코덱은 확인하지 않았다(미검증)"로 적어 둔 경우가 실제로 발생한 것이다. 수정하지 않았다.
+  로그: `data/research/robustness-selfvideo/pilot.log`, 조건별 사유 `variants/*.index.json`(`reason`).
+  **이 인덱스에 error가 캐시돼 있어 코드를 고친 뒤에는 `variants/<영상>.index.json`의 해당 조건 항목과 `*.mp4.json`을 지우고 다시 실행해야 한다.**
+  결과: 변환본 측정은 0건. 원본 3개의 측정만 진행한다. 사용자 결정 필요(오디오 매핑·재인코딩 방식).
+- **막힌 점 2 — 작업 제한 600초 위험.** A 실제 Worker 실행이 506초(SyncNet 약 400초)였다. 서비스 기본
+  `TRINITY_JOB_TIMEOUT_SECONDS=600`에서 여유가 약 94초이고, 52초 영상 E는 SyncNet이 더 길어 600초를 넘길 가능성이 있다(미측정).
+  넘기면 `failed`/`timeout`이다. 측정 스크립트는 SyncNet 단계만 1,800초로 늘려 이 제한과 무관하다.
+- 실행: `data/research/robustness-selfvideo/full.log`. 파일럿(A 원본 Gate·MotionPhys·WaveRep) 정상: Gate 13.1초, MotionPhys 110.3초(프로세스 2회 포함), WaveRep 31.4초.
+
+**오디오 트랙 수정 (2026-11-16, 사용자 결정 A안, 완료)**
+
+- `training/emulator/video.py`: 첫 번째 AAC 트랙 하나만 `-c:a copy`. 다른 오디오 트랙은 버린다. 재인코딩 없음.
+  오디오가 있는데 AAC가 없으면 `error`로 기록하고 넘어간다. 오디오가 아예 없는 입력은 전과 같이 영상만(기존 테스트의 전제).
+  기록 `audio`에 입력 트랙 목록과 선택 트랙을 남긴다(`schema_version` 2). `docs/compression-emulator.md` §2·§3·§8 갱신.
+- A·B·E의 두 번째 트랙은 ffprobe 그대로 `codec_name=unknown`, `codec_tag_string=apac`, 4채널이다. 정체는 확인 필요.
+- **측정은 다시 돌리지 않았다(사용자가 멈춤).** 재개 전에 실패 캐시를 지워야 한다:
+  `data/research/robustness-selfvideo/variants/{A,B,E}.index.json`의 프로파일 항목(또는 파일 전체)과 `variants/*.mp4.json`.
+  그 뒤 `python scripts/robustness_selfvideo.py`를 다시 실행하면 된 조건은 건너뛴다.
+  `run_all`은 `status`가 error인 조건을 건너뛰므로 캐시를 지우지 않으면 변환본이 계속 빠진다.
+- **원본 3개 측정은 끝났다(2026-11-16 감시 확인).** 프로세스 종료, 실패한 측정 0건, 결과 JSON 12개
+  (`data/research/robustness-selfvideo/results/{A,B,E}/original/{gate,waverep,motionphys,syncnet}.json`),
+  모음 `summary.json`, 로그 `full.log`. 변환본 측정은 0건(위 실패 캐시 삭제 후 재실행 필요).
+  결과 해석과 `docs/robustness-selfvideo.md`는 아직 쓰지 않았다.
+
+**0단계 (완료)**
+
+- `TrinityNav.serverMode`로 모드를 화면에 전달한다. mock 모드는 기존 "모델 미연결 · 가상 데이터"와
+  "아래는 가상 데이터입니다…"를 유지하고, 실제 서버 모드는 "연구용 시제품 · 결과는 참고 정보"와
+  "아래는 연구용 시제품의 계산 결과이며 참고 정보입니다…"를 보인다. 서버·API 변경 없음.
+- `app/README.md`를 현재 동작(실제 모델 연결, 취소 버튼, Chrome 예행)으로 고쳤다. `docs/design-system.md`의 띠 설명도 맞췄다.
+- README §15.3 SyncNet 보완 기록의 "Codex, GPT-6 Astra 제안, 사용자 승인" 표기는 main에 이미 있어(결정 2·8 보완 머리말) 바꾸지 않았다.
+- 검증: `flutter analyze` 문제 없음, `flutter test` 203개 통과(새 테스트 1개 포함). 실제 서버 모드 문구를 Chrome에서 눈으로 본 것은 아니다(**미검증**).
+
 ## Flutter 실제 서버 모드 A 예행 (2026-11-16)
 
 - 기준: `codex/pr12-pr13-integration`, `c8fc7b75789bd9b6e871eeb88d24a95714bc3191`.

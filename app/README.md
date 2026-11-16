@@ -2,7 +2,8 @@
 
 README §14.1 백로그 13번의 앞부분. YouTube 주소 입력 → 분석 상태 → 결과를 보여 준다.
 
-> **모델 미연결 · 가상 데이터.** 화면의 결과는 실제 분석이 아니다. mock 모드는 꾸며 낸 값을, 실제 서버 모드는 stub 서버의 값을 보여 준다.
+> **mock 모드(기본)는 "모델 미연결 · 가상 데이터"다.** 꾸며 낸 값을 보여 주며 실제 분석이 아니다.
+> **실제 서버 모드는 "연구용 시제품 · 결과는 참고 정보"다.** 서버에 연결된 축의 실제 계산 상태를 보여 주지만, 검증된 결합 모델이 없어 항상 판단 보류이고 진위 판정이 아니다. 어느 축이 연결됐는지는 저장소 `README.md` §14.1을 따른다.
 > 파일 업로드 기능은 없다. 입력은 YouTube 주소뿐이다. iOS·Android 공유 시트는 아직 없다(웹만 확인했다).
 
 디자인 규칙은 `docs/design-system.md`.
@@ -46,7 +47,9 @@ flutter run -d chrome --web-port 8080 --no-web-resources-cdn \
 ```
 
 - 서버는 기본으로 `http://localhost:8080`과 `http://127.0.0.1:8080`에서 온 브라우저 요청만 받는다. 그래서 `--web-port 8080`이 필요하다. 다른 포트를 쓰려면 서버의 `TRINITY_CORS_ORIGINS`를 바꾼다(localhost·127.0.0.1만 받고 `*`는 거부한다).
-- 등록된 가짜 ID(`https://www.youtube.com/watch?v=TRINITYtest`)는 "판단 보류", 그 밖의 YouTube 주소는 "영상 접근 불가"가 나온다.
+- 허가 미디어 레지스트리에 등록된 ID만 분석한다. 기본 레지스트리의 테스트 ID(`https://www.youtube.com/watch?v=TRINITYtest`)는 "판단 보류", 그 밖의 YouTube 주소는 "영상 접근 불가"가 나온다. 발화 구간 Gate가 거른 영상은 "분석 대상 아님" 등 원인별 화면이 나온다.
+- 실제 모델까지 돌리려면 모델별 환경·가중치와 허가 미디어 등록이 필요하다. 절차는 `docs/HANDOFF.md`의 "Flutter 실제 서버 모드 A 예행" 재현 명령을 본다.
+- 모든 화면 맨 위 띠와 판단 근거 화면의 안내는 이 모드에서 "가상 데이터" 대신 "연구용 시제품 · 결과는 참고 정보"로 나온다.
 - **실제 서버 모드에서는 "의심 신호 발견"과 "의심 신호 낮음"이 나오지 않는다.** 검증된 결합 모델이 없어 서버가 `verdict_label`을 `null`로 보내고, 앱도 이 모드에서는 라벨을 보여 주지 않는다.
 
 ### 설정
@@ -83,7 +86,8 @@ dart run tool/smoke_server.dart http://localhost:8000 'https://www.youtube.com/w
 
 ## 서버와 주고받는 것
 
-- `POST /api/v1/analyses` (`{"url": ...}`), `GET /api/v1/analyses/{id}`, `GET /api/v1/analyses/{id}/result`.
+- `POST /api/v1/analyses` (`{"url": ...}`), `GET /api/v1/analyses/{id}`, `GET /api/v1/analyses/{id}/result`, `DELETE /api/v1/analyses/{id}`(취소).
+- 분석 중 화면의 취소 버튼은 상태 조회에서 받은 `ETag`를 `If-Match`에 넣어 DELETE를 보낸다. `202`면 상태를 다시 조회해 "취소됨"을 보여 주고, 먼저 끝나 `412`가 오면 오류 없이 이미 나온 결과를 보여 준다(저장소 `README.md` §9). 끝난 결과를 지우는 기능은 앱에 없다.
 - `X-Client-Token`: 앱을 열 때 무작위로 만들어 메모리에만 둔다. 새로고침하면 진행 중이던 분석을 다시 볼 수 없다(정식 인증은 백로그 14번).
 - 주소 검증은 서버가 한다. 앱은 빈 입력만 막는다.
 - 상태는 1초마다 다시 조회한다. 조회가 실패하면 알리고 계속 다시 조회한다.
@@ -91,5 +95,5 @@ dart run tool/smoke_server.dart http://localhost:8000 'https://www.youtube.com/w
 ## 알려진 한계
 
 - 웹(Chrome)에서만 확인했다. iOS·Android 빌드 설정이 없다.
-- 영상 제목·썸네일을 보여 주는 미디어 확인 화면, 취소·삭제가 없다.
-- 실제 서버 모드를 Chrome에서 손으로 눌러 끝까지 가 본 것은 아니다. 서버 연결은 `tool/smoke_server.dart`와 CORS 사전 요청으로 확인했다.
+- 영상 제목·썸네일을 보여 주는 미디어 확인 화면, 끝난 결과의 삭제가 없다.
+- 실제 서버 모드는 2026-11-16에 Chrome에서 테스트 ID 한 건(본인 촬영 영상 A, WaveRep·SyncNet 실제 실행)을 끝까지 눌러 확인했다(`docs/HANDOFF.md`). 실제 YouTube ID, 앱에서 누른 취소 버튼의 실제 서버 동작은 미검증이다.

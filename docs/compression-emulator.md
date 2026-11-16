@@ -75,7 +75,7 @@ README §14.1 백로그 9번(P1-4). 작성일: 2026-11-14.
 | CRF | 20, 28, 34 |
 | 해상도 | `source`(그대로), `1080p`, `720p`, `480p`. 숫자는 **짧은 변**의 픽셀 수(세로 영상은 너비) |
 | ID | `x264-crf<CRF>-<source\|1080p\|720p\|480p>` 12개 |
-| 그 밖의 설정 | preset `medium`, `yuv420p`, 축소 필터 bicubic, 스레드 4개 고정, 오디오는 복사 |
+| 그 밖의 설정 | preset `medium`, `yuv420p`, 축소 필터 bicubic, 스레드 4개 고정, 오디오는 **첫 번째 AAC 트랙 하나만** 복사(2026-11-16, 아래 "오디오 트랙") |
 
 - 이 값들은 README §6.2의 초기 실험값이다. **YouTube 내부 설정이 아니다.**
 - 업스케일은 하지 않는다. 목표가 원본의 짧은 변보다 크면 파일을 만들지 않고 `skipped_upscale`로 기록한다. 목표가 원본과 같으면 `source`와 같은 출력이 나온다.
@@ -102,7 +102,7 @@ result = emulate(Path("in.mp4"), "x264-crf28-720p", Path("out_dir"),
 
 ```
 ffmpeg -nostdin -hide_banner -loglevel error -n -i <입력>
-  -map 0:v:0 -map 0:a? -sn -dn -map_metadata -1 -map_chapters -1
+  -map 0:v:0 -map 0:<첫 AAC 트랙의 index> -sn -dn -map_metadata -1 -map_chapters -1
   -vf "scale=w='if(lt(iw,ih),720,-2)':h='if(lt(iw,ih),-2,720)':flags=bicubic" -filter_threads 1
   -c:v libx264 -preset medium -crf 28 -pix_fmt yuv420p -threads 4 -c:a copy
   -fflags +bitexact -flags:v +bitexact -flags:a +bitexact -movflags +faststart -f mp4 <출력>
@@ -113,6 +113,7 @@ ffmpeg -nostdin -hide_banner -loglevel error -n -i <입력>
 - **원본 보존**: 입력을 열어 읽기만 한다. 출력 이름이 입력과 달라 덮어쓸 수 없고, 이미 있는 출력도 덮어쓰지 않는다. 임시 파일(`.partial`)에 쓴 뒤 이름을 바꾼다.
 - **기록**(README §6.2 "품질 및 재현성"): `profile_id`, 프로파일 설정 전체, `ffmpeg_version`, `ffmpeg_args`, 입력·출력의 sha256과 코덱·해상도·프레임 수·비트레이트·크기, `lineage`(`dataset_id`, `video_id`, `source_recording_id`, `derivation_group_id`, `split`), `status`, `reason`.
 - **상태**: `completed`, `skipped_upscale`, `error`. 인코딩이 실패하면 출력 없이 `error`와 이유를 돌려준다. 모르는 값은 `null`이다.
+- **오디오 트랙**(2026-11-16, 사용자 결정): 입력의 오디오 트랙 가운데 **첫 번째 AAC 트랙 하나만** `-c:a copy`로 복사하고 나머지 오디오 트랙은 버린다. 재인코딩하지 않는다(영상 압축의 영향만 보기 위해서다). 오디오가 있는데 AAC 트랙이 없으면 파일을 만들지 않고 `error`로 기록한다. 오디오가 아예 없는 입력은 전과 같이 영상만 내보낸다. 기록의 `audio`에 입력 트랙 목록(`index`, `codec_name`, `codec_tag_string`, `channels`, `sample_rate`)과 복사한 트랙(`selected`, 없으면 `null`)을 남긴다. 기록 `schema_version`은 2가 됐다.
 - libx264의 버전은 따로 기록하지 않는다(FFmpeg 버전 줄만 남긴다). x264 빌드 번호 기록은 남은 일이다.
 
 ## 4. manifest와 평가 리포트 연결
@@ -162,7 +163,7 @@ python -m training.emulator.pipeline --manifest <m.csv> --media-root <영상 폴
 
 ## 6. 테스트
 
-`tests/test_emulator.py`(25개). 영상은 FFmpeg의 합성 무늬, 점수는 가짜 값이다. FFmpeg가 없으면 인코딩 테스트는 건너뛴다.
+`tests/test_emulator.py`(31개, 2026-11-16에 오디오 트랙 선택 6개 추가). 영상은 FFmpeg의 합성 무늬, 점수는 가짜 값이다. FFmpeg가 없으면 인코딩 테스트는 건너뛴다.
 
 - 프로파일 12개, 없는 ID 거부, 하드웨어·다른 인코더 거부, 명령이 인자 리스트이고 libx264인지.
 - 설정·해시·계보 기록, 로컬 경로가 기록에 없는지, 같은 입력의 출력과 기록이 같은지.
@@ -194,5 +195,13 @@ research/emulator/.venv/bin/python research/emulator/run_upstream_smoke.py --vid
 - 모델 점수의 변화를 재지 않았다(C1~C3). 학습 데이터와 영상 단위 점수가 생긴 뒤에 한다.
 - 같은 영상의 원본과 압축본 점수를 짝지어 비교하는 지표는 넣지 않았다. `by_compression`은 조건별 집합 지표다.
 - 오디오 재인코딩, 프레임률 변경, 반복 인코딩, 화질 지표(README §6.2의 `audio.py`, `quality.py`).
-- 영상 1개에서만 실행했다. 가변 프레임률, 회전 메타데이터가 있는 영상, mp4에 복사할 수 없는 오디오 코덱은 실제 파일로 확인하지 않았다(**미검증**).
+- 가변 프레임률, 회전 메타데이터가 있는 영상은 실제 파일로 확인하지 않았다(**미검증**).
+- **mp4에 복사할 수 없는 오디오 트랙(2026-11-16 확인·결정).** 본인 촬영 영상 `A.MOV`·`B.MOV`·`E.MOV`는 오디오 트랙이 둘이다. ffprobe 8.0.1의 출력 그대로:
+
+  | 스트림 index | `codec_name` | `codec_tag_string` | 채널 | 샘플레이트 |
+  |---|---|---|---|---|
+  | 1 | `aac` | `mp4a` | 2 | 48000 |
+  | 2 | `unknown` | `apac` | 4 | 48000 |
+
+  예전 명령(`-map 0:a? -c:a copy`)은 두 트랙을 모두 mp4에 복사하려다 12개 프로파일 전부 실패했다("codec not currently supported in container"). 그래서 위 "오디오 트랙" 규칙으로 바꿨다. 두 번째 트랙이 무엇인지는 ffprobe가 `unknown`으로만 알려 주므로 **확인 필요**다. 이 트랙은 변환본에 없다. `A.MOV`에 `x264-crf34-480p`를 적용해 출력의 오디오가 AAC 한 트랙임을 테스트로 확인했다. 변환본에서 버린 트랙이 축 결과(SyncNet 등)에 주는 영향은 재지 않았다. 원본과 변환본의 오디오가 같은 트랙인지(SyncNet·Gate가 원본에서 어느 트랙을 읽는지)도 **확인 필요**다.
 - 최종 평가용 프로파일을 정하지 않았다(위 규칙만 정했다).

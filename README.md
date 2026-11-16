@@ -603,7 +603,7 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 | **7** | **P1-2 / 핵심** | **실제 WaveRep를 Worker에 연결:** 모델 어댑터, 순차 실행·실패 격리, 원시 지표 JSON. | URL→허가 미디어→WaveRep 원시 지표까지 **진짜 계산**; `overall_score=null` 유지; 추론 중 주기적 heartbeat로 lease 연장.<br>**상태(2026-11-15): 말하는 허가 영상 A를 테스트 URL 요청부터 별도 Worker의 WaveRep까지 검증. CPU 76프레임, 추론 중 기본 heartbeat로 lease 연장 확인. 실제 YouTube ID를 사용하는 앱 시연은 미검증.** 기본 경로는 허가 미디어 → Gate → 적합 구간 → WaveRep이다. Gate가 거르면 WaveRep을 호출하지 않고 §15.3의 상태와 원인 코드를 남긴다. Gate와 모델 실행 중 heartbeat로 lease를 연장한다. 기존 발화 없는 샘플은 실제 서버·Worker 요청에서 `no_mouth_movement`, `out_of_scope`, `not_applicable`로 종료됐다. 수동 구간은 개발·테스트 전용이며 기본 꺼짐이다. `raw_score`·`overall_score`는 `null`. 기록: `docs/gate.md`, `docs/waverep-adapter.md`, `docs/HANDOFF.md` | 4·5·6 |
 | **8** | **P1-3 / 연구** | **데이터 위생·고정 평가 파이프라인:** 원본 계보 그룹 분할, 해시/편향, ROC-AUC/TPR/FPR/실패율 기록. | 누수 검사 자동화, 재현 가능한 단일축 기초 평가 리포트.<br>**상태(2026-11-13): 진행 중(뼈대).** 공통 manifest, 그룹 분할·누수 검사, 지표와 그룹 bootstrap, dev 임계값 고정, 외부 평가 잠금을 합성 데이터로 확인. 실제 데이터로는 실행하지 않았고 단일축 평가 리포트는 없음. 기록: `docs/evaluation-pipeline.md` | 3·5 |
 | **9** | **P1-4 / 연구** | **Montibeller `social_emulator` 설치·적용** + FFmpeg 범용 압축 프로파일; 원본 훼손·분할 누수 방지. | 실행 설정·해시·압축 출력 비교 리포트; 실제 YouTube 동등성은 미주장.<br>**상태(2026-11-14): 범용 프로파일까지.** 공개 코드(CC BY 4.0)를 수정 없이 실행해 동작만 확인함. 플랫폼 처리본이 없어 저자 방식의 파라미터 추정은 하지 않음. FFmpeg 범용 프로파일 12개(libx264 CRF 20/28/34 × 원본/1080/720/480), 설정·해시 기록, 같은 입력의 출력 동일성, manifest 압축 조건 열과 조건별 지표를 구현함. 본인 촬영 영상 1개로 출력 비교. 모델 점수 변화는 재지 않음. 기록: `docs/compression-emulator.md` | 2·3·8 |
-| **10** | **P2-1 / 연구** | **MotionPhys 기본→얼굴 ROI→Face Motion 비교**. | 유효 궤적 비율·AUC·TPR@5%FPR·추론 시간 비교, 축 유지/제거 결정.<br>**상태(2026-11-14): 진행 중(앞부분).** 논문 기준 재구현(공개 코드 없음), 세 후보의 특징 추출기, 합성 궤적 테스트, 압축 민감도 측정, 합성 데이터로 LightGBM 스크립트 동작 확인까지. 실제 학습과 AUC·TPR 비교, 축 유지/제거 결정은 하지 않음. 기록: `docs/motionphys-spec.md`, `docs/motionphys-spike.md` | 6·8·9 |
+| **10** | **P2-1 / 연구** | **MotionPhys 기본→얼굴 ROI→Face Motion 비교**. | 유효 궤적 비율·AUC·TPR@5%FPR·추론 시간 비교, 축 유지/제거 결정.<br>**상태(2026-11-16): 진행 중(특징 추출까지 Worker 연결).** 논문 기준 재구현(공개 코드 없음), 세 후보의 특징 추출기, 합성 궤적 테스트, 압축 민감도 측정, 합성 데이터로 LightGBM 스크립트 동작 확인. 2026-11-16에 추출기를 physics 축에 연결함: 별도 프로세스, heartbeat·취소·타임아웃·Worker 강제 종료 복구를 대역 프로세스로 검증, 말하는 허가 영상 A를 별도 Worker로 Gate→WaveRep→MotionPhys→SyncNet까지 실행(세 축 `completed`, `abstained`). **학습된 분류기가 없어 `raw_score`는 `null`이고 판정하지 않음.** 실제 학습과 AUC·TPR 비교, 축 유지/제거 결정은 하지 않음. 기록: `docs/motionphys-spec.md`, `docs/motionphys-spike.md`, `docs/motionphys-adapter.md` | 6·8·9 |
 | **11** | **P2-2 / 연구** | **SyncNet CPU 동기화 검증**: 실제 발화 구간과 인위적 오프셋, A/B/C 비교. | LSE-C/LSE-D/오프셋 산출, 실패 조건, 위조 탐지 추가 기여 판단.<br>**상태(2026-11-15): CPU 재현·독립 어댑터·Worker 연결 구현.** Gate 적합 구간만 실행하고 heartbeat·취소·실패 격리를 대역 프로세스로 검증. 진단 도구 작성; 실제 발화 A·B·E의 오프셋 실험·동기화 정확도·탐지 추가 기여는 **미검증**. 기록: `docs/syncnet-adapter.md` | 6·8·9 |
 | **12** | **P2-3 / 연구** | **OOF 기반 Logistic Regression·보정·임계값**: WaveRep 최강 단일 모델과 비교. | 미사용 그룹에서 비교 완료, 조합 채택/보류 결정. 3축 강제 채택 금지. | 8·10·11 |
 | **13** | **P3-1 / 제품** | **Flutter YouTube 공유 시트 + URL 붙여넣기 + 상태 Polling + 결과 요약/상세**. | YouTube 앱에서 공유→TRINITY→상태/보류/근거 화면 시연. 파일 업로드 UI 없음.<br>**상태(2026-11-14): 진행 중(앞부분).** 디자인 시스템, 화면 8개(입력, 분석 중, 결과 3종, 판단 근거 상세, 영상 접근 불가, 분석 대상 아님), mock·실제 서버 모드, 세 엔드포인트 연결을 Flutter 웹으로 만듦. 모델 미연결이라 실제 서버 모드에서는 판단 보류와 접근 불가만 나옴. 공유 시트와 iOS·Android 빌드는 없음. 같은 날 밝은 테마·둥근 모서리로 개정하고 웹형(검색창 중심)·앱형(세로) 홈과 이용 안내 화면을 추가함. 기록: `docs/design-system.md`, `app/README.md` | 4·7 |
@@ -694,6 +694,18 @@ TRINITY/
 
 ### 15.3 설계 결정 1~12 요약
 
+**결정 3·8 보완 — 2026-11-16, Claude 제안, 사용자 승인.**
+MotionPhys를 physics 축에 특징 추출까지만 연결한다. 학습된 분류기가 없으므로 `axes.physics.raw_score`는
+항상 `null`이고 종합 판정에 포함하지 않는다. `axes.physics`의 필드는 기존 네 개(`status`, `reason_code`,
+`raw_score`, `model_version`) 그대로이며 `included_in_fusion` 등 새 API 필드를 추가하지 않는다.
+"종합 판정에 포함하지 않음"과 특징 요약(분석 구간, 유효 궤적 수, 추적 성공률)은 기존 `explanations` 한 항목에 적는다.
+추출 성공은 `completed` + `raw_score=null`이다. 축 상태의 기준은 후보 A(전체 화면)이고 B·C는 설명에만 요약한다.
+궤적 부족은 `insufficient_input` / `insufficient_motion`, 추적 실패는 `insufficient_input` / `tracking_failed`,
+실행 오류는 `error` / `inference_error`, 단계 제한 시간 초과는 `error` / `timeout`, 실행 환경 없음은 `error` / `model_unavailable`이다.
+`analysis_status` 규칙은 바꾸지 않는다. `analysis_status`는 분석량을, 판정 가능 여부는 `verdict_status`
+(`abstained` / `no_valid_fusion_model`)가 맡는다. 세 축이 모두 `completed`면 기존 규칙대로 `completed`다.
+분석 가능 기준은 추출기의 임시값을 그대로 쓰며 임계값을 새로 정하지 않았다. 세부는 `docs/motionphys-adapter.md`.
+
 **결정 11 보완 — 2026-11-15, Codex, GPT-6 Astra 제안, 사용자 승인.**
 DELETE 하나로 진행 중에는 취소 접수 `202`, 종료 작업에는 결과·기록·폴더 삭제 `204`를 제공한다.
 취소 중 재요청은 같은 `202`; Worker가 자식 프로세스 종료·폴더 정리 후 `cancelled`를 기록한다.
@@ -731,7 +743,7 @@ Gate의 실행 실패(`gate_error`)와 단계 제한시간 초과(`gate_timeout`
 |---|---|---|
 | 1 | **YouTube URL·공유 시트 유일 사용자 입력**, 단일 발화자 구간, 적법한 미디어 확보 별도 | 설계 확정 / 접근 검증 전 |
 | 2 | SyncNet은 입술·음성 동기화 보조 지표 | 설계 확정 / 효과 검증 전 |
-| 3 | MotionPhys 전체·얼굴 ROI·Face Motion 비교 | 실험안 확정 / 평가 전 |
+| 3 | MotionPhys 전체·얼굴 ROI·Face Motion 비교 | 실험안 확정 / 특징 추출만 축에 연결(2026-11-16), 평가 전 |
 | 4 | WaveRep 전체·얼굴 ROI, 압축 증강·점수 보정 분리 | 실험안 확정 / 평가 전 |
 | 5 | 그룹 OOF Logistic Regression 기본, SyncNet 조건부, 부분 실패시 검증된 조합만 사용 | 설계 확정 / 학습 전 |
 | 6 | DeepSpeak 주 학습. 최종 외부 평가는 **MAVOS-DD open-set model 분할 + TalkingHeadBench**. Deepfake-Eval-2024는 접근 거절(2026-11-13), 재신청을 검토하고 승인되면 실전 유통본 평가로 추가. 유통본 평가를 못 하면 결과 보고에 한계 명시. 그룹 누수 방지 | 실험안 변경(2026-11-13) / 접근 확인 전 |
@@ -842,4 +854,4 @@ python scripts/smoke_slice.py                                  # 터미널 3
 
 **발화 없는 샘플로 Gate 차단 확인:** `python scripts/smoke_gate_worker.py`. 임시 레지스트리·DB로 실제 로컬 서버와 Worker를 띄우고, 기존 허가 샘플의 차단·WaveRep 단계 생략·lease 갱신·작업 폴더 삭제를 확인한 후 종료합니다. 말하는 영상은 미검증입니다.
 
-**환경 변수:** `TRINITY_DB_PATH`(기본 `data/runtime/trinity.sqlite3`), `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`, `TRINITY_MAX_QUEUED`(기본 3), `TRINITY_LEASE_SECONDS`, `TRINITY_MAX_ATTEMPTS`, `TRINITY_JOB_TIMEOUT_SECONDS`, `TRINITY_STUB_STAGE_DELAY_SECONDS`(단계 전이를 눈으로 볼 때만 사용), `TRINITY_AUTHORIZED_MEDIA_ROOT`(기본 `data`), `TRINITY_WAVEREP_DEVICE`(기본 `mps`, 못 쓰면 `cpu`로 대체), `TRINITY_WAVEREP_BATCH_SIZE`(기본 1), `TRINITY_WAVEREP_SAMPLE_FPS`(기본 2), `TRINITY_WAVEREP_TIMEOUT_SECONDS`(기본 300), `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120), `TRINITY_HEARTBEAT_INTERVAL_SECONDS`(기본 10, lease보다 짧아야 함), `TRINITY_DEV_MANUAL_SEGMENTS`(개발 전용, 기본 꺼짐). `TRINITY_CORS_ORIGINS`(쉼표로 구분한 브라우저 출처. 기본 `http://localhost:8080,http://127.0.0.1:8080`. localhost·127.0.0.1만 받고 `*`는 거부한다. 빈 값이면 CORS를 끈다. Flutter 웹 개발용).
+**환경 변수:** `TRINITY_DB_PATH`(기본 `data/runtime/trinity.sqlite3`), `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`, `TRINITY_MAX_QUEUED`(기본 3), `TRINITY_LEASE_SECONDS`, `TRINITY_MAX_ATTEMPTS`, `TRINITY_JOB_TIMEOUT_SECONDS`, `TRINITY_STUB_STAGE_DELAY_SECONDS`(단계 전이를 눈으로 볼 때만 사용), `TRINITY_AUTHORIZED_MEDIA_ROOT`(기본 `data`), `TRINITY_WAVEREP_DEVICE`(기본 `mps`, 못 쓰면 `cpu`로 대체), `TRINITY_WAVEREP_BATCH_SIZE`(기본 1), `TRINITY_WAVEREP_SAMPLE_FPS`(기본 2), `TRINITY_WAVEREP_TIMEOUT_SECONDS`(기본 300), `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120), `TRINITY_MOTIONPHYS_TIMEOUT_SECONDS`(기본 300, 임시값), `TRINITY_HEARTBEAT_INTERVAL_SECONDS`(기본 10, lease보다 짧아야 함), `TRINITY_DEV_MANUAL_SEGMENTS`(개발 전용, 기본 꺼짐). `TRINITY_CORS_ORIGINS`(쉼표로 구분한 브라우저 출처. 기본 `http://localhost:8080,http://127.0.0.1:8080`. localhost·127.0.0.1만 받고 `*`는 거부한다. 빈 값이면 CORS를 끈다. Flutter 웹 개발용).

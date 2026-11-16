@@ -12,30 +12,48 @@ export 'tokens.dart' show StatusTone;
 
 /// 화면들이 공유하는 이동 동작(처음으로, 이용 안내). 없으면 상단의 해당 버튼을 그리지 않는다.
 class TrinityNav extends InheritedWidget {
-  const TrinityNav({super.key, required this.onHome, required this.onGuide, this.inGuide = false, required super.child});
+  const TrinityNav({
+    super.key,
+    required this.onHome,
+    required this.onGuide,
+    this.inGuide = false,
+    this.serverMode = false,
+    required super.child,
+  });
 
   final VoidCallback onHome;
   final VoidCallback onGuide;
   final bool inGuide;
 
+  /// 실제 서버 모드인지. 고지 문구를 고른다. 없으면 mock으로 본다.
+  final bool serverMode;
+
+  /// 화면이 실제 서버의 결과를 보여 주는지.
+  static bool isServerMode(BuildContext context) => of(context)?.serverMode ?? false;
+
   static TrinityNav? of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<TrinityNav>();
 
   @override
-  bool updateShouldNotify(TrinityNav old) => old.inGuide != inGuide;
+  bool updateShouldNotify(TrinityNav old) => old.inGuide != inGuide || old.serverMode != serverMode;
 }
 
 /// 좁은 화면(앱 배치)인지. 768 이하면 앱 배치다.
 bool isAppLayout(BuildContext context) => MediaQuery.sizeOf(context).width <= TSize.appLayoutMax;
 
-/// 상단 고지 띠. 실제 모델을 연결하기 전까지 모든 화면 맨 위에 둔다.
+/// 상단 고지 띠. 모든 화면 맨 위에 둔다. mock 모드와 실제 서버 모드의 문구가 다르다.
 class NoticeBand extends StatelessWidget {
   const NoticeBand({super.key});
 
+  /// mock 모드: 꾸며 낸 값이다.
   static const text = '모델 미연결 · 가상 데이터';
+
+  /// 실제 서버 모드: 실제 계산 결과지만 검증된 판정이 아니다.
+  static const serverText = '연구용 시제품 · 결과는 참고 정보';
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final text = TrinityNav.isServerMode(context) ? serverText : NoticeBand.text;
     return Semantics(
       container: true,
       label: text,

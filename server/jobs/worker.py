@@ -374,6 +374,8 @@ def process(
             ctx.media_info, segments, axes["signal"]["status"] == "completed", gate
         )
         result = build_result(job, media.provenance, axes, fused, coverage, gate_bypassed)
+        # 축 설명은 종합 보류 설명 바로 뒤에 둔다. 기존 항목의 순서는 그대로다.
+        result["explanations"][1:1] = ctx.explanations
         if gate is not None:
             result["explanations"].extend(gate_report.explanations(gate))
         finalize(result)

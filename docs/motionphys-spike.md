@@ -163,7 +163,7 @@ ffmpeg -i <원본> -map 0:v:0 -c:v libx264 -preset medium -crf <20|28|34> -pix_f
 
 - 실제 학습, AUC·TPR@5%FPR 비교, 축 유지/제거 결정(백로그 10번의 완료 조건). DeepSpeak v2 승인 후에 한다.
 - A+C, B+C 결합 실험(README §5.2의 D/E).
-- 서버 어댑터(`server/axes/physics`)와 Worker 연결.
+- 서버 어댑터(`server/axes/physics`)와 Worker 연결. → 2026-11-16에 특징 추출까지 연결했다(`docs/motionphys-adapter.md`).
 - `social_emulator`(백로그 9번)를 쓴 압축, 프레임 누락, 해상도 변경, 카메라 흔들림 조건.
 - 짧은 구간(1~2초), 원본 해상도, 다른 영상에서의 측정.
 - 논문 수치의 재현(GenBuster++, AIGVDBench).

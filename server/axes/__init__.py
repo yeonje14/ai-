@@ -24,3 +24,5 @@ class AxisContext:
     timeout_seconds: Optional[float] = None
     # 축이 읽어 낸 영상 정보(fps, frame_count 등). coverage 계산에만 쓴다.
     media_info: dict[str, Any] = field(default_factory=dict)
+    # 축이 덧붙이는 설명(template_id, reason_code, message). 결과의 기존 explanations에 이어 붙인다.
+    explanations: list[dict[str, str]] = field(default_factory=list)
