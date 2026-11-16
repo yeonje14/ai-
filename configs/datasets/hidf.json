@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "dataset_id": "hidf",
+  "status": "unconfirmed",
+  "_comment": "HiDF의 공개 정보(필드, 분할, 인물·원본 계보, 이용 조건)를 아직 확인하지 않았다. 필드를 가정하지 않는다. status가 unconfirmed인 설정은 변환을 거부한다. 확인한 뒤 deepspeak_v2.json과 같은 형식으로 채우고 status와 근거를 적는다.",
+  "identity_namespace": null,
+  "fields": {},
+  "fake_source_recording": null,
+  "manipulation_type": null,
+  "split": null
+}

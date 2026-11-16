@@ -62,15 +62,32 @@ def summarize(result: dict, variant: str, include_features: bool = False) -> dic
     return out
 
 
+def _margin(model_path: str, features: list) -> float | None:
+    """LightGBM 원시 margin(확률 아님). 모델과 특징 차원이 맞지 않으면 None."""
+    try:
+        import lightgbm as lgb
+        import numpy as np
+        booster = lgb.Booster(model_file=model_path)
+        if booster.num_feature() != len(features):
+            return None
+        return float(booster.predict(np.array([features]), raw_score=True)[0])
+    except Exception:
+        return None
+
+
 def run(req: dict) -> dict:
     video = Path(req["video"])
     segments = req["segments"]
     variants = req.get("variants") or list(extract.VARIANTS)
     include = bool(req.get("include_features", False))
     out = {"schema_version": SCHEMA_VERSION, "variants": {}}
+    margin_model = req.get("margin_model")  # {"variant", "path"}: 검증된 묶음의 분류기. 서버만 넘긴다
     for variant in variants:
         try:
-            out["variants"][variant] = summarize(extract.extract(video, segments, variant), variant, include)
+            result = extract.extract(video, segments, variant)
+            out["variants"][variant] = summarize(result, variant, include)
+            if margin_model and margin_model["variant"] == variant and result.get("features") is not None:
+                out["variants"][variant]["margin"] = _margin(margin_model["path"], result["features"])
         except Exception:  # 한 후보의 실패가 다른 후보를 막지 않는다
             out["variants"][variant] = summarize(
                 {"status": extract.ERROR, "reason_code": "extraction_error"}, variant)

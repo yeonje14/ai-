@@ -91,6 +91,11 @@ class Settings:
     motionphys_timeout_seconds: float = 300.0
     # 추론을 기다리는 동안 lease를 연장하는 간격. lease_seconds보다 짧아야 한다.
     heartbeat_interval_seconds: float = 10.0
+    # 검증된 모델 묶음(README §15.3 결정 5·8 보완). 묶음은 Git 밖, digest는 저장소에 커밋한 설정 파일에 둔다.
+    fusion_bundle_dir: Path = Path("data/models/fusion")
+    fusion_bundle_config_path: Path = Path("configs/fusion_bundle.json")
+    # 합성 데이터로 만든 묶음 허용. 테스트 전용이며 환경 변수로는 켤 수 없다.
+    allow_synthetic_bundle: bool = False
     # 개발 전용: Gate 대신 손으로 정한 구간을 분석한다. 기본은 꺼짐(빈 값).
     # 켜면 결과에 gate_bypassed=true가 남고 analysis_status=partial, verdict_status=abstained로 고정된다.
     dev_manual_segments: tuple[tuple[float, float], ...] = ()

@@ -1,5 +1,116 @@
 # HANDOFF
 
+## 학습·평가 파이프라인 진행 (2026-11-16~, 브랜치 `feat/training-pipeline`, `feat/motionphys-axis`에서 분기)
+
+목표: DeepSpeak v2 승인일에 "데이터 경로만 넣고 실행"하면 단일축 기준선 → 결합 비교 → 채택 판단 → 서버 적용까지 되는 상태.
+실제 데이터가 없어 합성 데이터로 검증한다. main 병합·PR 없음. 조각마다 테스트 → 커밋 → push → 이 절 갱신.
+
+**승인된 설계 결정(2026-11-16, Claude 제안, 사용자 승인)**
+
+1. 공식 `test`는 내부 test. 공식 `train`만 그룹 단위로 train/dev. 공식 분할이 그룹을 쪼개면 재분할하지 않고 누수 실패로 멈춘다.
+2. 그룹 키: 진짜 `identity`, 가짜 `identity-source|target` + 녹화 ID. 진짜의 녹화 ID는 카드에 없어 `unknown:`(확인 필요).
+3. 최대 그룹 비중 상한 기본 25%. 넘으면 학습 거부, 리포트에 그룹 크기 분포.
+4. shortcut 진단(코덱·해상도·fps·길이만으로 라벨 예측)은 경고로만.
+5. WaveRep 영상 점수 = 프레임 logit 중앙값(주 지표, 사전 고정). 평균·q75는 dev에서만 보조 비교.
+6. MotionPhys A/B/C: LightGBM 고정 설정, train 그룹 5-fold OOF, 전체 train 재적합으로 dev·test 점수. 탐색 없음.
+7. SyncNet 연구 내부 집계: 전 구간·전 트랙의 LSE-C, LSE-D, |오프셋| 중앙값. API의 집계 보류는 그대로.
+8. 결합: 표준화 + L2 로지스틱 회귀(C=1), 입력은 train OOF 점수만, 그룹 해시 5-fold.
+9. 후보(사전 고정): W, M-A, M-B, M-C, W+M(dev에서 고른 M), W+M+S. 단순 평균 없음.
+10. 보정: 결합 모델을 같은 폴드로 교차 적합한 OOF 예측에만 sigmoid. Brier·ECE 보고.
+11. 임계값: dev 진짜 점수에서 FPR 5%, 잠금. test·external로 정하는 경로 없음(시도하면 실패하는 테스트).
+12. **dev 압축 조건은 기본값이 없다.** 설정에 명시하지 않으면 학습 진입점이 오류로 멈춘다. 리포트 맨 위에 표시. 사용자가 실측을 보고 정한다.
+13. 부분 축 실패: 사용 가능한 축 집합과 정확히 일치하는, 따로 검증된 모델만. 없으면 보류. 결측 대체 없음.
+14. 후보 선택은 dev에서만. test는 선택이 끝난 뒤 한 번의 확인 관문. 실패하면 다시 고르지 않고 "WaveRep 단독" 또는 "보류".
+15. 채택 조건(설정에 사전 고정): G2 WaveRep AUC 95% CI 하한 > 0.5 / G3 결합 − 기준의 TPR 차이(대응 그룹 bootstrap) 95% CI 하한 > 0 /
+    결합의 실제 FPR이 2%p 넘게 나쁘지 않을 것 / 판정 제공 비율이 5%p 넘게 줄지 않을 것 /
+    **"WaveRep 단독"이든 "채택 가능"이든 고정 임계값의 test FPR 95% CI 상한 ≤ 10%**(못 넘으면 보류).
+    README §13.3에는 숫자 기준이 없다(차이: §13.3 G3은 "단일 최강 모델 대비"라서 결합은 WaveRep과 단일 최강 둘 다 이겨야 하게 구현한다).
+16. 신뢰구간: 그룹 bootstrap 1,000회, 고정 시드, 차이는 같은 재표본으로 짝지음.
+17. 묶음: `data/models/fusion/<id>/`(Git 제외). 서버는 순수 파이썬으로 계산.
+18. `configs/fusion_bundle.json`에 묶음 digest만 커밋(기본 비어 있음).
+19. 묶음이 통과했을 때 기존 필드에 값이 채워진다(새 필드·상태 없음). **조각 4 코드 전에 §15.3 문안을 보여 주고 멈춘다.**
+20. 학습 환경 `research/training/.venv`(numpy, scikit-learn, lightgbm). trinity에는 추가 없음.
+
+| 조각 | 내용 | 상태 |
+|---|---|---|
+| 1 | 데이터셋 어댑터, 일괄 특징 추출, 파생본 split 상속 | **완료** (아래) |
+| 2 | 단일축·OOF 결합·보정·임계값 잠금 | **완료** (아래) |
+| 3 | 비교 리포트(JSON+Markdown)와 채택 판단 | **완료** (아래) |
+| 4 | 묶음과 서버 관문 | **완료** (아래) |
+| 검증·마무리 | 합성 종단 4종, §15.3, README §14.1 8·12번, `docs/training-pipeline.md` | **완료** |
+
+**조각 1 (완료)**
+
+- `configs/datasets/deepspeak_v2.json`: HF 카드(2026-11-16 확인)에 적힌 필드만 `evidence: card`. 카드에 없는 것(행 안의 분할 열, 영상 ID,
+  진짜의 녹화 ID, 메타데이터가 중첩인지)은 `unconfirmed`. `configs/datasets/hidf.json`은 필드가 비어 있고 변환을 거부한다.
+- `training/datasets/adapters/`: JSON Lines 메타데이터 → 공통 manifest. 필드 이름은 설정에만 있다. 누수 검사 실패면 manifest를 쓰지 않는다.
+  **HF 데이터셋을 JSON Lines로 내보내는 단계는 만들지 않았다**(행 구조를 모른다. 승인 후 첫 행을 열어 설정을 고치는 것이 첫 작업).
+- `training/datasets/groups.size_summary`(상한 25%), `training/hygiene`에 `derived_not_inheriting_parent` 오류와 `derived_parent_missing` 경고.
+- `training/features/extract.py`: Gate → WaveRep·MotionPhys·SyncNet. 서버의 Gate 실행기와 세 어댑터를 그대로 부른다.
+  캐시 키 = 입력 sha256 + 축 버전·설정 + 구간. 실행 오류는 캐시하지 않고 재시도. `progress.jsonl`, 영상 단위 `features.jsonl`, `features.meta.json`.
+  external 영상은 추출하지 않는다. MotionPhys 어댑터에 연구 전용 `include_features` 인자를 더했다(서버 Worker는 쓰지 않는다).
+- 테스트: `tests/test_training_datasets.py`, `tests/test_feature_extract.py`. `pytest -q` **633 passed, 1 skipped**(LightGBM 없음).
+- 실제 스모크(1회): A.MOV 한 개, Gate 13.8초 → WaveRep 20.6초(76프레임, 중앙값 6.568 — Worker 실행 값과 같다) → MotionPhys 45.3초
+  (A 504, B 504, C 1,512차원). 재실행 시 세 축 모두 캐시 사용. SyncNet은 스모크에서 돌리지 않았다. 산출물은 지웠다.
+- **미검증:** 실제 DeepSpeak 행, 대량 추출의 소요 시간·디스크, HiDF.
+
+**조각 2 (완료)**
+
+- 환경: `research/training/.venv`(numpy 2.4.6, scikit-learn 1.9.1, lightgbm 4.7.0, `requirements.lock.txt`). trinity 변경 없음.
+- `configs/training.json` + `training/config.py`: 사전 고정 설정. 모르는 키 거부(`threshold_split` 등은 표현할 수 없다).
+  `dev_compression_conditions`는 커밋된 값이 `null`이고 그대로면 학습이 오류로 멈춘다.
+- `training/synth.py`: 합성 manifest·특징 생성기(그룹, 축별 신호·결측, 압축 파생본, 누수 주입).
+- `research/training/train.py`: 누수·그룹 비중(25%)·특징–manifest 해시 확인 → WaveRep 점수(중앙값) → MotionPhys A/B/C LightGBM 그룹 5-fold OOF
+  → 결합용 M은 dev AUC로 선택 → 후보 W, M-*, W+M, W+M+S → 결합 모델 교차 적합 OOF에 sigmoid 보정 → dev(지정 압축 조건만) 임계값 잠금.
+  산출: `scores/`(dev·test), `oof/`(train), `thresholds/`(읽기 전용), `models/<후보>.json`(계수·표준화·보정), `models/motionphys-*.txt`, `train_meta.json`.
+- 테스트 `tests/test_training_train.py` 18개: 설정 검사(항상 실행), 학습 종단(venv 서브프로세스), 결측 축은 빈칸,
+  **test 분할의 특징·라벨을 바꿔도 모델·보정·임계값이 같음**, 누수·거대 그룹·dev 조건 미지정·해시 불일치·기존 폴더 거부.
+- 한계: 스태킹은 같은 폴드를 재사용한다(완전 중첩 CV 아님, `train_meta.json`에 기록). 하이퍼파라미터 탐색 없음.
+
+**조각 3 (완료)**
+
+- `training/report/decision.py`: 짝지은 그룹 bootstrap 차이, Brier·ECE, dev AUC로만 하는 선택, 관문, 판단(`fusion_adoptable`/`waverep_only`/`hold`),
+  shortcut 진단(해상도·fps·길이·오디오 유무; 코덱은 수집하지 않음, 경고만).
+- `training/report/build.py`: 학습 결과 폴더 → `report.json` + `report.md`. 맨 위에 dev 압축 조건과 합성 여부. 후보별 test 지표,
+  dev 값, 기준 대비 차이, 관문 표, 압축 조건별, 보류 현황, 그룹 크기 분포. 점수·임계값 파일이 학습 뒤 바뀌면 거부.
+- 구현한 판단: 결합은 자기 AUC CI 하한 > 0.5, FPR CI 상한 ≤ 10%, WaveRep과 단일 최강 각각 대비 TPR 차이 CI 하한 > 0,
+  FPR 악화 ≤ 2%p(점 추정), 판정 제공 비율 감소 ≤ 5%p. WaveRep 단독은 AUC CI 하한 > 0.5와 FPR CI 상한 ≤ 10%.
+  `servable_candidates`에는 자기 축 조합으로 따로 관문을 넘은 후보만 들어간다(조각 4가 읽는다).
+- 합성 종단 테스트(`tests/test_training_report.py`, venv 필요): 신호 없음(시드 4개) → 전부 보류 / WaveRep에만 신호 → WaveRep 단독 /
+  MotionPhys 한 후보에만 신호 → 그 단일축이 최강이고 결합 미채택 / 두 축에 신호 → 채택 가능 / 누수·변조 → 거부.
+- `pytest -q` **668 passed, 1 skipped**(LightGBM 없음, trinity).
+- 관찰(합성): test의 진짜 영상이 적으면 FPR CI 상한 ≤ 10% 관문 때문에 신호가 있어도 보류가 된다
+  (진짜 약 128개에서 보류, 약 480개에서 통과). 실제 데이터의 test 진짜 영상 수를 먼저 확인할 것.
+- 한계: TPR·FPR은 점수가 나온 영상만으로 계산한다(결측은 판정 제공 비율로 따로 본다). latency·메모리 집계 없음.
+
+**조각 4 (완료, 2026-11-16 사용자 승인)**
+
+- README §15.3 "결정 5·8 보완 — 2026-11-16, Claude 제안, 사용자 승인"에 승인 문안을 넣었다.
+- `training/bundle.py`: 묶음 생성(`python -m training.bundle --run … --report … --out data/models/fusion/<id>`), digest, 불러올 때의 검증, 순수 파이썬 점수 계산.
+  판단이 보류인 리포트로는 묶음을 만들지 않는다. `configs/fusion_bundle.json`은 `bundle_id`·`digest`가 null(묶음 없음)이다.
+- 서버: `server/fusion.load_active`(digest·파일 해시·리포트 판단·합성 여부·특징 버전 확인, 실패 이유는 코드만 로그) → Worker가 작업마다 불러
+  `AxisContext.bundle`로 축에 전달 → 축이 결합 입력을 `ctx.fusion_inputs`에 넣음(signal: logit 중앙값, alignment: 트랙 중앙값,
+  physics: 실행기가 묶음의 LightGBM 모델로 계산한 margin) → `fusion.fuse`가 성공한 축 집합과 정확히 일치하는 후보로만 판정.
+  `build_result`는 바꾸지 않았고, 판정했을 때만 Worker가 `verdict_label`과 첫 설명 항목(`FUSION_ASSESSED`)을 채운다.
+  `Settings.allow_synthetic_bundle`은 테스트 전용(환경 변수 없음).
+- 테스트 `tests/test_fusion_bundle.py` 22개: 묶음 없음(저장소 기본) → 기존과 동일 / 유효 묶음 → assessed·라벨·기존 필드만 /
+  축 일부 실패 → 따로 검증된 부분집합 후보 또는 보류 / 입력 결측 → 보류 / Gate 우회 → 미적용 /
+  **거부 11종**(digest 불일치, bundle.json 변조, 계수·임계값·모델 파일 변조, 리포트를 보류로 바꾸고 해시까지 다시 맞춤, 합성 묶음,
+  특징 버전 불일치, 폴더 없음, 경로 벗어난 ID, 관문을 넘지 않은 후보 끼워 넣기) → 전부 null/abstained/no_valid_fusion_model.
+- `pytest -q` **690 passed, 1 skipped**(LightGBM 없음). `flutter test` 203개 통과(앱 변경 없음).
+- **미검증:** 실제 MotionPhys venv에서 묶음 모델로 margin을 계산하는 경로(`infer_axis.py`의 `_margin`)는 대역 프로세스로만 확인했다.
+  실제 영상 + 실제 LightGBM 모델의 종단 실행, 서버 Worker의 signal·alignment 입력 전달(가짜 축으로만 확인), 실제 데이터의 묶음.
+- 앱은 실제 서버 모드에서 라벨을 숨기는 현재 동작 그대로다(G4 뒤 별도 결정).
+
+**문서 (완료):** `docs/training-pipeline.md`(DeepSpeak 승인 후 체크리스트 포함), README §14.1 8·12번, `training/README.md`.
+PR은 만들지 않았다(사용자 지시). main 병합 없음.
+
+**남은 일**
+
+1. DeepSpeak v2 승인 후 `docs/training-pipeline.md`의 체크리스트 1번부터.
+2. 실제 MotionPhys venv + 실제 LightGBM 모델로 margin 경로 종단 확인(지금은 대역 프로세스로만 확인).
+3. 이전 브랜치에서 넘어온 일: 압축 견고성 실측 재개(실패 캐시 삭제 후), `docs/robustness-selfvideo.md`, SyncNet 성능(`feat/syncnet-perf`, 보류).
+
 ## MotionPhys 축·견고성 진행 (2026-11-16~, 브랜치 `feat/motionphys-axis`)
 
 크레딧이 끊겨도 이어갈 수 있게 단계마다 갱신한다. main에는 병합하지 않는다. 마지막에 PR 하나를 만든다.

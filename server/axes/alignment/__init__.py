@@ -1,4 +1,6 @@
 """Gate 적합 구간의 SyncNet 실행. 대표값 집계와 진위 판정은 하지 않는다."""
+import statistics
+
 from server.axes import AxisContext
 from . import syncnet
 from .report import MODEL_VERSION
@@ -26,4 +28,11 @@ def run(ctx: AxisContext) -> dict:
     raw = syncnet.run_syncnet(ctx.media_path, ctx.segments, ctx.job_dir, build_config(ctx),
                              on_tick=ctx.heartbeat, tick_sec=ctx.settings.heartbeat_interval_seconds)
     result.update(status=raw['status'], reason_code=raw['reason_code'])
+    if ctx.bundle is not None and raw['status'] == 'completed':
+        # 학습 때와 같은 집계(전 구간·전 트랙의 중앙값). 결합 입력으로만 넘긴다
+        tracks = [t for seg in raw['segments'] for t in seg['tracks']]
+        for key, values in (('lse_c_median', [t['lse_c'] for t in tracks]),
+                            ('lse_d_median', [t['lse_d'] for t in tracks]),
+                            ('abs_offset_median', [abs(t['offset_frames']) for t in tracks])):
+            ctx.fusion_inputs[f'S.{key}'] = float(statistics.median(values))
     return result

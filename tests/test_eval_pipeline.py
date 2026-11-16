@@ -162,7 +162,7 @@ def test_clean_manifest_passes_and_always_lists_warnings():
     assert report.ok and report.groups == 2
     assert report.warnings == {
         "identity_missing": 0, "source_unverified": 0, "fake_generator_missing": 0,
-        "fake_manipulation_type_missing": 0, "file_hash_missing": 0,
+        "fake_manipulation_type_missing": 0, "file_hash_missing": 0, "derived_parent_missing": 0,
     }
 
 

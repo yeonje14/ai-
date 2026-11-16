@@ -33,11 +33,13 @@ class MotionPhysConfig:
     python: Path = RESEARCH / '.venv/bin/python'
     script: Path = RESEARCH / 'infer_axis.py'
     timeout_sec: float = 120.0
+    # (후보 이름, LightGBM 모델 파일). 검증된 묶음이 있을 때만 서버가 넣는다. 없으면 점수를 내지 않는다.
+    margin_model: tuple[str, Path] | None = None
 
 
 def failure(status: str, reason: str | None) -> dict:
     return {'status': status, 'reason_code': reason, 'raw_score': None,
-            'model_version': MODEL_VERSION, 'variants': None}
+            'model_version': MODEL_VERSION, 'variants': None, 'margin': None, 'margin_variant': None}
 
 
 def _finite(value: Any) -> bool:
@@ -79,7 +81,7 @@ def _rate(value: Any) -> float | None:
     return float(value)
 
 
-def _variant(raw: Any) -> dict:
+def _variant(raw: Any, with_features: bool = False) -> dict:
     """한 후보의 요약. 특징 벡터·오류 문구 등 다른 값은 전달하지 않는다."""
     if not isinstance(raw, dict):
         raise ValueError('invalid variant')
@@ -104,19 +106,31 @@ def _variant(raw: Any) -> dict:
            'face_detection_rate': _rate(raw.get('face_detection_rate'))}
     if status == 'completed' and out['valid_trajectories'] is None:
         raise ValueError('completed without counts')
+    if with_features:
+        # 연구용 일괄 추출 전용. 실패한 후보의 특징은 null이다(0으로 채우지 않는다)
+        features = raw.get('features') if status == 'completed' else None
+        if status == 'completed' and (not isinstance(features, list) or not features
+                                      or not all(_finite(x) for x in features)):
+            raise ValueError('invalid features')
+        out['features'] = None if features is None else [float(x) for x in features]
     return out
 
 
-def parse_result(raw: Any) -> dict:
+def parse_result(raw: Any, with_features: bool = False, margin_variant: str | None = None) -> dict:
     if not isinstance(raw, dict) or type(raw.get('schema_version')) is not int or raw['schema_version'] != 1:
         raise ValueError('invalid schema')
     variants = raw.get('variants')
     if not isinstance(variants, dict) or set(variants) != set(VARIANTS):
         raise ValueError('invalid variants')
-    clean = {name: _variant(variants[name]) for name in VARIANTS}
+    clean = {name: _variant(variants[name], with_features) for name in VARIANTS}
     primary = clean[PRIMARY]
     result = failure(primary['status'], primary['reason_code'])
     result['variants'] = clean
+    if margin_variant is not None:
+        # 분류기의 원시 margin(확률 아님). 그 후보의 추출이 실패했거나 값이 이상하면 null이다
+        margin = variants[margin_variant].get('margin') if isinstance(variants.get(margin_variant), dict) else None
+        if clean[margin_variant]['status'] == 'completed' and _finite(margin):
+            result.update(margin=float(margin), margin_variant=margin_variant)
     return result
 
 
@@ -147,8 +161,11 @@ def _run(cmd: list[str], timeout: float, on_tick, tick_sec: float) -> str | None
 
 def run_motionphys(video: Path, segments: Sequence[Sequence[float]], work_dir: Path,
                    config: MotionPhysConfig = MotionPhysConfig(),
-                   on_tick: Callable[[], bool] | None = None, tick_sec: float = 10.0) -> dict:
+                   on_tick: Callable[[], bool] | None = None, tick_sec: float = 10.0,
+                   include_features: bool = False) -> dict:
     """서버 작업 폴더 안의 허가 미디어와 [(start_sec, end_sec), ...]만 받는다.
+
+    include_features는 연구용 일괄 추출(training/features)만 켠다. 서버 Worker는 켜지 않는다.
 
     구간이 없으면 실행하지 않는다. on_tick이 False를 돌려주거나 예외를 내면 취소로 보고
     프로세스 그룹을 끝낸다. 실패는 점수 null 결과로 격리하고 예외를 던지지 않는다.
@@ -179,7 +196,14 @@ def run_motionphys(video: Path, segments: Sequence[Sequence[float]], work_dir: P
         # 고유 폴더라 이전 실행의 JSON과 섞이지 않는다. 끝나면 폴더째 지운다.
         with tempfile.TemporaryDirectory(prefix='motionphys-', dir=work_dir) as tmp:
             request, output = Path(tmp) / 'request.json', Path(tmp) / 'result.json'
-            request.write_text(json.dumps({'video': str(video), 'segments': bounds}))
+            body = {'video': str(video), 'segments': bounds}
+            if include_features:
+                body['include_features'] = True
+            if config.margin_model is not None:
+                if config.margin_model[0] not in VARIANTS or not Path(config.margin_model[1]).is_file():
+                    return failure('error', 'model_unavailable')
+                body['margin_model'] = {'variant': config.margin_model[0], 'path': str(config.margin_model[1])}
+            request.write_text(json.dumps(body))
             cmd = [str(config.python), str(config.script), '--request', str(request), '--output', str(output)]
             try:
                 reason = _run(cmd, config.timeout_sec, on_tick, tick_sec)
@@ -187,6 +211,7 @@ def run_motionphys(video: Path, segments: Sequence[Sequence[float]], work_dir: P
                 return failure('error', 'model_unavailable')
             if reason:
                 return failure('error', reason)
-            return parse_result(json.loads(output.read_text()))
+            return parse_result(json.loads(output.read_text()), include_features,
+                                config.margin_model[0] if config.margin_model else None)
     except (OSError, ValueError, TypeError, KeyError, RecursionError):
         return failure('error', 'inference_error')

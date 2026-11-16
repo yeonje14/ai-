@@ -8,4 +8,6 @@
 - `datasets/mavos.py`: MAVOS-DD 표본의 메타데이터 검사(추론 없음)
 - `emulator/`: 범용 압축 프로파일(libx264), 열화 영상 생성과 기록, manifest 파생 행. `docs/compression-emulator.md`
 
-사용법과 한계는 `docs/evaluation-pipeline.md`.
+- `datasets/adapters/`, `features/extract.py`, `synth.py`, `config.py`, `report/`, `bundle.py`: 데이터셋 변환, 일괄 특징 추출, 합성 생성기, 채택 판단, 모델 묶음. 학습 스크립트는 `research/training/train.py`(별도 venv). `docs/training-pipeline.md`
+
+사용법과 한계는 `docs/evaluation-pipeline.md`, `docs/training-pipeline.md`.

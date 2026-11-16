@@ -24,5 +24,9 @@ class AxisContext:
     timeout_seconds: Optional[float] = None
     # 축이 읽어 낸 영상 정보(fps, frame_count 등). coverage 계산에만 쓴다.
     media_info: dict[str, Any] = field(default_factory=dict)
+    # 검증을 통과한 모델 묶음(training.bundle.Bundle). 없으면 None이고 축은 지금까지와 똑같이 동작한다.
+    bundle: Any = None
+    # 결합 모델의 입력값(내부 전달용, API 결과가 아니다). 계산하지 못한 값은 넣지 않는다.
+    fusion_inputs: dict[str, float] = field(default_factory=dict)
     # 축이 덧붙이는 설명(template_id, reason_code, message). 결과의 기존 explanations에 이어 붙인다.
     explanations: list[dict[str, str]] = field(default_factory=list)
