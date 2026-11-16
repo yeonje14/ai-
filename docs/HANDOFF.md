@@ -18,10 +18,27 @@
 | 단계 | 내용 | 상태 |
 |---|---|---|
 | 0 | 앱 실제 서버 모드 문구, app/README 현행화 | **완료** (아래) |
-| 1 | MotionPhys를 physics 축으로 연결, 테스트, A 실제 Worker 확인 | 남음 |
+| 1 | MotionPhys를 physics 축으로 연결, 테스트, A 실제 Worker 확인 | **완료** (아래) |
 | 2 | A·B·E × 범용 프로파일 12개 3축 압축 견고성 실측 (`scripts/robustness_selfvideo.py`, `docs/robustness-selfvideo.md`) | 남음 |
 | 3 | B·E SyncNet 오디오 밀기 실험, M3 16GB 축별 시간·메모리 표 | 남음 |
 | 마무리 | README §14.1 10번, §15.3 기록, 전체 테스트, PR | 남음 |
+
+**1단계 (완료)**
+
+- 추가: `server/axes/physics/motionphys.py`(어댑터), `research/motionphys/infer_axis.py`(A→B→C 실행기).
+  `server/axes/physics/__init__.py`의 stub을 실제 진입점으로 바꿨다. `AxisContext.explanations`를 추가해
+  축 설명을 결과의 `explanations` 인덱스 1에 넣는다(`build_result` 변경 없음). `Settings.motionphys_timeout_seconds`
+  (`TRINITY_MOTIONPHYS_TIMEOUT_SECONDS`, 기본 300초 임시값). 상태 표와 세부는 `docs/motionphys-adapter.md`.
+- README §14.1 10번 상태, §15.3 "결정 3·8 보완 — 2026-11-16, Claude 제안, 사용자 승인", 환경 변수 목록을 갱신했다.
+- 테스트: `pytest -q` **603 passed, 1 skipped**(2단계 스크립트 테스트 4개 제외)(LightGBM 없음), 기존 httpx 경고 1개. A·B·E 실제 미디어 테스트 3개가 이 기기에서 실행됐다.
+  기존 기대값 2곳(`tests/test_queue_worker.py`, `tests/test_waverep_worker.py`의 "physics는 insufficient_input")은
+  stub 전제여서 `error`/`model_unavailable`로 바꿨다. conftest가 테스트에서 실제 MotionPhys venv 실행을 막는다.
+- 실제 확인(1회): A를 임시 레지스트리 + 별도 Worker로 처리. finished / completed / abstained,
+  `overall_score`·`verdict_label` null, 세 축 completed. Gate 약 18초, WaveRep(MPS) 약 26초, MotionPhys 약 61초,
+  SyncNet(CPU) 약 400초, 전체 506초. 임시 레지스트리·DB·로그는 삭제했다.
+- SyncNet이 A에서 조건당 10분 미만(약 6.7분)이라 2단계는 SyncNet도 30조건 전부 돌린다.
+- MotionPhys 단독 37.1초 대 Worker 안 약 61초: 원인 미확인. 2단계 시간표에 측정 근거와 함께 적는다.
+- **미검증:** B·E의 Worker 종단 실행, 실제 모델 실행 중 취소·SIGKILL, 앱 화면에서의 새 설명 표시.
 
 **0단계 (완료)**
 

@@ -249,7 +249,7 @@ def test_model_crash_is_isolated_with_null_score(queue, registry, settings, fake
     assert (sig["status"], sig["reason_code"]) == ("error", "inference_error")
     assert sig["raw_score"] is None and sig["raw_metrics"] is None
     assert "boom" not in json.dumps(r)  # stderr는 결과에 넣지 않는다
-    assert r["axes"]["physics"]["status"] == "insufficient_input"  # 나머지 축은 계속 처리됐다
+    assert r["axes"]["physics"]["reason_code"] == "model_unavailable"  # 나머지 축은 계속 처리됐다(테스트에는 실행 환경이 없다)
     assert r["gate_bypassed"] is True and r["overall_score"] is None
     assert r["coverage"]["analyzed_segments"] == []
 

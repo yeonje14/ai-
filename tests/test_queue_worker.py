@@ -135,7 +135,8 @@ def test_axis_failure_does_not_stop_other_axes(queue, settings, monkeypatch):
     assert axes["signal"]["status"] == "error"
     assert axes["signal"]["reason_code"] == "inference_error"
     assert axes["signal"]["raw_score"] is None  # 0이 아니라 null
-    assert axes["physics"]["status"] == "insufficient_input"
+    assert (axes["physics"]["status"], axes["physics"]["reason_code"]) == ("error", "model_unavailable")
+    assert axes["physics"]["raw_score"] is None
     assert axes["alignment"]["status"] == "insufficient_input"
     assert job.result["overall_score"] is None
     assert job.completed_stages[-1] == "finalizing"

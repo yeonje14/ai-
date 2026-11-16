@@ -87,6 +87,8 @@ class Settings:
     waverep_batch_size: int = 1
     waverep_sample_fps: float = 2.0
     waverep_timeout_seconds: float = 300.0
+    # MotionPhys 특징 추출(후보 A·B·C)의 단계 제한 시간. 임시값이며 실측 후 조정한다.
+    motionphys_timeout_seconds: float = 300.0
     # 추론을 기다리는 동안 lease를 연장하는 간격. lease_seconds보다 짧아야 한다.
     heartbeat_interval_seconds: float = 10.0
     # 개발 전용: Gate 대신 손으로 정한 구간을 분석한다. 기본은 꺼짐(빈 값).
@@ -139,6 +141,9 @@ class Settings:
             waverep_sample_fps=float(env("TRINITY_WAVEREP_SAMPLE_FPS", d.waverep_sample_fps)),
             waverep_timeout_seconds=float(
                 env("TRINITY_WAVEREP_TIMEOUT_SECONDS", d.waverep_timeout_seconds)
+            ),
+            motionphys_timeout_seconds=float(
+                env("TRINITY_MOTIONPHYS_TIMEOUT_SECONDS", d.motionphys_timeout_seconds)
             ),
             heartbeat_interval_seconds=float(
                 env("TRINITY_HEARTBEAT_INTERVAL_SECONDS", d.heartbeat_interval_seconds)

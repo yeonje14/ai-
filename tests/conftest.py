@@ -24,6 +24,20 @@ TOKEN = "test-client-token-0001"
 OTHER_TOKEN = "test-client-token-0002"
 
 
+@pytest.fixture(autouse=True)
+def _no_real_motionphys(tmp_path: Path, monkeypatch):
+    """테스트가 이 기기의 research/motionphys/.venv를 몰래 실행하지 않게 한다.
+
+    physics 축을 보는 테스트는 build_config를 가짜 프로세스로 다시 바꾼다. 실제 영상 테스트는
+    어댑터를 MotionPhysConfig()로 직접 부른다. 바꾸지 않은 테스트에서는 실행 환경이 없는 것과 같다.
+    """
+    from server.axes import physics
+    from server.axes.physics.motionphys import MotionPhysConfig
+
+    missing = MotionPhysConfig(python=tmp_path / "no-motionphys-python")
+    monkeypatch.setattr(physics, "build_config", lambda ctx: missing)
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     # 가짜 허가 미디어 파일. 실제 영상이 아니다(모델을 실행하는 테스트는 가짜 추론 프로세스를 쓴다).
