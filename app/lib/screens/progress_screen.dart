@@ -14,6 +14,9 @@ class ProgressScreen extends StatelessWidget {
     required this.state,
     this.connectionLost = false,
     this.failureReasonCode,
+    this.onCancel,
+    this.cancelRequested = false,
+    this.cancelError,
     required this.onRestart,
   });
 
@@ -23,6 +26,9 @@ class ProgressScreen extends StatelessWidget {
   final bool connectionLost;
   final String? failureReasonCode;
   final VoidCallback onRestart;
+  final VoidCallback? onCancel;
+  final bool cancelRequested;
+  final String? cancelError;
 
   static const notVerdict = '결과가 없습니다. 영상에 대한 판정이 아니에요.';
 
@@ -84,6 +90,21 @@ class ProgressScreen extends StatelessWidget {
               Expanded(child: Column(children: [for (final s in stageOrder.skip(half)) _row(s, done)])),
             ],
           ),
+        if (state.isActive && onCancel != null) ...[
+          const SizedBox(height: TSpace.x4),
+          OutlinedButton(
+            onPressed: cancelRequested ? null : onCancel,
+            child: Text(cancelRequested ? '취소 요청 중…' : '분석 취소'),
+          ),
+          if (cancelRequested) ...[
+            const SizedBox(height: TSpace.x2),
+            Text('작업을 멈추고 정리한 뒤 결과를 보여 드립니다.', style: TText.body.copyWith(color: p.muted)),
+          ],
+          if (cancelError != null) ...[
+            const SizedBox(height: TSpace.x2),
+            InfoBox(title: '취소 요청을 확인하지 못했어요', body: cancelError!, tone: StatusTone.warning),
+          ],
+        ],
         if (stopped) ...[
           const SizedBox(height: TSpace.x4),
           PrimaryButton(label: '처음으로', onPressed: onRestart),

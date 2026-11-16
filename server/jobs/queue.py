@@ -11,13 +11,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -43,6 +44,15 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs (job_status, created_
 LEASE_OK = "ok"
 LEASE_LOST = "lost"
 LEASE_CANCEL = "cancel_requested"
+
+
+class PreconditionFailed(Exception):
+    """If-Match가 현재 작업 수명주기와 다르다."""
+
+
+def lifecycle_etag(job: Job) -> str:
+    phase = "active" if job.job_status in ("queued", "processing") else job.job_status
+    return f'"{job.analysis_id}:{phase}"'
 
 
 class QueueFull(Exception):
@@ -129,37 +139,55 @@ class JobQueue:
         return _to_job(row) if row else None
 
     def request_cancel(self, analysis_id: str, owner_hash: str) -> bool:
-        """queued는 바로 cancelled로, processing은 worker가 다음 단계 경계에서 멈춘다."""
+        """접수만 한다. queued도 Worker의 정리가 끝난 뒤 cancelled가 된다."""
+        with self._tx() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET cancel_requested = 1"
+                " WHERE analysis_id = ? AND owner_hash = ?"
+                " AND job_status IN ('queued', 'processing')",
+                (analysis_id, owner_hash),
+            )
+            return cur.rowcount == 1
+
+    def cancel_or_delete(
+        self, analysis_id: str, owner_hash: str, if_match: Optional[str],
+        cleanup: Callable[[str], None],
+    ) -> tuple[int, Optional[Job]]:
+        """권한·조건·상태 분기와 쓰기를 하나의 트랜잭션으로 처리한다.
+
+        폴더 정리가 실패하면 행을 지우지 않는다. 다음 DELETE에서 재시도할 수 있다.
+        """
         with self._tx() as conn:
             row = conn.execute(
-                "SELECT job_status FROM jobs WHERE analysis_id = ? AND owner_hash = ?",
+                "SELECT * FROM jobs WHERE analysis_id = ? AND owner_hash = ?",
                 (analysis_id, owner_hash),
             ).fetchone()
             if row is None:
-                return False
-            if row["job_status"] == "queued":
+                return 404, None
+            job = _to_job(row)
+            if if_match is not None and if_match.strip() != "*":
+                # 생성한 ETag에는 쉼표가 없고 weak tag는 strong 비교에 일치하지 않는다.
+                if lifecycle_etag(job) not in [tag.strip() for tag in if_match.split(",")]:
+                    raise PreconditionFailed()
+            if job.job_status in ("queued", "processing"):
                 conn.execute(
-                    "UPDATE jobs SET job_status = 'cancelled', finished_at = ?"
-                    " WHERE analysis_id = ?",
-                    (time.time(), analysis_id),
-                )
-                return True
-            if row["job_status"] == "processing":
-                conn.execute(
-                    "UPDATE jobs SET cancel_requested = 1 WHERE analysis_id = ?",
+                    "UPDATE jobs SET cancel_requested = 1 WHERE analysis_id = ? AND cancel_requested = 0",
                     (analysis_id,),
                 )
-                return True
-            return False
+                return 202, job
+            cleanup(analysis_id)
+            conn.execute("DELETE FROM jobs WHERE analysis_id = ?", (analysis_id,))
+            return 204, None
 
     # ---- Worker 쪽 ----------------------------------------------------
 
     def claim(
-        self, worker_id: str, lease_seconds: float, max_attempts: int
+        self, worker_id: str, lease_seconds: float, max_attempts: int,
+        cleanup: Optional[Callable[[str], None]] = None,
     ) -> Optional[Job]:
         now = time.time()
         with self._tx() as conn:
-            self._recover_expired(conn, now, max_attempts)
+            self._recover_expired(conn, now, max_attempts, cleanup)
             busy = conn.execute(
                 "SELECT 1 FROM jobs WHERE job_status = 'processing' LIMIT 1"
             ).fetchone()
@@ -184,8 +212,14 @@ class JobQueue:
         return _to_job(claimed)
 
     @staticmethod
-    def _recover_expired(conn: sqlite3.Connection, now: float, max_attempts: int) -> None:
+    def _recover_expired(
+        conn: sqlite3.Connection, now: float, max_attempts: int,
+        cleanup: Optional[Callable[[str], None]] = None,
+    ) -> None:
         expired = "job_status = 'processing' AND lease_expires_at < ?"
+        if cleanup is not None:
+            for row in conn.execute(f"SELECT analysis_id FROM jobs WHERE {expired}", (now,)).fetchall():
+                cleanup(row["analysis_id"])
         conn.execute(
             "UPDATE jobs SET job_status = 'cancelled', lease_owner = NULL,"
             f" lease_expires_at = NULL, finished_at = ? WHERE {expired}"
@@ -205,6 +239,18 @@ class JobQueue:
             f" WHERE {expired}",
             (now,),
         )
+
+    def clean_inactive(self, analysis_ids: list[str], cleanup: Callable[[str], None]) -> None:
+        """종료 직후 비정상 중단/구버전이 남긴 폴더와 기록 없는 폴더를 정리한다."""
+        with self._tx() as conn:
+            for aid in analysis_ids:
+                row = conn.execute("SELECT job_status FROM jobs WHERE analysis_id = ?", (aid,)).fetchone()
+                if row is None or row["job_status"] in ("finished", "failed", "cancelled"):
+                    try:
+                        cleanup(aid)
+                    except OSError:
+                        # 다른 종료/고아 폴더의 권한 오류 때문에 새 작업을 막지 않는다.
+                        logging.getLogger("trinity.queue").warning("inactive cleanup failed: %s", aid)
 
     def advance_stage(
         self,
@@ -264,6 +310,14 @@ class JobQueue:
         failure_reason: Optional[str] = None,
     ) -> bool:
         with self._tx() as conn:
+            row = conn.execute(
+                "SELECT cancel_requested FROM jobs WHERE analysis_id = ? AND lease_owner = ?"
+                " AND job_status = 'processing'", (analysis_id, worker_id),
+            ).fetchone()
+            if row is None:
+                return False
+            if row["cancel_requested"]:
+                job_status, result, failure_reason = "cancelled", None, None
             cur = conn.execute(
                 "UPDATE jobs SET job_status = ?, stage = NULL,"
                 " completed_stages = COALESCE(?, completed_stages),"

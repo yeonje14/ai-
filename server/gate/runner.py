@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
-import signal
 import subprocess
 import sys
 import time
@@ -14,6 +12,7 @@ from typing import Callable
 from pydantic import TypeAdapter
 
 from server.config import Settings
+from server.jobs.child_process import start_process, stop_process
 from server.gate.types import GateResult
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -98,9 +97,9 @@ def run_gate_process(
         if not on_tick():
             return GateResult(None, GATE_ERROR)
         deadline = time.monotonic() + min(settings.gate_timeout_seconds, timeout_seconds)
-        proc = subprocess.Popen(
+        proc, watch_fd = start_process(
             build_command(request), cwd=REPO_ROOT, stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         while True:
             remaining = deadline - time.monotonic()
@@ -121,10 +120,6 @@ def run_gate_process(
         return GateResult(None, GATE_ERROR)
     finally:
         if proc is not None:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            proc.wait()
+            stop_process(proc, watch_fd)
         request.unlink(missing_ok=True)
         output.unlink(missing_ok=True)

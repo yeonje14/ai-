@@ -29,6 +29,7 @@ from server.gate.types import GateResult
 from server.ingest.media_resolver import AuthorizedMediaRegistry
 from server.ingest.youtube_url import is_valid_video_id
 from server.jobs.queue import LEASE_CANCEL, LEASE_LOST, Job, JobQueue
+from server.jobs.runtime import remove_job_dir, worker_lock
 from server.schemas import AnalysisResult, dump
 
 log = logging.getLogger("trinity.worker")
@@ -248,6 +249,9 @@ def process(
 ) -> None:
     deadline = time.monotonic() + settings.job_timeout_seconds
     completed: list[str] = []
+    terminal_status = None
+    terminal_result = None
+    failure_reason = None
     # 모델에는 서버가 발급한 analysis_id로 만든 작업 경로만 넘긴다.
     job_dir = settings.runtime_dir / job.analysis_id
 
@@ -262,8 +266,11 @@ def process(
         if state == LEASE_CANCEL:
             raise _Cancelled()
         log.info("job %s stage %s", job.analysis_id, stage)
-        if settings.stub_stage_delay_seconds > 0:
-            time.sleep(settings.stub_stage_delay_seconds)
+        delay_end = time.monotonic() + settings.stub_stage_delay_seconds
+        while time.monotonic() < delay_end:
+            time.sleep(max(0, min(settings.heartbeat_interval_seconds, delay_end - time.monotonic())))
+            if not heartbeat():
+                raise interrupted[0]
 
     interrupted: list[Exception] = []
 
@@ -287,11 +294,11 @@ def process(
         return True
 
     def finalize(result: dict[str, Any]) -> None:
+        nonlocal terminal_status, terminal_result
         enter("finalizing")
-        validated = dump(AnalysisResult.model_validate(result))
+        terminal_result = dump(AnalysisResult.model_validate(result))
         completed.append("finalizing")
-        if not queue.finish(job.analysis_id, worker_id, validated, completed):
-            raise _LeaseLost()
+        terminal_status = "finished"
 
     try:
         enter("validating")
@@ -368,17 +375,23 @@ def process(
     except _LeaseLost:
         log.warning("job %s lease lost; abandoning", job.analysis_id)
     except _Cancelled:
-        queue.mark_cancelled(job.analysis_id, worker_id)
+        terminal_status = "cancelled"
         log.info("job %s cancelled", job.analysis_id)
     except _Timeout:
-        queue.fail(job.analysis_id, worker_id, "timeout")
+        terminal_status, failure_reason = "failed", "timeout"
         log.warning("job %s timed out", job.analysis_id)
     except Exception:
-        log.exception("job %s failed", job.analysis_id)
-        queue.fail(job.analysis_id, worker_id, "worker_error")
+        log.error("job %s failed", job.analysis_id)
+        terminal_status, failure_reason = "failed", "worker_error"
     finally:
-        # 임시 클립·오디오·얼굴 crop은 작업이 끝나면 삭제한다.
-        shutil.rmtree(job_dir, ignore_errors=True)
+        # 종료 상태를 공개하기 전에 정리한다. 실패하면 processing으로 남겨 복구에서 재시도한다.
+        remove_job_dir(settings.runtime_dir, job.analysis_id)
+        if terminal_status == "finished":
+            queue.finish(job.analysis_id, worker_id, terminal_result, completed)
+        elif terminal_status == "cancelled":
+            queue.mark_cancelled(job.analysis_id, worker_id)
+        elif terminal_status == "failed":
+            queue.fail(job.analysis_id, worker_id, failure_reason)
 
 
 def run_once(
@@ -387,13 +400,30 @@ def run_once(
     settings: Settings,
     worker_id: str,
 ) -> bool:
-    """작업 하나를 선점해 처리한다. 처리할 작업이 없었으면 False."""
-    job = queue.claim(worker_id, settings.lease_seconds, settings.max_attempts)
-    if job is None:
-        return False
-    log.info("job %s claimed (attempt %d)", job.analysis_id, job.attempts)
-    process(job, queue, registry, settings, worker_id)
-    return True
+    """작업 하나를 처리한다. 대기/다른 실행의 잠금/정리 실패로 처리하지 못하면 False."""
+    with worker_lock(settings.runtime_dir) as acquired:
+        if not acquired:
+            return False
+        cleanup = lambda aid: remove_job_dir(settings.runtime_dir, aid)
+        try:
+            # 서버 발급 UUID 이름만 정리 대상으로 삼는다. DB/잠금 파일은 건드리지 않는다.
+            ids = []
+            for path in settings.runtime_dir.iterdir():
+                try:
+                    if str(uuid.UUID(path.name)) == path.name:
+                        ids.append(path.name)
+                except ValueError:
+                    continue
+            queue.clean_inactive(ids, cleanup)
+            job = queue.claim(worker_id, settings.lease_seconds, settings.max_attempts, cleanup)
+            if job is None:
+                return False
+            log.info("job %s claimed (attempt %d)", job.analysis_id, job.attempts)
+            process(job, queue, registry, settings, worker_id)
+        except OSError:
+            log.error("runtime cleanup or access failed; retry after recovery")
+            return False
+        return True
 
 
 def main(argv: list[str] | None = None) -> int:

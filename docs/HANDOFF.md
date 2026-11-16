@@ -1,8 +1,173 @@
 # HANDOFF
 
-마지막 갱신: 2026-11-15 · 브랜치 `codex/connect-gate-worker` (최신 main `e324a8b`에서 생성)
+마지막 갱신: 2026-11-15 · 브랜치 `codex/cancel-recovery-security` (최신 origin/main `3f0f2b4`에서 생성)
 
-## 현재 작업: 백로그 7번 Gate → Worker 연결 (2026-11-15)
+## A 영상 실제 WaveRep 추론 중 취소 검증 (2026-11-15)
+
+- 범위: PR #12 `codex/cancel-recovery-security`, 커밋
+  `3fe99f01715cb07f2c57b9ec6de57b9368846f46`에서 A.MOV 한 건만 검증했다.
+  별도 worktree `/private/tmp/trinity-pr12-cancel-A`를 사용했고 원래
+  `/Users/iyeonje/ai-`의 `feat/syncnet` 작업 공간은 변경하지 않았다.
+- 독립 실제 uvicorn·Worker·SQLite·runtime을 사용했다. 임시 AuthorizedMediaRegistry에
+  `/Users/iyeonje/ai-/data/research/samples/A.MOV`를 연결했다.
+  기존 Gate 설정·임계값을 그대로 사용하고 WaveRep 장치만 `cpu`로 지정했다.
+  기존 모델별 `.venv`·upstream·가중치를 재사용했으며 설치·다운로드·모델 코드 수정은 없었다.
+- 작업 `fe18425a-2b54-43c3-99a8-e483397b5f56`은 `preprocessing`을 거쳐
+  `waverep`에 진입했다. 실제 `infer_frames.py` 자식 PID `99588`이 실행되는 동안
+  `/usr/bin/sample`로 `libtorch_cpu`의 `linear`, `addmm`, `cpublas::gemm` 스택을 확인했다.
+  DELETE 직전에 `processing/waverep`, 자식 생존, 추론 결과 파일 미생성을 다시 확인했다.
+  따라서 모델 프로세스 시작만 확인하거나 추론이 끝난 뒤 취소한 검증이 아니다.
+- 진행 중 GET에서 받은 ETag를 `If-Match`로 보낸 DELETE 응답:
+  HTTP **202**, `job_status=processing`, `stage=waverep`.
+- 최종 GET 및 결과 조회: **`job_status=cancelled`**, `overall_score=null`.
+  실제 추론 자식 종료와 해당 UUID 임시 작업 폴더 삭제를 각각 확인했다.
+  취소 요청부터 확인까지 약 **0.39초**(이번 1회 관찰값)였으며 Worker 종료 코드는 0이었다.
+  종료 작업을 삭제하는 두 번째 DELETE는 보내지 않았다.
+- 실행 후 검증용 서버·Worker를 종료하고 임시 레지스트리·DB·runtime을 정리했다.
+  원본 영상·가중치·환경은 보존했다. 검증용 환경 연결 심볼릭 링크도 제거했다.
+
+**로컬 재현 명령** (이 세션의 검증 스크립트는 Git 밖 `/private/tmp/pr12_cancel_a.py`에 보존):
+
+```bash
+cd /private/tmp/trinity-pr12-cancel-A
+ln -s /Users/iyeonje/ai-/research/waverep/.venv research/waverep/.venv
+ln -s /Users/iyeonje/ai-/research/waverep/upstream research/waverep/upstream
+/opt/anaconda3/envs/trinity/bin/python /private/tmp/pr12_cancel_a.py
+# 실행 후 위에서 만든 심볼릭 링크 두 개만 제거한다(원본 환경·upstream 보존).
+unlink research/waverep/.venv
+unlink research/waverep/upstream
+git diff --check
+```
+
+스크립트는 기존 `scripts/smoke_cancel_worker.py`를 기반으로 A와 실제 WaveRep 자식을
+관찰하도록 만든 세션 전용 실행기다. Gate 제한 120초, 전체 작업 제한 300초,
+heartbeat 1초·lease 4초, WaveRep CPU를 사용한다. 자식 관찰 후 15초 대기와 1초 스택
+샘플링을 수행하며, 실제 연산·진행 상태가 확인되지 않으면 성공으로 처리하지 않는다.
+재현에는 이 로컬 스크립트·허가 원본·기존 모델 환경이 필요하다(`/private/tmp` 정리 시 스크립트 소실 가능).
+스택 원본은 `/private/tmp/pr12-A-stack.txt`에 있으며 미디어 내용은 포함하지 않는다.
+
+**검증 범위·남은 일:** 이번 A 한 건의 CPU 추론 중 취소 성공만 확인했다.
+MPS 추론 취소·다른 영상·반복 안정성은 미검증이다. 코드 변경이 없어 전체 pytest는
+다시 실행하지 않았다. API·Gate 판정·임계값을 변경하지 않았고 커밋·push는 하지 않았다.
+막힌 점 없음.
+
+## 현재 작업: 백로그 14번 중 취소·삭제·Worker 복구·정리
+
+**결과:** 요청한 부분의 구현·테스트·실제 서버 취소 확인을 마쳤다. 백로그 14번 전체 완료는 아니다.
+도구·모델: **Codex, GPT-6 Astra**. README §9·§15.3에 날짜와 **“Codex, GPT-6 Astra 제안, 사용자 승인”**을 기록했다.
+구현 커밋 `be08650`을 push했고 [PR #12](https://github.com/yeonje14/ai-/pull/12)를 생성했다.
+PR은 열림·미병합 상태이며 main에는 merge하지 않았다. 이 인계 기록은 후속 문서 커밋으로 반영한다.
+
+**한 일**:
+
+- `DELETE /api/v1/analyses/{id}`: 소유권 확인 후 진행 중 취소 접수 `202`, 반복도 `202`;
+  종료(`finished`·`failed`·`cancelled`) 작업은 결과·기록·폴더 삭제 후 본문 없는 `204`.
+  토큰 없음 `401`, 다른 소유자·삭제 후 조회(`/result` 포함)·재삭제 `404`.
+  큐의 `cancel_requested`를 재사용하고 새 상태나 JSON API 필드를 만들지 않았다.
+- 상태 GET의 ETag는 `queued`·`processing` 동안 단계·heartbeat·재시도와 무관하게 불변이며 종료 때 변경한다.
+  `If-Match`와 현재 ETag 비교를 DELETE 상태 분기와 같은 트랜잭션에서 수행한다.
+  불일치 `412`는 기록·결과·폴더를 건드리지 않는다. 일반 DELETE 계약은 유지한다.
+- 앱의 “분석 취소”는 진행 중 상태의 ETag로 조건부 DELETE만 보낸다. 중복 클릭을 막고,
+  `202` 후 polling으로 기존 “취소됨” 화면을 표시한다. `412`는 오류로 보이지 않고
+  상태·결과를 다시 조회한다. ETag가 없으면 일반 DELETE로 대체하지 않는다.
+  CORS에 DELETE·If-Match 허용과 ETag 노출을 추가했고 기존 출처 제한은 유지했다.
+- Worker가 프로세스와 임시 파일을 정리한 후 종료 상태를 기록한다. 완료 쓰기와 취소 접수가
+  겹쳐도 먼저 접수된 취소를 완료 결과로 덮지 않는다. 정리 실패는 성공으로 숨기지 않는다.
+- lease 만료 후 이전 시도의 폴더를 정리하고 재시도하거나 `failed/max_attempts_exceeded`로 끝낸다.
+  종료·기록 없는 UUID 폴더도 Worker 반복 실행에서 정리한다. 무관한 잔여 폴더의 권한 오류는
+  경고하고 다음 작업을 계속한다. 실패 폴더는 다음 반복에서 정리를 재시도한다.
+- 단일 호스트 `flock`으로 살아 있는 이전 Worker와 새 Worker의 파일 처리 겹침을 막는다.
+  Gate/모델 supervisor가 Worker 생존 파이프를 감시해 Worker SIGKILL에도 자식·후손 그룹을 종료한다.
+  supervisor도 잠금 FD를 상속하므로 자식 그룹 정리 전 복구가 선행하지 않는다.
+  모델별 Python 환경 분리, MPS/CPU 정책은 유지하며 새 의존성은 설치하지 않았다.
+- 독립 GPT-6 Astra 검토에서 고아 자식과 무관한 정리 실패의 큐 차단을 실제 재현했다.
+  두 지적을 회귀 테스트 3개 RED→GREEN으로 수정했다. 새 API 계약 변경은 없었다.
+
+**바꾼 파일**:
+
+- API: `server/api/analyses.py`, `server/api/__init__.py`.
+- Worker·큐·정리: `server/jobs/queue.py`, `server/jobs/worker.py`,
+  새 `server/jobs/runtime.py`, `server/jobs/child_process.py`, `server/jobs/supervisor.py`.
+- 자식 실행기: `server/gate/runner.py`, `server/axes/signal/waverep.py`.
+- 앱: `app/lib/api/analysis_api.dart`, `app/lib/api/models.dart`, `app/lib/api/mock_api.dart`,
+  `app/lib/app.dart`, `app/lib/screens/progress_screen.dart`.
+- 테스트: 새 `tests/test_analysis_delete.py`, `tests/test_job_lifecycle.py`,
+  `app/test/cancel_flow_test.dart`; 갱신 `tests/test_queue_worker.py`,
+  `tests/test_cors_and_label.py`, `app/test/flow_test.dart`.
+- 실제 실행 확인: 새 `scripts/smoke_cancel_worker.py`.
+- 문서: `README.md`, `docs/HANDOFF.md`, `docs/superpowers/plans/2026-11-15-cancel-recovery.md`.
+
+**실행한 명령·테스트 결과**:
+
+```bash
+git fetch origin main
+git switch -c codex/cancel-recovery-security origin/main
+# 아래 python은 /opt/anaconda3/envs/trinity/bin/python (Python 3.11.18)
+python -m pytest -q tests/test_analysis_delete.py
+python -m pytest -q tests/test_job_lifecycle.py tests/test_analysis_delete.py tests/test_queue_worker.py
+python -m pytest -q tests/test_job_lifecycle.py -k 'unrelated or death'
+python -m pytest -q tests/test_job_lifecycle.py tests/test_gate_runner.py tests/test_waverep_adapter.py tests/test_waverep_worker.py
+python -m pytest -q
+python scripts/smoke_cancel_worker.py
+cd app
+flutter test test/cancel_flow_test.dart --reporter expanded
+flutter test --reporter expanded
+flutter analyze
+```
+
+- 기준 전체: Python **437 passed, 2 skipped**, Flutter **198개 통과**.
+- 최종 전체: Python **468 passed, 2 skipped**, 33.33초. 기존 LightGBM 없음·말하는 영상 없음으로 건너뜀.
+  `starlette.testclient`의 기존 httpx 폐기 예정 경고 1개는 유지했다.
+- 최종 앱: **202개 통과**, `flutter analyze` 문제 없음.
+- API 13개 신규 계약 테스트: 401/404/202/반복202/204/삭제 후404,
+  ETag의 선점·단계·heartbeat·재시도 중 불변, 종료 시 변경, 412 비파괴, CORS, 취소/finish 경합.
+- Worker 테스트: 정상·실패·취소·타임아웃의 정리 선행, 재시도/상한 복구,
+  실제 Worker SIGKILL 후 재시작, Gate·모델의 가짜 장기 실행 자식·후손 종료,
+  Worker만 SIGKILL 시 자식 종료·폴더 재생성 방지, 정리 권한 오류 격리.
+- 실제 스모크 최종: 독립 uvicorn·Worker와 기존 발화 없는 허가 샘플 사용.
+  **실제 Gate 자식 실행 확인 → 조건부 DELETE 202 → 반복202 → cancelled**,
+  약 **0.99초**에 자식 종료·폴더 삭제 확인. 종료 후 이전 ETag DELETE는 `412`이며
+  조회 `200`; 일반 DELETE `204`, 이후 조회·재삭제 `404`.
+  스모크의 서버·Worker·임시 DB·복사본은 종료 후 정리했다.
+- 초기에 샌드박스 `ps` 실행과 Flutter SDK 캐시 쓰기가 차단됐다. 허용한 환경에서 재실행해 통과했다.
+  기존 CORS 테스트의 DELETE 금지 기대값은 승인된 계약에 맞춰 갱신했다.
+
+**실행 방법**:
+
+```bash
+conda activate trinity
+uvicorn server.main:app --reload
+# 같은 DB/runtime/허가 레지스트리 설정을 쓰는 다른 터미널
+python -m server.jobs.worker
+# 독립 테스트 서버와 Worker를 직접 띄우는 실제 취소 점검
+python scripts/smoke_cancel_worker.py
+# 앱
+cd app
+flutter test
+```
+
+스모크에는 기존 `data/research/samples/KakaoTalk_Video_2026-11-12-14-34-16.mp4`와
+설치된 Gate 의존성/모델이 필요하다. 없으면 미검증으로 종료하며 내려받지 않는다.
+`data/runtime/jobs/.worker.lock`은 작업 미디어가 아닌 공통 잠금 파일이므로 유지한다.
+운영 중 삭제하면 중복 잠금이 생길 수 있다. Worker가 실행 중인 동안에는 지우지 않는다.
+
+**남은 일·미검증·운영 판단**:
+
+- 정식 인증과 사용자별 rate limit은 이번 범위 밖이며 백로그 14번에 남아 있다.
+- 실제 WaveRep 추론 중 취소·강제 종료는 **미검증**. 실제 프로세스 경계는 가짜 모델로 검증했고,
+  실제 미디어 취소는 Gate 실행 중에 검증했다. 말하는 허가 영상의 Gate→WaveRep 통과도 기존대로 미검증.
+- 실제 브라우저·모바일 기기 터치 조작은 **미검증**. 앱은 HTTP 모의 응답 기반 위젯 테스트로 확인했다.
+- ETag는 승인된 수명주기 조건 값이고 단계별 응답 캐시 검증용이 아니다(`no-store`).
+- 살아 있으나 멈춘 이전 Worker는 종료해야 새 Worker가 복구한다. 같은 폴더에서 중복 실행/삭제하는
+  위험을 막기 위한 결정이다. 자식은 supervisor가 종료하며 새 Worker는 lease 만료 후 복구한다.
+- 파일시스템 자체가 삭제를 거부하면 폴더가 즉시 사라진다고 보장할 수 없다. 활성 작업은
+  `processing`으로 남아 복구에서 정리를 재시도하고, 종료 작업 DELETE는 `500` 및 기록 보존으로 재시도 가능하다.
+- 24시간 정책은 Worker가 계속 실행되고 파일시스템 접근이 가능한 조건에서 반복 정리한다.
+  별도 운영 스케줄러·알림은 추가하지 않았다. 기존 서버를 교체할 때는 이전 Worker/자식을 먼저 종료한다.
+
+**막힘:** 요청 범위의 구현·검증에 남은 막힘 없음. 아래는 이전 작업 기록이다.
+
+## 이전 작업: 백로그 7번 Gate → Worker 연결 (2026-11-15)
 
 **결과:** Gate 연결 구현과 요청한 검증을 마쳤다. 말하는 영상의 실제 통과 경로는 **미검증**이다.
 README §15.3에 날짜와 **“Codex, GPT-6 Astra 제안, 사용자 승인”**을 기록했다.

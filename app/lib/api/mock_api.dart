@@ -45,7 +45,15 @@ class MockAnalysisApi implements AnalysisApi {
     final job = _job(analysisId);
     final state = job.current();
     if (state.isActive) return ResultResponse.pending(state);
-    return ResultResponse.done(AnalysisResult.fromJson(mockResultJson(job.scenario, analysisId)));
+    return ResultResponse.done(AnalysisResult.fromJson(job.cancelled
+        ? {'analysis_id': analysisId, 'job_status': 'cancelled'}
+        : mockResultJson(job.scenario, analysisId)));
+  }
+
+  @override
+  Future<void> cancel(String analysisId) async {
+    final job = _job(analysisId);
+    if (job.current().isActive) job.cancelled = true;
   }
 
   _MockJob _job(String id) =>
@@ -56,6 +64,7 @@ class _MockJob {
   _MockJob(this.scenario);
 
   final MockScenario scenario;
+  bool cancelled = false;
   int _step = -1; // -1: queued, 0..n-1: 단계 진행 중, n: 종료
 
   int get _lastStage => switch (scenario) {
@@ -71,6 +80,7 @@ class _MockJob {
   }
 
   JobState current() {
+    if (cancelled) return const JobState(jobStatus: JobStatus.cancelled);
     if (_step < 0) return const JobState(jobStatus: JobStatus.queued);
     if (_step >= _lastStage) {
       return JobState(

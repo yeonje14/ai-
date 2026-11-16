@@ -61,6 +61,8 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
   Timer? _timer;
   bool _polling = false;
   bool _guide = false;
+  bool _cancelRequested = false;
+  String? _cancelError;
 
   MockAnalysisApi? get _mock => widget.api is MockAnalysisApi ? widget.api as MockAnalysisApi : null;
 
@@ -85,6 +87,8 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
         _connectionLost = false;
         _result = null;
         _phase = _Phase.progress;
+        _cancelRequested = false;
+        _cancelError = null;
       });
       _timer?.cancel();
       _timer = Timer.periodic(widget.config.pollInterval, (_) => _poll());
@@ -142,6 +146,27 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
     }
   }
 
+  Future<void> _cancel() async {
+    final id = _analysisId;
+    if (id == null || !_job.isActive || _cancelRequested) return;
+    setState(() {
+      _cancelRequested = true;
+      _cancelError = null;
+    });
+    try {
+      await widget.api.cancel(id);
+      if (!mounted || id != _analysisId) return;
+      // 202/412 모두 실제 상태로 화면을 정한다. DELETE를 다시 호출하지 않는다.
+      await _poll();
+    } on ApiException catch (e) {
+      if (!mounted || id != _analysisId) return;
+      setState(() {
+        _cancelRequested = false;
+        _cancelError = apiErrorText(e);
+      });
+    }
+  }
+
   void _restart() {
     _timer?.cancel();
     setState(() {
@@ -151,6 +176,8 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       _inputError = null;
       _busy = false;
       _guide = false;
+      _cancelRequested = false;
+      _cancelError = null;
     });
   }
 
@@ -188,6 +215,9 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
         return ProgressScreen(
           state: _job,
           connectionLost: _connectionLost,
+          onCancel: _cancel,
+          cancelRequested: _cancelRequested,
+          cancelError: _cancelError,
           failureReasonCode: result?.reasonCode,
           onRestart: _restart,
         );

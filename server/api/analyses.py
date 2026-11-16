@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from server.ingest.youtube_url import InvalidYouTubeUrl, parse_youtube_url
-from server.jobs.queue import Job, JobQueue, QueueFull
+from server.jobs.queue import Job, JobQueue, QueueFull, PreconditionFailed, lifecycle_etag
+from server.jobs.runtime import remove_job_dir
 from server.schemas import (
     AnalysisResult,
     AnalysisStatusResponse,
@@ -70,9 +71,11 @@ def create_analysis(
 
 @router.get("/{analysis_id}", response_model=AnalysisStatusResponse)
 def get_analysis(
-    analysis_id: str, request: Request, owner: str = Depends(owner_hash)
+    analysis_id: str, request: Request, response: Response, owner: str = Depends(owner_hash)
 ) -> AnalysisStatusResponse:
     job = _owned_job(analysis_id, _queue(request), owner)
+    response.headers["ETag"] = lifecycle_etag(job)
+    response.headers["Cache-Control"] = "no-store"
     return AnalysisStatusResponse(
         analysis_id=job.analysis_id,
         job_status=job.job_status,
@@ -103,3 +106,34 @@ def get_analysis_result(
         job_status=job.job_status,
         reason_code=job.failure_reason,
     )
+
+
+@router.delete(
+    "/{analysis_id}", status_code=202, response_model=AnalysisStatusResponse,
+    responses={204: {"description": "종료 작업 삭제"}, 412: {"description": "수명주기 조건 불일치"}},
+)
+def delete_analysis(
+    analysis_id: str, request: Request, owner: str = Depends(owner_hash),
+    if_match: Optional[str] = Header(default=None),
+):
+    try:
+        code, job = _queue(request).cancel_or_delete(
+            analysis_id, owner, if_match,
+            lambda aid: remove_job_dir(request.app.state.settings.runtime_dir, aid),
+        )
+    except PreconditionFailed:
+        return Response(status_code=412, headers={"Cache-Control": "no-store"})
+    except OSError:
+        # 경로·영상·토큰 정보를 응답에 싣지 않는다. 삭제 성공으로 보고하지 않는다.
+        raise HTTPException(status_code=500) from None
+    if code == 404:
+        raise HTTPException(status_code=404, detail={"reason_code": "analysis_not_found"})
+    if code == 204:
+        return Response(status_code=204)
+    body = AnalysisStatusResponse(
+        analysis_id=job.analysis_id, job_status=job.job_status,
+        stage=job.stage, completed_stages=job.completed_stages,
+    )
+    return JSONResponse(status_code=202, content=dump(body), headers={
+        "ETag": lifecycle_etag(job), "Cache-Control": "no-store",
+    })

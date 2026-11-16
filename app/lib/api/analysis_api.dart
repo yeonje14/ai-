@@ -19,7 +19,7 @@ class ApiException implements Exception {
   String toString() => 'ApiException(${kind.name}, $statusCode, $reasonCode)';
 }
 
-/// 서버와 주고받는 세 가지 호출. 파일 업로드는 없다. 입력은 YouTube URL 문자열뿐이다.
+/// 서버와 주고받는 호출. 파일 업로드는 없다. 입력은 YouTube URL 문자열뿐이다.
 abstract interface class AnalysisApi {
   /// POST /api/v1/analyses
   Future<CreatedAnalysis> create(String url);
@@ -29,6 +29,10 @@ abstract interface class AnalysisApi {
 
   /// GET /api/v1/analyses/{id}/result
   Future<ResultResponse> result(String analysisId);
+
+  /// 진행 중 상태의 ETag로 조건부 DELETE. 종료됐거나 412면 삭제 없이 반환한다.
+  /// 호출자는 상태·결과를 다시 조회한다. 일반 DELETE/기록 삭제 기능은 제공하지 않는다.
+  Future<void> cancel(String analysisId);
 }
 
 /// 작업 소유권 확인용 임시 토큰. 메모리에만 둔다(정식 인증은 백로그 14번).
@@ -66,7 +70,7 @@ class HttpAnalysisApi implements AnalysisApi {
   Future<JobState> status(String analysisId) async {
     final res = await _send(() => _client.get(_uri('/${Uri.encodeComponent(analysisId)}'), headers: _headers));
     if (res.statusCode != 200) throw _error(res);
-    return JobState.fromJson(_json(res));
+    return JobState.fromJson(_json(res), etag: res.headers['etag']);
   }
 
   @override
@@ -76,6 +80,22 @@ class HttpAnalysisApi implements AnalysisApi {
     if (res.statusCode == 202) return ResultResponse.pending(JobState.fromJson(_json(res)));
     if (res.statusCode != 200) throw _error(res);
     return ResultResponse.done(AnalysisResult.fromJson(_json(res)));
+  }
+
+  @override
+  Future<void> cancel(String analysisId) async {
+    final job = await status(analysisId);
+    if (!job.isActive) return;
+    final etag = job.etag;
+    // ETag 누락 시 일반 DELETE로 대체하지 않는다. 기록이 지워질 수 있다.
+    if (etag == null || etag.isEmpty || etag.startsWith('W/')) {
+      throw const ApiException(ApiErrorKind.server);
+    }
+    final res = await _send(() => _client.delete(
+          _uri('/${Uri.encodeComponent(analysisId)}'),
+          headers: {..._headers, 'If-Match': etag},
+        ));
+    if (res.statusCode != 202 && res.statusCode != 412) throw _error(res);
   }
 
   Future<http.Response> _send(Future<http.Response> Function() call) async {

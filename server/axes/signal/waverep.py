@@ -16,13 +16,14 @@ import json
 import math
 import os
 import re
-import signal
 import statistics
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
+
+from server.jobs.child_process import start_process, stop_process
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WAVEREP_DIR = REPO_ROOT / "research" / "waverep"
@@ -141,7 +142,7 @@ def _run_process(
     타임아웃이면 프로세스 그룹 전체를 죽이고 종료 코드는 None, 중단 원인은 ABORTED 또는 TIMED_OUT이다.
     """
     env = dict(os.environ, PYTORCH_ENABLE_MPS_FALLBACK="1")
-    proc = subprocess.Popen(
+    proc, watch_fd = start_process(
         cmd,
         cwd=REPO_ROOT,
         env=env,
@@ -149,7 +150,6 @@ def _run_process(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
-        start_new_session=True,  # /usr/bin/time으로 감쌌을 때도 자식까지 한 번에 끝낼 수 있게
     )
     deadline = time.monotonic() + timeout_sec
     stopped: Optional[str] = None
@@ -174,11 +174,7 @@ def _run_process(
                     stopped = ABORTED
                     break
     finally:
-        if proc.poll() is None:  # 타임아웃·중단·on_tick 예외 어느 경우에도 프로세스를 남기지 않는다
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+        stop_process(proc, watch_fd)
     _, stderr = proc.communicate()
     return None, stderr or "", stopped
 

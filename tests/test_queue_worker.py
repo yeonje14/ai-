@@ -71,13 +71,16 @@ def test_cancel_queued_and_processing(queue):
 
     assert queue.request_cancel(b, "someone-else") is False
     assert queue.request_cancel(b, OWNER) is True
-    assert queue.get(b, OWNER).job_status == "cancelled"
+    assert queue.get(b, OWNER).job_status == "queued"
 
     queue.claim("w1", 30, 2)
     assert queue.request_cancel(a, OWNER) is True
     assert queue.advance_stage(a, "w1", "validating", [], 30) == LEASE_CANCEL
     assert queue.mark_cancelled(a, "w1") is True
     assert queue.get(a, OWNER).job_status == "cancelled"
+    assert queue.claim("w1", 30, 2).analysis_id == b
+    assert queue.heartbeat(b, "w1", 30) == LEASE_CANCEL
+    queue.mark_cancelled(b, "w1")
     assert queue.claim("w1", 30, 2) is None
 
 

@@ -86,9 +86,10 @@ class CreatedAnalysis {
 
 /// GET /analyses/{id}
 class JobState {
-  const JobState({required this.jobStatus, this.stage, this.completedStages = const []});
+  const JobState({required this.jobStatus, this.stage, this.completedStages = const [], this.etag});
 
-  factory JobState.fromJson(Map<String, dynamic> j) => JobState(
+  factory JobState.fromJson(Map<String, dynamic> j, {String? etag}) => JobState(
+        etag: etag,
         jobStatus: parseJobStatus(j['job_status']),
         stage: _str(j['stage']),
         completedStages: [for (final s in (j['completed_stages'] as List? ?? const [])) s.toString()],
@@ -97,6 +98,9 @@ class JobState {
   final JobStatus jobStatus;
   final String? stage;
   final List<String> completedStages;
+
+  /// HTTP 수명주기 헤더. 응답 JSON 필드가 아니다.
+  final String? etag;
 
   bool get isActive => jobStatus == JobStatus.queued || jobStatus == JobStatus.processing;
 }
