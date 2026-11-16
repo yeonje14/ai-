@@ -1,5 +1,83 @@
 # HANDOFF
 
+## Flutter 실제 서버 모드 A 예행 (2026-11-16)
+
+- 기준: `codex/pr12-pr13-integration`, `c8fc7b75789bd9b6e871eeb88d24a95714bc3191`.
+  제품 코드 변경 없이 Chrome에서 한 건만 요청했다. 실제 A YouTube URL이 제공되지 않아
+  `https://www.youtube.com/watch?v=TRINITYtest`를 사용했다. 실제 YouTube ID 시연은 미검증.
+- Git 밖 `data/runtime/web-demo-A/registry.json`에서 TRINITYtest를
+  `/Users/iyeonje/ai-/data/research/samples/A.MOV`에 연결했다. 서버와 Worker에 같은
+  레지스트리·DB·runtime을 적용했다. WaveRep·SyncNet 기존 venv/upstream/가중치를
+  임시 심볼릭 링크로 연결했고 CPU를 사용했다. 다운로드·Gate 우회·임계값 변경 없음.
+- Flutter web-server를 띄우고 실제 Chrome으로 `http://127.0.0.1:8080`을 열었다.
+  접근성 버튼을 켜서 화면 문구와 컨트롤을 확인했다. 서비스 모드는 server다.
+
+**화면별 관찰과 서버 대조**
+
+| 화면 | 관찰 |
+|---|---|
+| 입력 | 테스트 URL을 붙여넣고 분석 요청 클릭 |
+| 접수 | 대기 중 / 분석 순서를 기다리고 있어요 표시; DB 작업 1건 생성 |
+| 진행 | 분석 구간 준비 → 영상 신호 확인 → 입술·음성 확인 진행 표시; 서버 preprocessing → waverep → syncnet과 일치 |
+| 결과 | 판단 보류 / 판단을 보류했어요; 검증된 종합 판정 모델 없음. 작업 종료·부분 분석·판정 보류 표시 |
+| 근거 | WaveRep 측정됨, MotionPhys 입력 부족, SyncNet 측정됨. LSE-C/D 값 없음, 종합 판정 포함 아니오. 서버 상태 finished/partial/abstained 및 테스트 ID 표시 |
+
+- 작업 ID `58edf304-aa9f-4970-b159-6c74fdb7b160`.
+  임시 서버 DB의 저장 결과는 `job_status=finished`, `analysis_status=partial`,
+  `verdict_status=abstained`, `overall_score=null`, `verdict_label=null`이었다.
+  화면의 서버 상태·분석 ID와 대조했다. 토큰을 추출하거나 별도 분석 요청을 만들지 않았다.
+- 실제 WaveRep은 CPU 76프레임 completed(모델 보고 total_sec 40.5411), SyncNet도 completed.
+  alignment.lse_c/lse_d=null, included_in_fusion=false이며 모든 Gate 적합 구간의
+  트랙별 계산 완료·대표값 집계 보류 설명이 결과 화면에 표시됐다.
+  physics는 insufficient_input/stub_not_executed다. 분석량은 화면에서 41초 중 37초로 표시됐다.
+- 로그상 시작 06:26:08, SyncNet 진입 06:27:06, finalizing 06:41:52(+10:00).
+  이 시각 차이를 순수 추론 시간이나 기본 제한 준수의 증거로 해석하지 않는다.
+  중간 시스템 시간 경과·일시 중단 여부와 제한 시간의 실제 경과는 별도 계측하지 않아 확인 필요다.
+
+**확인된 표시 문제(수정하지 않음)**
+
+- 실제 서버·모델 결과인데도 전 화면 상단에 "모델 미연결 · 가상 데이터"가 표시된다.
+- 근거 화면에도 "아래는 가상 데이터입니다"가 표시된다.
+  코드의 고정 문구 위치는 app/lib/design/widgets.dart와 app/lib/screens/detail_screen.dart다.
+- app/README.md의 모델 미연결·취소 없음 등 일부 설명도 현재 동작보다 오래된 내용이다.
+  실제 상태와 판단 보류 표시는 일치했지만 위 문구까지 올바른 시연이라고 보고하지 않는다.
+
+**재현 명령** (먼저 모델별 기존 환경·upstream 및 data/models/gate·syncnet 준비):
+
+```bash
+cd /Users/iyeonje/.codex/worktrees/3603/ai-
+conda activate trinity
+mkdir -p data/runtime/web-demo-A
+# registry.json:
+# {"authorized_media":[{"youtube_video_id":"TRINITYtest","local_path":"A.MOV"}]}
+export TRINITY_AUTHORIZED_MEDIA="$PWD/data/runtime/web-demo-A/registry.json"
+export TRINITY_AUTHORIZED_MEDIA_ROOT=/Users/iyeonje/ai-/data/research/samples
+export TRINITY_DB_PATH="$PWD/data/runtime/web-demo-A/queue.sqlite3"
+export TRINITY_RUNTIME_DIR="$PWD/data/runtime/web-demo-A/jobs"
+export TRINITY_WAVEREP_DEVICE=cpu
+# 위 환경을 동일하게 적용한 별도 터미널에서 각각 실행
+python -m uvicorn server.main:app --host 127.0.0.1 --port 8000 --no-access-log
+python -m server.jobs.worker
+# 앱 터미널
+cd app
+flutter run -d web-server --web-hostname 127.0.0.1 --web-port 8080 --no-web-resources-cdn \
+  --dart-define=TRINITY_API_MODE=server --dart-define=TRINITY_API_BASE_URL=http://127.0.0.1:8000
+# Chrome: http://127.0.0.1:8080 → 테스트 URL 입력 → 분석 요청 → 결과 → 판단 근거
+```
+
+- 실행기 `/private/tmp/trinity-web-demo.py`는 위 환경·서비스·임시 모델 링크를 구성한
+  세션용 스크립트다. 같은 포트가 비어 있어야 하며 재실행 후 종료·정리가 필요하다.
+- **정리:** Worker가 UUID 작업 폴더를 삭제한 것을 먼저 확인했다.
+  이번 서버·Worker·Flutter에 SIGTERM을 보내 종료를 확인했다. 이후 추가 SIGKILL 시도에서
+  권한 오류가 있어 개별 PID 상태를 재조회했고 모두 Z(실행 종료)임을 확인한 뒤 실행기도 종료했다.
+  임시 레지스트리·DB·로그·runtime, 이번 환경 링크, Flutter .dart_tool/build를 삭제했다.
+  Chrome 시연 탭도 닫았다. 원본 A와 모델 환경·가중치, 기존 Gate/sample 연결은 보존했다.
+- 변경은 이 HANDOFF뿐이다. 문서만 변경하여 전체 테스트는 다시 실행하지 않았고
+  git diff --check를 확인했다. 커밋·push·main 병합 없음.
+- **미검증:** 실제 YouTube ID·YouTube 처리본, B/E 앱 시연, 앱에서 취소 버튼 실행,
+  실제 모델 SIGKILL 복구, 연구 성능·진위 정확도. 다음은 실제 URL 확보와 위 표시 문구 정비다.
+
+
 ## 로컬 통합 브랜치 저장 (2026-11-16)
 
 - 사용자 승인에 따라 기존 충돌 해결, SyncNet supervisor 수정, 새 복구 회귀 테스트,
