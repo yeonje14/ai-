@@ -5,6 +5,7 @@ import 'package:trinity_app/api/mock_api.dart';
 import 'package:trinity_app/api/models.dart';
 import 'package:trinity_app/app.dart';
 import 'package:trinity_app/config.dart';
+import 'package:trinity_app/design/widgets.dart';
 import 'package:trinity_app/screens/detail_screen.dart';
 import 'package:trinity_app/screens/guide_screen.dart';
 import 'package:trinity_app/screens/progress_screen.dart';
@@ -133,6 +134,22 @@ void main() {
       expect(find.text('의심 신호 낮음'), findsNothing);
     });
   }
+
+  testWidgets('실제 서버 모드: 가상 데이터 문구 대신 연구용 시제품 문구를 보인다', (tester) async {
+    await start(tester, FakeServerApi(MockScenario.abstained), mode: ApiMode.server);
+    expect(find.text(NoticeBand.serverText), findsOneWidget);
+    expect(find.text(NoticeBand.text), findsNothing);
+    await submit(tester, url);
+    await runToEnd(tester);
+    expect(find.text(NoticeBand.serverText), findsOneWidget);
+    await tester.ensureVisible(find.text('판단 근거 살펴보기', skipOffstage: false));
+    await tester.pump();
+    await tester.tap(find.text('판단 근거 살펴보기'));
+    await tester.pump();
+    expect(find.text(DetailScreen.serverRawNotice, skipOffstage: false), findsOneWidget);
+    expect(find.textContaining('가상 데이터', skipOffstage: false), findsNothing);
+    expect(find.text(NoticeBand.serverText), findsOneWidget);
+  });
 
   testWidgets('잘못된 주소(422)는 입력 화면에 안내를 보이고 넘어가지 않는다', (tester) async {
     await start(tester, MockAnalysisApi());

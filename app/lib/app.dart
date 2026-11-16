@@ -196,6 +196,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       onHome: _goHome,
       onGuide: () => setState(() => _guide = true),
       inGuide: _guide,
+      serverMode: widget.config.mode == ApiMode.server,
       child: _guide ? GuideScreen(onStart: () => setState(() => _guide = false)) : _screen(context),
     );
   }

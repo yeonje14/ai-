@@ -1,5 +1,37 @@
 # HANDOFF
 
+## MotionPhys 축·견고성 진행 (2026-11-16~, 브랜치 `feat/motionphys-axis`)
+
+크레딧이 끊겨도 이어갈 수 있게 단계마다 갱신한다. main에는 병합하지 않는다. 마지막에 PR 하나를 만든다.
+
+**사용자 승인 사항(2026-11-16, Claude 제안)**
+
+- physics에 새 API 필드를 추가하지 않는다. `raw_score=null`, "종합 판정에 포함하지 않음"은 `explanations`에 적는다.
+- physics 추출 성공은 `completed` + `raw_score=null`. 축 상태의 기준은 후보 A, B·C는 `explanations` 요약에만.
+- `analysis_status` 규칙과 `build_result`는 바꾸지 않는다. 세 축이 모두 돌면 기존 규칙대로 `completed`다.
+  A 실제 확인의 기대값: finished / completed(축이 하나라도 completed가 아니면 partial) / abstained, `overall_score`·`verdict_label` null.
+- 견고성 측정: Gate는 조건마다 재실행, 세 모델은 원본의 Gate 구간으로 고정. WaveRep은 Worker 기본값.
+  측정 스크립트에서만 SyncNet 제한 1,800초. 1080p 프로파일은 원본 해상도 출력과 해시가 같으면 "원본과 동일(해시)"로 적고 재측정하지 않는다.
+  A 원본 실측에서 SyncNet이 조건당 10분을 넘으면 SyncNet은 원본 + CRF 20/34 × 원본/720만 돌리고 나머지는 "미측정".
+  480p의 WaveRep `unsupported_input`은 그대로 기록.
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 0 | 앱 실제 서버 모드 문구, app/README 현행화 | **완료** (아래) |
+| 1 | MotionPhys를 physics 축으로 연결, 테스트, A 실제 Worker 확인 | 남음 |
+| 2 | A·B·E × 범용 프로파일 12개 3축 압축 견고성 실측 (`scripts/robustness_selfvideo.py`, `docs/robustness-selfvideo.md`) | 남음 |
+| 3 | B·E SyncNet 오디오 밀기 실험, M3 16GB 축별 시간·메모리 표 | 남음 |
+| 마무리 | README §14.1 10번, §15.3 기록, 전체 테스트, PR | 남음 |
+
+**0단계 (완료)**
+
+- `TrinityNav.serverMode`로 모드를 화면에 전달한다. mock 모드는 기존 "모델 미연결 · 가상 데이터"와
+  "아래는 가상 데이터입니다…"를 유지하고, 실제 서버 모드는 "연구용 시제품 · 결과는 참고 정보"와
+  "아래는 연구용 시제품의 계산 결과이며 참고 정보입니다…"를 보인다. 서버·API 변경 없음.
+- `app/README.md`를 현재 동작(실제 모델 연결, 취소 버튼, Chrome 예행)으로 고쳤다. `docs/design-system.md`의 띠 설명도 맞췄다.
+- README §15.3 SyncNet 보완 기록의 "Codex, GPT-6 Astra 제안, 사용자 승인" 표기는 main에 이미 있어(결정 2·8 보완 머리말) 바꾸지 않았다.
+- 검증: `flutter analyze` 문제 없음, `flutter test` 203개 통과(새 테스트 1개 포함). 실제 서버 모드 문구를 Chrome에서 눈으로 본 것은 아니다(**미검증**).
+
 ## Flutter 실제 서버 모드 A 예행 (2026-11-16)
 
 - 기준: `codex/pr12-pr13-integration`, `c8fc7b75789bd9b6e871eeb88d24a95714bc3191`.
