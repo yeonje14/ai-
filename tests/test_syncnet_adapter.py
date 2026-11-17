@@ -189,17 +189,17 @@ def test_old_result_is_not_reused_and_empty_worker_input_is_skipped(tmp_path, jo
     assert alignment.run(AxisContext(job_dir=work))['reason_code'] == 'no_segments'
 
 
-def test_device_is_cpu_by_default_and_passed_to_runner(tmp_path, job):
+def test_device_is_mps_by_default_and_passed_to_runner(tmp_path, job):
     from dataclasses import replace
     work, video = job
     seen = tmp_path / 'seen.json'
     body = f"Path({str(seen)!r}).write_text(json.dumps(r)); out['device_used'] = r['device']; Path(a.output).write_text(json.dumps(out))"
     cfg = fake_config(tmp_path, body)
-    assert cfg.device == 'cpu'
+    assert cfg.device == 'mps'  # README §15.3 2026-11-17. 못 쓰면 실행기가 cpu로 대체한다
     out = adapter().run_syncnet(video, [(0, 3)], work, cfg)
-    assert json.loads(seen.read_text())['device'] == 'cpu' and out['device_used'] == 'cpu'
-    out = adapter().run_syncnet(video, [(0, 3)], work, replace(cfg, device='mps'))
     assert json.loads(seen.read_text())['device'] == 'mps' and out['device_used'] == 'mps'
+    out = adapter().run_syncnet(video, [(0, 3)], work, replace(cfg, device='cpu'))
+    assert json.loads(seen.read_text())['device'] == 'cpu' and out['device_used'] == 'cpu'
     assert out['status'] == 'completed' and out['raw_score'] is None
 
 
@@ -210,3 +210,39 @@ def test_other_devices_never_launch(tmp_path, job, device):
     cfg = replace(fake_config(tmp_path, "raise AssertionError('must not run')"), device=device)
     out = adapter().run_syncnet(video, [(0, 3)], work, cfg)
     assert (out['status'], out['reason_code']) == ('error', 'invalid_request')
+
+
+
+# ---------- 짧은 구간 제외 규칙 (README §15.3 결정 2·8 보완, 2026-11-17) ----------
+
+SHORT = "out['segments'][{i}].update(status='insufficient_input', reason_code='segment_too_short', tracks=None);"
+NOTRACK = "out['segments'][{i}].update(status='insufficient_input', reason_code=None, tracks=None);"
+
+
+@pytest.mark.parametrize('edits,status,reason', [
+    ([], 'completed', None),
+    ([SHORT.format(i=1)], 'completed', None),                                   # 짧은 구간만 빠지고 나머지는 모두 트랙
+    ([SHORT.format(i=0), SHORT.format(i=2)], 'completed', None),
+    ([SHORT.format(i=0), SHORT.format(i=1), SHORT.format(i=2)], 'insufficient_input', 'segment_too_short'),
+    ([SHORT.format(i=0), NOTRACK.format(i=1)], 'insufficient_input', 'tracking_failed'),  # 남은 구간에 트랙 없음
+    ([SHORT.format(i=0), "out['segments'][1].update(status='error', tracks=None);"], 'error', 'inference_error'),
+    ([NOTRACK.format(i=2)], 'insufficient_input', 'tracking_failed'),
+])
+def test_short_segments_are_excluded_from_axis_status(tmp_path, job, edits, status, reason):
+    work, video = job
+    cfg = fake_config(tmp_path, "".join(edits) + "Path(a.output).write_text(json.dumps(out))")
+    out = adapter().run_syncnet(video, [(0, 1.5), (2, 6), (7, 9)], work, cfg)
+    assert (out['status'], out['reason_code']) == (status, reason)
+    assert_null(out)
+    short = [row for row in out['segments'] if row['reason_code'] == 'segment_too_short']
+    assert all(row['tracks'] is None and row['status'] == 'insufficient_input' for row in short)
+
+
+def test_other_failure_reasons_are_not_promoted_to_short(tmp_path, job):
+    work, video = job
+    body = "out['segments'][0].update(status='insufficient_input', reason_code='anything', tracks=None);"
+    out = adapter().run_syncnet(video, [(0, 3)], work, fake_config(tmp_path, body + "Path(a.output).write_text(json.dumps(out))"))
+    assert out['reason_code'] == 'tracking_failed'
+    body = "out['segments'][0].update(status='error', reason_code='segment_too_short', tracks=None);"
+    out = adapter().run_syncnet(video, [(0, 3)], work, fake_config(tmp_path, body + "Path(a.output).write_text(json.dumps(out))"))
+    assert out['reason_code'] == 'inference_error'  # 오류는 짧은 구간으로 숨길 수 없다

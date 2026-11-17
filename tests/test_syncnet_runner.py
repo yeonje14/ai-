@@ -206,15 +206,18 @@ def _install(mod, pipeline):
 
 
 @pytest.mark.parametrize('frames', [[30], [49], [50], [51], [200], [41, 255, 39, 170, 49, 63], [0]])
-def test_short_segment_guard_gives_identical_results_without_running_detector(monkeypatch, frames):
+def test_short_segment_guard_keeps_tracks_identical_and_marks_short_segments(monkeypatch, frames):
     mod = runner()
     plain, p_plain = run_fake(mod, monkeypatch, frames, guard=False)
     guarded, p_guard = run_fake(mod, monkeypatch, frames, guard=True)
-    assert guarded == plain  # 구간별 상태·원인·트랙이 완전히 같다
     assert p_plain.real_calls == sum(frames)
     assert p_guard.real_calls == sum(n for n in frames if n >= 50)  # min_track 미만 구간은 검출을 돌리지 않는다
-    for row, n in zip(guarded['segments'], frames):
-        assert row['status'] == ('completed' if n >= 50 else 'insufficient_input')
+    for g, p, n in zip(guarded['segments'], plain['segments'], frames):
+        assert (g['tracks'], g['status'], g['start_sec']) == (p['tracks'], p['status'], p['start_sec'])  # 트랙은 같다
+        if n >= 50 or n == 0:  # 프레임이 하나도 없으면 셀 기회가 없어 기존대로 둔다(실제 upstream은 오류를 낸다)
+            assert g == p
+        else:  # 규칙(README §15.3 2026-11-17): 트랙이 없던 이유를 짧은 구간으로 밝힌다
+            assert (p['reason_code'], g['reason_code']) == ('tracking_failed', 'segment_too_short')
 
 
 def test_guard_boundary_is_upstream_min_track_not_duration(monkeypatch):
@@ -240,7 +243,8 @@ def test_guard_also_matches_when_detector_finds_no_face(monkeypatch):
     mod = runner()
     plain, _ = run_fake(mod, monkeypatch, [30, 80], guard=False, faces=False)
     guarded, pipeline = run_fake(mod, monkeypatch, [30, 80], guard=True, faces=False)
-    assert guarded == plain and pipeline.real_calls == 80
+    assert guarded['segments'][1] == plain['segments'][1] and pipeline.real_calls == 80
+    assert guarded['segments'][0]['reason_code'] == 'segment_too_short'
 
 
 def test_count_frames_uses_the_larger_of_jpeg_and_avi_counts(tmp_path, monkeypatch):

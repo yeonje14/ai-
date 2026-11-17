@@ -493,3 +493,21 @@ conda activate trinity
 python scripts/profile_syncnet_baseline.py            # 기준선 18건 + 이번 비교 12건(된 것은 건너뜀)
 TRINITY_SYNCNET_DEVICE=mps python -m server.jobs.worker   # 서버에서 MPS를 켜는 방법(기본은 cpu)
 ```
+
+## 결정 반영 (2026-11-17, 사용자 승인)
+
+- **짧은 구간 규칙(1안) 구현.** 실행기는 upstream이 만든 프레임 수가 `min_track` 미만인 구간을 `insufficient_input` / `segment_too_short`로 표시한다(S3FD를 돌리지 않는다). `report.aggregate_status`가 그 구간을 빼고 축 상태를 정한다. 남은 구간이 없으면 `segment_too_short`. 제외한 구간은 `SYNCNET_SHORT_SEGMENTS_EXCLUDED` 설명 항목(개수·길이)으로 남는다. 다른 실패 원인은 짧은 구간으로 바뀌지 않는다(오류는 오류). 프레임을 셀 수 없으면(실행기가 셀 기회가 없으면) 기존처럼 `tracking_failed`로 둔다.
+- **서버와 학습의 같은 기준.** 결합 입력(`server/axes/alignment/__init__.py`)과 학습 특징(`training/features/extract.py`)이 같은 `report.fusion_features`를 부른다. 축이 `completed`일 때만 LSE-C·LSE-D·|오프셋| 중앙값을 내고 그 밖에는 null이다. `tests/test_syncnet_rule_consistency.py`가 여섯 경우(전부 완료, 짧은 구간 제외, 전부 짧음, 짧음+트랙 없음, 짧음+오류, 트랙 없음)에서 서버 상태와 학습 특징의 유무·값이 같은지 확인한다.
+- **기본 장치 MPS.** `SyncNetConfig.device`와 `Settings.syncnet_device`의 기본이 `mps`다. 못 쓰면 CPU로 대체, `cuda` 거부. 실행기의 `load_pipeline` 기본 인자는 여전히 `cpu`이고 어댑터가 항상 장치를 넘긴다. 특징 버전에 장치가 들어가 CPU 특징 캐시와 섞이지 않는다.
+- **실제 확인(B, 1회):** 기본 설정(MPS, 새 규칙)의 실제 어댑터로 B 원본 Gate 구간 9개를 돌렸다. 축 `completed`, 짧은 구간 4개가 `segment_too_short`로 제외됐고, 남은 5구간의 오프셋은 기준선과 같다(+4, +4, +4, +4, +3). `device_used=mps`, 135.5초. 결합용 값(내부)은 LSE-C 중앙값 5.18, LSE-D 7.92, |오프셋| 4. 진위 판정이 아니다. E는 이번에 다시 돌리지 않았다(짧은 구간 1개, 같은 경로).
+- **저녁 CPU 실행이 2배 느렸던 것(A 285 → 577초)은 원인 미확인으로 남긴다.** 장치와 무관한 FFmpeg 단계도 같이 느려졌다는 것까지만 측정했다.
+
+### A의 Worker 종단 재측정 방법 (다음 측정, 1회)
+
+목적은 새 규칙·MPS 기본값으로 Worker 안 전체 시간과 단계 시간을 다시 보는 것이다. 원인 추정은 하지 않는다.
+
+1. 측정 직전에 기기 상태를 남긴다: `pmset -g therm`, `pmset -g batt`, `vm_stat`, `uptime`을 파일로 저장한다. 전원을 연결하고 다른 무거운 작업을 띄우지 않는다.
+2. "Flutter 실제 서버 모드 A 예행"(`docs/HANDOFF.md`)과 같은 임시 레지스트리·DB·runtime을 Git 밖에 만들고 Worker만 띄운다(`python -m server.jobs.worker --drain`, 기본 설정 그대로. 작업 제한만 측정용으로 `TRINITY_JOB_TIMEOUT_SECONDS=1800`).
+3. 테스트 클라이언트로 테스트 ID를 한 번 요청하고, 0.5초마다 DB의 `stage`와 lease 만료 시각을 기록한다(2026-11-16의 `real_a.py`와 같은 방식). Worker 로그의 단계 진입 시각으로 단계별 시간을 구한다.
+4. 바로 이어서 같은 세션에서 `python scripts/profile_syncnet_baseline.py`의 A 단독 실행(MPS) 1건을 돌려 SyncNet 단계와 견준다. 측정 뒤에 1번의 상태를 다시 남긴다.
+5. 기록할 것: 작업 상태 세 개, 축 상태, 단계별 시간, SyncNet `device_used`, 단독 실행과의 차이, 측정 전후 기기 상태. 끝나면 임시 레지스트리·DB·로그·runtime을 지운다.

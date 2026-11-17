@@ -87,8 +87,8 @@ class Settings:
     waverep_batch_size: int = 1
     waverep_sample_fps: float = 2.0
     waverep_timeout_seconds: float = 300.0
-    # SyncNet 장치. 기본은 cpu다. mps는 측정용 선택지이며 기본값 변경은 실측을 보고 따로 결정한다.
-    syncnet_device: str = "cpu"
+    # SyncNet 장치(cpu 또는 mps). 기본은 mps이고 쓸 수 없으면 cpu로 대체한다(README §15.3 2026-11-17).
+    syncnet_device: str = "mps"
     # MotionPhys 특징 추출(후보 A·B·C)의 단계 제한 시간. 임시값이며 실측 후 조정한다.
     motionphys_timeout_seconds: float = 300.0
     # 추론을 기다리는 동안 lease를 연장하는 간격. lease_seconds보다 짧아야 한다.

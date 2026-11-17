@@ -89,6 +89,12 @@ def train(manifest: Path, features_dir: Path, config: dict, out: Path, lock_path
     internal = [r for r in sorted(records, key=lambda r: r.uid) if r.split in ("train", "dev", "test")]
     gid = groups.group_ids(records)
     dev_conditions = config["dev_compression_conditions"]
+    held_out = set(config["held_out_compression_profiles"])
+    leaked = sorted({r.compression_profile_id for r in internal
+                     if r.split in ("train", "dev") and r.compression_profile_id in held_out})
+    if leaked:
+        # 최종 평가용으로 남긴 압축 조건은 학습·증강·선택·임계값에 쓰지 않는다(docs/compression-emulator.md §2)
+        raise TrainError(f"최종 평가용 압축 프로파일이 train·dev에 있다: {leaked}")
     present = sorted({r.compression_profile_id or training_config.ORIGINAL for r in internal if r.split == "dev"})
     absent = sorted(set(dev_conditions) - set(present))
     if absent:

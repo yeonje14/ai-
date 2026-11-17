@@ -1,5 +1,22 @@
 # HANDOFF
 
+## SyncNet 결정 반영 (2026-11-17, 브랜치 `feat/syncnet-perf`)
+
+- 사용자 승인: (가) 짧은 구간 규칙 1안, SyncNet 기본 장치 MPS, dev 압축 조건 2안. README §15.3에 "결정 2·8 보완 — 2026-11-17", "결정 9 보완 — 2026-11-17"(Claude 제안, 사용자 승인) 기록.
+- 구현:
+  - 실행기가 `min_track` 미만 구간을 `segment_too_short`로 표시(S3FD 생략). `report.aggregate_status`가 그 구간을 빼고 축 상태를 정함. 설명 `SYNCNET_SHORT_SEGMENTS_EXCLUDED`.
+  - 서버 결합 입력과 학습 특징이 같은 `report.fusion_features` 사용(축 completed일 때만 값). 일치 테스트 `tests/test_syncnet_rule_consistency.py`.
+  - `SyncNetConfig.device`·`Settings.syncnet_device` 기본 `mps`(못 쓰면 cpu, cuda 거부). 특징 버전에 장치 포함.
+  - `configs/training.json`: `dev_compression_conditions = ["original", "x264-crf28-720p"]`, `held_out_compression_profiles = [crf34-source, crf34-720p, crf20-source]`(train·dev에 있으면 학습 거부). 480p는 운영 범위 밖으로 따로 보고. `docs/training-pipeline.md` "압축 조건", `docs/compression-emulator.md` §2.
+- 실제 확인(1회): B가 MPS·새 규칙으로 `completed`, 짧은 구간 4개 제외, 남은 5구간 오프셋이 기준선과 같음, 135.5초.
+- `pytest -q` **727 passed, 1 skipped**(LightGBM 없음).
+- 원인 미확인으로 남김: 저녁 CPU 실행 2배 지연(A 285 → 577초).
+- **다음 할 일:**
+  1. A를 Worker 종단으로 1회 재측정(MPS·새 규칙). 절차는 `docs/syncnet-adapter.md` "A의 Worker 종단 재측정 방법". 기기 상태(`pmset -g therm` 등)를 전후로 기록.
+  2. 작업 제한 정책 결정(권장 (a) `min(1800, 180 + 20 × 적합 구간 초)`, MPS 기본이면 계수 약 10으로 낮출 수 있음 — 재측정 뒤 다시 계산). 기본값 변경 없음.
+  3. Worker 400초 대 단독 270~290초: 같은 세션 교차 측정 + Worker 안 단계 프로파일 + 앞 단계 가짜 Worker 비교(문서 "Worker 안 약 400초" 절).
+  4. `feat/motionphys-axis`·`feat/training-pipeline`은 main에 병합됨. 이 브랜치와 `research/robustness-run`의 PR은 사용자 지시 후.
+
 ## SyncNet 개선 1차 (2026-11-17, 브랜치 `feat/syncnet-perf`)
 
 - 구현: 짧은 구간 건너뛰기(`min_track` 미만 프레임이면 S3FD 생략, 결과 동일 — 가짜 파이프라인 테스트와 A·B·E 실측으로 확인),

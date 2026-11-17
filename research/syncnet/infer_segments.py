@@ -14,7 +14,8 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 
-from server.axes.alignment.report import metrics_null, segment_failure, validate_segments, validate_tracks
+from server.axes.alignment.report import (SEGMENT_TOO_SHORT, metrics_null, segment_failure, validate_segments,
+                                         validate_tracks)
 
 
 def verify_weights(weights_dir: Path) -> None:
@@ -62,7 +63,9 @@ def count_frames(cache_dir: Path) -> int:
 
 
 class ShortSegmentGuard:
-    """트랙이 나올 수 없는 짧은 구간에서 S3FD 검출을 건너뛴다. 결과는 건너뛰지 않았을 때와 같다.
+    """트랙이 나올 수 없는 짧은 구간에서 S3FD 검출을 건너뛰고 그 구간을 짧은 구간으로 표시한다.
+
+    트랙 결과는 건너뛰지 않았을 때와 같다(트랙 없음). 구간의 원인 코드만 segment_too_short가 된다.
 
     upstream은 장면 길이가 min_track 프레임 이상일 때만 트래킹한다(`if e - s >= cfg.min_track`).
     장면 길이는 구간의 프레임 수를 넘지 못하므로, 프레임 수가 min_track보다 적으면 검출 결과와
@@ -78,6 +81,10 @@ class ShortSegmentGuard:
 
     def start(self, cache_dir: Path) -> None:
         self.cache_dir, self.frames = cache_dir, None
+
+    def short(self) -> bool:
+        """이번 구간의 프레임 수를 셌고 min_track보다 적었는지. 세지 못했으면 False."""
+        return self.frames is not None and self.frames < self.min_track
 
     def __call__(self, image, *args, **kwargs):
         if self.frames is None:
@@ -141,7 +148,10 @@ def infer_segments(request: dict, work: Path, pipeline) -> dict:
                     guard.start(segment_dir / 'cache')
                 output = pipeline.inference(str(clip), cache_dir=str(segment_dir / 'cache'))
                 tracks = tracks_from_output(output)
-                if tracks:
+                if guard is not None and guard.short():
+                    # upstream min_track 미만: SyncNet 판단에서 제외한다(README §15.3 2026-11-17)
+                    row = segment_failure(start, end, 'insufficient_input', SEGMENT_TOO_SHORT)
+                elif tracks:
                     row = {'start_sec': start, 'end_sec': end, 'status': 'completed',
                            'reason_code': None, **metrics_null(), 'tracks': tracks}
                 else:
