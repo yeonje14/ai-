@@ -487,7 +487,7 @@ Flutter — REST Polling으로 상태/결과 표시
 - OOD 검출을 보장하지 않음. 해상도·얼굴 크기·프레임레이트·길이·압축 등 **검증된 운영 범위**를 기록하고 조건 밖은 경고/보류 처리.
 - 타임라인은 먼저 **분석된 구간/제외된 구간**을 표시. 조작 위치 표시는 **구간 단위 탐지·위치 정확도 평가를 통과한 경우에만** 추가.
 
-SyncNet 일부/전체 구간의 유효 트랙 없음은 `insufficient_input` / `tracking_failed`, 구간 실행 오류나 잘못된 결과는 `error` / `inference_error`다. 오류가 섞이면 `error`를 우선한다. 구간 없음은 `insufficient_input` / `no_segments`, Gate 우회는 `insufficient_input` / `speaker_unconfirmed`이며 실행하지 않는다. 타임아웃은 `error` / `timeout`, 실행 환경 부재는 `error` / `model_unavailable`이다. 모든 구간 성공 시 대표값 미집계로 `completed`와 null 지표를 함께 반환할 수 있다. 정합 실패도 다른 축 결과를 지우지 않는다.
+SyncNet은 upstream `min_track`(50프레임) 미만 구간을 제외하고 판단하며, 남은 구간이 없으면 `insufficient_input` / `segment_too_short`다(2026-11-17, §15.3). 남은 구간의 유효 트랙 없음은 `insufficient_input` / `tracking_failed`, 구간 실행 오류나 잘못된 결과는 `error` / `inference_error`다. 오류가 섞이면 `error`를 우선한다. 구간 없음은 `insufficient_input` / `no_segments`, Gate 우회는 `insufficient_input` / `speaker_unconfirmed`이며 실행하지 않는다. 타임아웃은 `error` / `timeout`, 실행 환경 부재는 `error` / `model_unavailable`이다. 모든 구간 성공 시 대표값 미집계로 `completed`와 null 지표를 함께 반환할 수 있다. 정합 실패도 다른 축 결과를 지우지 않는다.
 
 ## 11. 결과 설명과 사용자 신뢰
 
@@ -694,6 +694,14 @@ TRINITY/
 
 ### 15.3 설계 결정 1~12 요약
 
+**결정 2·8 보완 — 2026-11-17, Claude 제안, 사용자 승인.**
+2026-11-15 SyncNet 정합 결과 보완을 다음과 같이 고친다. SyncNet upstream은 `min_track`(현재 50프레임, 25fps 기준 2초)보다 짧은 장면에서 트랙을 만들지 않는다. 그래서 Gate 적합 구간 가운데 SyncNet이 만든 프레임 수가 `min_track` 미만인 구간은 SyncNet에 넣지 않고, 그 개수와 길이를 기존 `explanations`에 적는다. 남은 구간이 하나 이상이고 **남은 구간 모두**에서 유효 트랙 지표가 하나 이상 계산됐을 때 `alignment.status=completed`다. 남은 구간이 없으면 `insufficient_input` / `segment_too_short`이고 SyncNet을 실행하지 않는다. 남은 구간 중 하나라도 트랙이 없으면 `insufficient_input` / `tracking_failed`, 실행 오류는 `error` / `inference_error`로 기존과 같다. 대표값 집계 보류, `lse_c`·`lse_d`=`null`, `included_in_fusion=false`는 그대로다(검증된 묶음이 있을 때는 결정 5·8 보완을 따른다). API 필드와 상태 값은 추가하지 않는다. upstream의 `min_track`은 바꾸지 않는다. 학습 파이프라인의 SyncNet 특징도 이 기준의 `completed`일 때만 쓴다.
+
+구현 주석: 프레임 수는 upstream이 구간에서 만든 25fps 프레임 수다. 그래서 구간을 잘라 변환하는 단계(구간당 약 2초)는 돌고, 얼굴 검출(S3FD)부터는 돌지 않는다. "SyncNet을 실행하지 않는다"는 얼굴 검출·트래킹·임베딩을 하지 않는다는 뜻이다. 서버의 결합 입력과 학습 특징은 같은 함수(`server/axes/alignment/report.fusion_features`)로 만든다. 세부는 `docs/syncnet-adapter.md` "개선 1차".
+
+**결정 9 보완 — 2026-11-17, Claude 제안, 사용자 승인.**
+SyncNet의 기본 장치를 MPS로 바꾼다(`TRINITY_SYNCNET_DEVICE`, 기본 `mps`). MPS를 쓸 수 없으면 CPU로 대체하고 `PYTORCH_ENABLE_MPS_FALLBACK=1`을 설정한다. `cuda`와 그 밖의 값은 실행 전에 거부한다. 근거(본인 촬영 영상 A·B·E, `docs/syncnet-adapter.md` "개선 1차"): CPU 기준선과 **오프셋·트랙 수가 모두 같았고**, S3FD 검출 시간이 −42~−61% 줄었으며, LSE-C 차이는 최대 0.122(B의 한 트랙, 약 2.5%), A 0.006, E 5e-6였다. MPS 결과는 같은 입력에서 반복해도 같았다. 영상 3개·한 기기의 측정이며 동기화 정확도나 탐지 성능을 검증한 것이 아니다. 특징 버전에 장치가 들어가므로 CPU로 추출한 특징과 MPS로 추출한 특징은 서로 다른 것으로 취급된다.
+
 **결정 5·8 보완 — 2026-11-16, Claude 제안, 사용자 승인.**
 서버는 검증된 모델 묶음이 있을 때만 종합 판정을 낸다. 묶음은 계수·표준화·보정 파라미터, MotionPhys 모델,
 dev에서 잠근 임계값, 특징 버전, 학습 manifest·특징 해시, 검증 리포트를 한 폴더(`data/models/fusion/<id>/`, Git 제외)에
@@ -879,4 +887,4 @@ python scripts/smoke_slice.py                                  # 터미널 3
 
 **발화 없는 샘플로 Gate 차단 확인:** `python scripts/smoke_gate_worker.py`. 임시 레지스트리·DB로 실제 로컬 서버와 Worker를 띄우고, 기존 허가 샘플의 차단·WaveRep 단계 생략·lease 갱신·작업 폴더 삭제를 확인한 후 종료합니다. 말하는 영상은 미검증입니다.
 
-**환경 변수:** `TRINITY_DB_PATH`(기본 `data/runtime/trinity.sqlite3`), `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`, `TRINITY_MAX_QUEUED`(기본 3), `TRINITY_LEASE_SECONDS`, `TRINITY_MAX_ATTEMPTS`, `TRINITY_JOB_TIMEOUT_SECONDS`, `TRINITY_STUB_STAGE_DELAY_SECONDS`(단계 전이를 눈으로 볼 때만 사용), `TRINITY_AUTHORIZED_MEDIA_ROOT`(기본 `data`), `TRINITY_WAVEREP_DEVICE`(기본 `mps`, 못 쓰면 `cpu`로 대체), `TRINITY_WAVEREP_BATCH_SIZE`(기본 1), `TRINITY_WAVEREP_SAMPLE_FPS`(기본 2), `TRINITY_WAVEREP_TIMEOUT_SECONDS`(기본 300), `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120), `TRINITY_MOTIONPHYS_TIMEOUT_SECONDS`(기본 300, 임시값), `TRINITY_HEARTBEAT_INTERVAL_SECONDS`(기본 10, lease보다 짧아야 함), `TRINITY_DEV_MANUAL_SEGMENTS`(개발 전용, 기본 꺼짐). `TRINITY_CORS_ORIGINS`(쉼표로 구분한 브라우저 출처. 기본 `http://localhost:8080,http://127.0.0.1:8080`. localhost·127.0.0.1만 받고 `*`는 거부한다. 빈 값이면 CORS를 끈다. Flutter 웹 개발용).
+**환경 변수:** `TRINITY_DB_PATH`(기본 `data/runtime/trinity.sqlite3`), `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`, `TRINITY_MAX_QUEUED`(기본 3), `TRINITY_LEASE_SECONDS`, `TRINITY_MAX_ATTEMPTS`, `TRINITY_JOB_TIMEOUT_SECONDS`, `TRINITY_STUB_STAGE_DELAY_SECONDS`(단계 전이를 눈으로 볼 때만 사용), `TRINITY_AUTHORIZED_MEDIA_ROOT`(기본 `data`), `TRINITY_WAVEREP_DEVICE`(기본 `mps`, 못 쓰면 `cpu`로 대체), `TRINITY_WAVEREP_BATCH_SIZE`(기본 1), `TRINITY_WAVEREP_SAMPLE_FPS`(기본 2), `TRINITY_WAVEREP_TIMEOUT_SECONDS`(기본 300), `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120), `TRINITY_SYNCNET_DEVICE`(기본 `mps`, 못 쓰면 `cpu`), `TRINITY_MOTIONPHYS_TIMEOUT_SECONDS`(기본 300, 임시값), `TRINITY_HEARTBEAT_INTERVAL_SECONDS`(기본 10, lease보다 짧아야 함), `TRINITY_DEV_MANUAL_SEGMENTS`(개발 전용, 기본 꺼짐). `TRINITY_CORS_ORIGINS`(쉼표로 구분한 브라우저 출처. 기본 `http://localhost:8080,http://127.0.0.1:8080`. localhost·127.0.0.1만 받고 `*`는 거부한다. 빈 값이면 CORS를 끈다. Flutter 웹 개발용).

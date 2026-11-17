@@ -53,11 +53,16 @@ def base(tmp_path_factory):
 
 # ---------- 설정 (항상 실행) ----------
 
-def test_committed_config_has_no_dev_compression_default_and_is_refused():
+def test_committed_config_records_user_decided_dev_and_held_out_conditions():
     raw = json.loads((REPO_ROOT / "configs/training.json").read_text(encoding="utf-8"))
-    assert raw["dev_compression_conditions"] is None
-    with pytest.raises(training_config.ConfigError, match="명시"):
-        training_config.validate(raw)
+    # 2026-11-17 사용자 결정(docs/robustness-selfvideo.md 2안)
+    assert raw["dev_compression_conditions"] == ["original", "x264-crf28-720p"]
+    assert raw["held_out_compression_profiles"] == ["x264-crf34-source", "x264-crf34-720p", "x264-crf20-source"]
+    training_config.validate(raw)
+    with pytest.raises(training_config.ConfigError, match="명시"):  # 지우면 다시 멈춘다(기본값 없음)
+        training_config.validate({**raw, "dev_compression_conditions": None})
+    with pytest.raises(training_config.ConfigError, match="최종 평가용"):
+        training_config.validate({**raw, "dev_compression_conditions": ["original", "x264-crf34-720p"]})
     assert raw["max_group_share"] == 0.25 and raw["target_fpr"] == 0.05
     assert raw["adoption"]["max_test_fpr_ci_high"] == 0.10
 
@@ -156,7 +161,7 @@ def test_changing_test_rows_cannot_change_models_or_thresholds(base, tmp_path):
 @needs_venv
 @pytest.mark.parametrize("case,message", [
     ("leak", "누수 검사 실패"), ("giant", "가장 큰 그룹"), ("nodev", "명시"), ("absent", "dev에 없는 압축 조건"),
-    ("mismatch", "manifest_sha256"), ("exists", ""),
+    ("mismatch", "manifest_sha256"), ("exists", ""), ("heldout", "최종 평가용 압축 프로파일"),
 ])
 def test_training_refuses_unsafe_inputs(tmp_path, case, message):
     cfg, conf = replace(BASE, identities=40, profiles=()), config()
@@ -176,6 +181,9 @@ def test_training_refuses_unsafe_inputs(tmp_path, case, message):
         meta.write_text(json.dumps(m))
     if case == "exists":
         (tmp_path / "run").mkdir()
+    if case == "heldout":  # 최종 평가용으로 남긴 프로파일의 파생본이 train에 있다
+        cfg = replace(cfg, profiles=("x264-crf34-720p",))
+        conf["held_out_compression_profiles"] = ["x264-crf34-720p"]
     proc = run_train(tmp_path, cfg, conf)
     assert proc.returncode == 1 and message in proc.stderr
     assert not (tmp_path / "run/thresholds").exists()

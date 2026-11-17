@@ -11,7 +11,8 @@ import json
 from pathlib import Path
 
 DEFAULT_PATH = Path(__file__).resolve().parents[1] / "configs" / "training.json"
-KEYS = {"schema_version", "_comment", "dev_compression_conditions", "max_group_share", "n_folds", "fold_seed",
+KEYS = {"schema_version", "_comment", "dev_compression_conditions", "held_out_compression_profiles",
+        "max_group_share", "n_folds", "fold_seed",
         "target_fpr", "waverep_score", "lightgbm", "logistic", "adoption"}
 ADOPTION_KEYS = {"g2_min_auc_ci_low", "min_tpr_gain_ci_low", "max_fpr_worsening", "max_coverage_drop",
                  "max_test_fpr_ci_high", "n_boot", "bootstrap_seed", "confidence"}
@@ -37,6 +38,11 @@ def validate(config: dict) -> dict:
             f"임계값과 후보 선택에 쓸 dev 압축 조건의 목록이다. 원본은 {ORIGINAL!r}로 적는다")
     if len(set(dev)) != len(dev):
         raise ConfigError("dev_compression_conditions에 같은 조건이 두 번 있다")
+    held = config["held_out_compression_profiles"]
+    if not isinstance(held, list) or not all(isinstance(c, str) and c and c != ORIGINAL for c in held):
+        raise ConfigError("held_out_compression_profiles는 압축 프로파일 ID 목록이다(원본은 넣지 않는다)")
+    if set(held) & set(dev):
+        raise ConfigError(f"최종 평가용 프로파일을 dev 조건에 쓸 수 없다: {sorted(set(held) & set(dev))}")
     if not 0 < config["max_group_share"] <= 1:
         raise ConfigError("max_group_share는 0 초과 1 이하")
     if not isinstance(config["n_folds"], int) or config["n_folds"] < 2:

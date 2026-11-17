@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from server.axes.alignment import report as syncnet_report
+from server.axes.alignment.report import fusion_features as syncnet_features
 from server.axes.alignment.syncnet import SyncNetConfig, run_syncnet
 from server.axes.physics import motionphys
 from server.axes.physics.motionphys import MotionPhysConfig, run_motionphys
@@ -65,7 +66,7 @@ def default_settings(s: Optional[Settings] = None) -> dict:
                     "sample_fps": s.waverep_sample_fps, "batch_size": s.waverep_batch_size,
                     "timeout_sec": s.waverep_timeout_seconds},
         "motionphys": {"version": motionphys.MODEL_VERSION, "timeout_sec": s.motionphys_timeout_seconds},
-        "syncnet": {"version": syncnet_report.MODEL_VERSION, "timeout_sec": 600.0},
+        "syncnet": {"version": syncnet_report.MODEL_VERSION, "device": s.syncnet_device, "timeout_sec": 600.0},
     }
 
 
@@ -115,7 +116,8 @@ def run_motionphys_axis(media: Path, work: Path, segments, settings: dict) -> di
 
 
 def run_syncnet_axis(media: Path, work: Path, segments, settings: dict) -> dict:
-    out = run_syncnet(media, segments, work, SyncNetConfig(timeout_sec=settings["syncnet"]["timeout_sec"]))
+    out = run_syncnet(media, segments, work, SyncNetConfig(timeout_sec=settings["syncnet"]["timeout_sec"],
+                                                           device=settings["syncnet"]["device"]))
     return {"status": out["status"], "reason_code": out["reason_code"], "segments": out["segments"]}
 
 
@@ -245,11 +247,11 @@ def summarize_video(rec: Record, results: dict[str, dict]) -> dict:
     s = results.get("syncnet")
     if s is not None:
         tracks = [t for seg in (s.get("segments") or []) if seg.get("tracks") for t in seg["tracks"]]
-        # 전 구간·전 트랙의 중앙값(연구 내부 집계, 2026-11-16 승인). 트랙이 없으면 null
+        # 서버의 결합 입력과 같은 함수·같은 기준이다: 축이 completed일 때만 값이 있고 그 밖에는 null
+        # (README §15.3 결정 2·8 보완, 2026-11-17). 일부 구간의 트랙만으로 값을 만들지 않는다
+        features = syncnet_features(s) or {}
         axes["syncnet"] = {"status": s["status"], "reason_code": s.get("reason_code"), "tracks": len(tracks),
-                           "lse_c_median": _median([t["lse_c"] for t in tracks]),
-                           "lse_d_median": _median([t["lse_d"] for t in tracks]),
-                           "abs_offset_median": _median([abs(t["offset_frames"]) for t in tracks])}
+                           **{k: features.get(k) for k in ("lse_c_median", "lse_d_median", "abs_offset_median")}}
     return row
 
 
