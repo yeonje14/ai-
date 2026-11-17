@@ -180,6 +180,24 @@ PR은 만들지 않았다(사용자 지시). main 병합 없음.
   모음 `summary.json`, 로그 `full.log`. 변환본 측정은 0건(위 실패 캐시 삭제 후 재실행 필요).
   결과 해석과 `docs/robustness-selfvideo.md`는 아직 쓰지 않았다.
 
+**견고성 실측 완료 (2026-11-17, 브랜치 `research/robustness-run`, 숫자만 기록 — 해석·`docs/robustness-selfvideo.md`는 아직 없음)**
+
+- 위치(Git 밖): `data/research/robustness-selfvideo/` — `results/<영상>/<조건>/<축>.json` 120개, `summary.json`, `variants/`(변환본 36개와 `*.mp4.json`, `<영상>.index.json`), 로그 `full.log`(위쪽 variant error는 오디오 수정 전 기록), `run_config.json`.
+- 조건: 영상 3개(A·B·E) × (원본 + 프로파일 12개). 1080p 프로파일 9건은 해당 CRF의 원본 해상도 출력과 해시가 같아 재측정하지 않음(`duplicate_of`).
+  측정한 조건은 영상당 10개(원본 + 변환본 9개) × 축 4개 = 120건. 변환본 인코딩 36건 모두 completed(오디오는 첫 AAC 트랙만 복사).
+- 성공/실패: 측정 120건 중 실행 실패 0(`full.log`에 `exit=` 0이 아닌 줄 없음). 축별 결과 값:
+  - Gate 30건: 모두 `reason_code=null`(적합 구간 있음). 적합 구간 수는 A 5~8개, B 8~9개, E 4~7개.
+  - WaveRep 30건: `completed` 21, `unsupported_input` 9(480p 전부).
+  - MotionPhys 30건: 후보 A·B·C 모두 `completed` 30/30.
+  - SyncNet 30건: A `completed` 10/10, B·E는 `insufficient_input`/`tracking_failed` 10/10씩(일부 또는 전체 구간에 유효 트랙 없음).
+- 축별 처리 시간(`elapsed_sec`, 단조 시계, 조건 1건당 / 30건): Gate 중앙값 8.1초(5.6~21.2), WaveRep 26.4초(2.3~33.4; 480p 9건은 2.3~2.9),
+  MotionPhys 15.6초(7.6~215.4), SyncNet 147.8초(53.9~389.0). 합계 약 1.92시간. 후손 프로세스 하나의 최대 RSS(`ru_maxrss`): Gate 0.58, WaveRep 1.10, MotionPhys 0.83, SyncNet 2.63 GiB.
+  - MotionPhys 원본 3건(110.2/215.4/141.4초)은 샘플 오프셋 대조군 실행을 포함한 시간이라 변환본과 직접 비교하지 않는다. 같은 입력의 Worker 안 61초 대 단독 37초 차이는 이번에도 원인을 확인하지 않았다.
+  - SyncNet 중앙값(초), 영상별 원본/1080(source)/720/480: A 276/361/179/96, B 261/254/129/73, E 194/191/95/54.
+- **해석 문서 완료(2026-11-17):** `docs/robustness-selfvideo.md`(축별 변화 표, 시간표, 한계, dev 압축 조건 후보 3안 — 제안만).
+  요지: WaveRep logit이 재압축만으로 중앙값 5.8~13.6 이동(영상 내 IQR 2.3~3.6), SyncNet 오프셋은 133/135 동일, MotionPhys A·B 곡률은 CRF 28부터 대조군의 3배 이상, C는 대조군 수준.
+- **사용자 결정 대기:** `configs/training.json`의 `dev_compression_conditions`(권장 제안은 2안 `["original", "x264-crf28-720p"]`)와 최종 평가용 프로파일 고정.
+
 **0단계 (완료)**
 
 - `TrinityNav.serverMode`로 모드를 화면에 전달한다. mock 모드는 기존 "모델 미연결 · 가상 데이터"와
