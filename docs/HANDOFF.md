@@ -1,5 +1,17 @@
 # HANDOFF
 
+## SyncNet 성능 기준선 (2026-11-17, 브랜치 `feat/syncnet-perf`)
+
+- 개선 시도 없음. 승인한 계획의 1번(기준선 측정)만 했다. 상세와 표는 `docs/syncnet-adapter.md` "성능 기준선".
+- 추가: `research/syncnet/profile_run.py`(upstream을 감싸는 타이머, upstream·`infer_segments.py` 미수정), `scripts/profile_syncnet_baseline.py`(18건 계획·표).
+  결과(Git 밖): `data/research/syncnet-perf/runs/*.json`, `tables.md`.
+- 숫자: 프로세스 안 전체 A 285.5초 / B 274.6초 / E 243.5초(standalone 2회 평균). **S3FD 검출이 66~71%**, 영상 준비 19~26%, SyncNet 평가 4~5%.
+  supervisor 경유는 standalone과 같음(오버헤드 0.3초). 타이머 없는 어댑터 274.0/312.8/254.1초. 15건 모두 로버스트니스 실측과 트랙 지표 일치.
+- E 해상도(CRF 28, 1회): 213.6 → 121.4 → 91.6초(1080→720→480p). 줄어든 122.0초 중 S3FD가 110.0초(90%).
+- `tracking_failed` 구간(B 4개, E 1개)은 모두 프레임 49개 이하(`min_track` 50 미만)이고 `_track` 미호출. 완료 구간은 63프레임 이상.
+- **미해결:** Worker 안 A의 SyncNet 약 400초 대 어댑터 단독 274~294초 — 원인 미확인.
+- 다음(사용자 결정 대기): 개선 시도는 계획의 2번부터. S3FD가 병목이므로 검출 간격·해상도(정확도 영향을 표로 비교)나 장치가 첫 후보다. 작업 제한 정책(계획 3번)은 개선 뒤에 제안.
+
 ## 학습·평가 파이프라인 진행 (2026-11-16~, 브랜치 `feat/training-pipeline`, `feat/motionphys-axis`에서 분기)
 
 목표: DeepSpeak v2 승인일에 "데이터 경로만 넣고 실행"하면 단일축 기준선 → 결합 비교 → 채택 판단 → 서버 적용까지 되는 상태.
