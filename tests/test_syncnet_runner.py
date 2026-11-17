@@ -156,3 +156,143 @@ def test_main_rejects_work_escape_before_loading_model(runner_request, tmp_path,
     args.write_text(json.dumps(req))
     monkeypatch.setattr(mod, 'load_pipeline', lambda path: pytest.fail('model must not load'))
     assert mod.main(['--request', str(args), '--output', str(work / 'result.json')]) == 1
+
+
+# ---------- 짧은 구간 건너뛰기 (결과는 같고 S3FD만 돌리지 않는다) ----------
+
+class FakeUpstream:
+    """upstream inference의 관련 부분만 흉내 낸다: 프레임마다 검출 → 장면 길이가 min_track 이상일 때만 트랙."""
+
+    def __init__(self, frames_by_clip, min_track=50, faces=True):
+        import types
+        self.cfg = types.SimpleNamespace(min_track=min_track)
+        self.real_calls = 0
+        self.frames_by_clip, self.faces = frames_by_clip, faces
+        self.s3fd = types.SimpleNamespace(detect_faces=self._detect)
+
+    def _detect(self, image, *args, **kwargs):
+        self.real_calls += 1
+        return [[0, 0, 10, 10, 0.99]] if self.faces else []
+
+    def inference(self, clip, cache_dir=None):
+        n = self.frames_by_clip.pop(0)
+        self.current = n
+        detections = [self.s3fd.detect_faces(object(), conf_th=0.9, scales=[0.25]) for _ in range(n)]
+        has_track = n >= self.cfg.min_track and all(len(d) for d in detections)  # 장면 하나 = 구간 전체
+        if not has_track:
+            return ([], [], [], 0.0, 0.0, '', False)
+        return ([4], [5.0], [8.0], 5.0, 8.0, 'boxes', True)
+
+
+def run_fake(mod, monkeypatch, frames, guard: bool, counter=None, **kw):
+    pipeline = FakeUpstream(list(frames), **kw)
+    monkeypatch.setattr(mod, 'cut_segment', lambda *a: None)
+    monkeypatch.setattr(mod, 'count_frames', counter or (lambda cache: pipeline.current))
+    if not guard:
+        monkeypatch.setattr(mod, 'install_guard', lambda p: None)
+    else:
+        monkeypatch.setattr(mod, 'install_guard', lambda p: _install(mod, p))
+    segments = [[float(i), float(i) + 3] for i in range(len(frames))]
+    import tempfile
+    with tempfile.TemporaryDirectory() as work:
+        out = mod.infer_segments({'video': 'v', 'segments': segments}, Path(work), pipeline)
+    return out, pipeline
+
+
+def _install(mod, pipeline):
+    guard = mod.ShortSegmentGuard(pipeline.s3fd.detect_faces, pipeline.cfg.min_track, lambda cache: mod.count_frames(cache))
+    pipeline.s3fd.detect_faces = guard
+    return guard
+
+
+@pytest.mark.parametrize('frames', [[30], [49], [50], [51], [200], [41, 255, 39, 170, 49, 63], [0]])
+def test_short_segment_guard_gives_identical_results_without_running_detector(monkeypatch, frames):
+    mod = runner()
+    plain, p_plain = run_fake(mod, monkeypatch, frames, guard=False)
+    guarded, p_guard = run_fake(mod, monkeypatch, frames, guard=True)
+    assert guarded == plain  # 구간별 상태·원인·트랙이 완전히 같다
+    assert p_plain.real_calls == sum(frames)
+    assert p_guard.real_calls == sum(n for n in frames if n >= 50)  # min_track 미만 구간은 검출을 돌리지 않는다
+    for row, n in zip(guarded['segments'], frames):
+        assert row['status'] == ('completed' if n >= 50 else 'insufficient_input')
+
+
+def test_guard_boundary_is_upstream_min_track_not_duration(monkeypatch):
+    mod = runner()
+    _, exact = run_fake(mod, monkeypatch, [50], guard=True)
+    assert exact.real_calls == 50  # 정확히 min_track이면 건너뛰지 않는다
+    _, other = run_fake(mod, monkeypatch, [59], guard=True, min_track=60)
+    assert other.real_calls == 0   # 기준은 upstream 설정값을 읽는다(우리가 정하지 않는다)
+
+
+def test_guard_does_not_skip_when_frames_cannot_be_counted(monkeypatch):
+    mod = runner()
+
+    def broken(cache):
+        raise OSError('no cache')
+
+    plain, _ = run_fake(mod, monkeypatch, [30], guard=False)
+    guarded, pipeline = run_fake(mod, monkeypatch, [30], guard=True, counter=broken)
+    assert pipeline.real_calls == 30 and guarded == plain
+
+
+def test_guard_also_matches_when_detector_finds_no_face(monkeypatch):
+    mod = runner()
+    plain, _ = run_fake(mod, monkeypatch, [30, 80], guard=False, faces=False)
+    guarded, pipeline = run_fake(mod, monkeypatch, [30, 80], guard=True, faces=False)
+    assert guarded == plain and pipeline.real_calls == 80
+
+
+def test_count_frames_uses_the_larger_of_jpeg_and_avi_counts(tmp_path, monkeypatch):
+    mod = runner()
+    (tmp_path / 'frames').mkdir()
+    for i in range(7):
+        (tmp_path / 'frames' / f'{i:06d}.jpg').write_bytes(b'x')
+    import types
+    for avi_frames, expected in ((5, 7), (52, 52)):
+        capture = types.SimpleNamespace(get=lambda prop, n=avi_frames: n, release=lambda: None)
+        fake_cv2 = types.SimpleNamespace(VideoCapture=lambda path, c=capture: c, CAP_PROP_FRAME_COUNT=7)
+        monkeypatch.setitem(sys.modules, 'cv2', fake_cv2)
+        assert mod.count_frames(tmp_path) == expected
+
+
+def test_pipeline_without_detector_is_left_alone():
+    assert runner().install_guard(object()) is None
+
+
+# ---------- 장치 선택 (기본 cpu, mps는 선택지) ----------
+
+def test_device_defaults_to_cpu_and_only_cpu_or_mps_are_accepted(tmp_path, monkeypatch):
+    mod = runner()
+    assert mod.resolve_device('cpu') == 'cpu'
+    for bad in ('cuda', 'cuda:0', '', 'MPS'):
+        with pytest.raises(ValueError):
+            mod.resolve_device(bad)
+    import types
+    for available, expected in ((True, 'mps'), (False, 'cpu')):
+        torch = types.ModuleType('torch')
+        torch.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda a=available: a))
+        monkeypatch.setitem(sys.modules, 'torch', torch)
+        monkeypatch.delenv('PYTORCH_ENABLE_MPS_FALLBACK', raising=False)
+        assert mod.resolve_device('mps') == expected  # 쓸 수 없으면 cpu로 대체
+        import os
+        assert os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] == '1'
+
+
+def test_main_passes_requested_device_and_records_device_used(runner_request, monkeypatch):
+    mod = runner()
+    work, req = runner_request
+    req['device'] = 'mps'
+    (work / 'request.json').write_text(json.dumps(req))
+    loaded = []
+    real_resolve = mod.resolve_device
+    monkeypatch.setattr(mod, 'resolve_device', lambda d: 'cpu')  # 이 기기에서 mps를 못 쓰는 경우
+    monkeypatch.setattr(mod, 'load_pipeline', lambda path, device: loaded.append(device) or object())
+    monkeypatch.setattr(mod, 'infer_segments', lambda body, folder, pipeline: {'schema_version': 1, 'segments': []})
+    assert mod.main(['--request', str(work / 'request.json'), '--output', str(work / 'result.json')]) == 0
+    assert loaded == ['cpu']
+    assert json.loads((work / 'result.json').read_text())['device_used'] == 'cpu'
+    monkeypatch.setattr(mod, 'resolve_device', real_resolve)
+    req['device'] = 'cuda'
+    (work / 'request.json').write_text(json.dumps(req))
+    assert mod.main(['--request', str(work / 'request.json'), '--output', str(work / 'result2.json')]) == 1

@@ -10,7 +10,7 @@ def build_config(ctx: AxisContext) -> syncnet.SyncNetConfig:
     timeout = 600.0
     if ctx.timeout_seconds is not None:
         timeout = min(timeout, ctx.timeout_seconds)
-    return syncnet.SyncNetConfig(timeout_sec=timeout)
+    return syncnet.SyncNetConfig(timeout_sec=timeout, device=ctx.settings.syncnet_device)
 
 
 def run(ctx: AxisContext) -> dict:

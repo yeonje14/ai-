@@ -46,8 +46,24 @@ SCHEMA_VERSION = 1
 RESOLUTION_CONDITIONS = ("x264-crf28-source", "x264-crf28-720p", "x264-crf28-480p")
 
 
-def plan() -> list[tuple[str, str, str, int]]:
-    """(영상, 조건, 모드, 반복). 앞쪽이 먼저. 같은 영상의 모드를 번갈아 돌려 시간 흐름의 영향을 나눈다."""
+# 기준선 뒤에 더한 비교 실행. tag가 파일 이름에 붙는다. (tag, 장치)
+VARIANTS = {"guard-cpu": "cpu", "guard-mps": "mps"}
+
+
+def plan() -> list[tuple]:
+    """(영상, 조건, 모드, 반복[, tag]). 앞쪽이 먼저. 같은 영상의 모드를 번갈아 돌려 시간 흐름의 영향을 나눈다.
+
+    tag가 없는 것은 기준선(fb3fe51의 래퍼, CPU, 짧은 구간 건너뛰기 없음)이다. 다시 재지 않는다.
+    """
+    return baseline_plan() + [
+        (video, "original", mode, rep, tag)
+        for video in "ABE"
+        for mode, rep, tag in (("standalone", 1, "guard-cpu"), ("standalone", 1, "guard-mps"),
+                               ("standalone", 2, "guard-mps"), ("adapter", 1, "guard-mps"))
+    ]
+
+
+def baseline_plan() -> list[tuple[str, str, str, int]]:
     runs = []
     for video in "ABE":
         for rep in (1, 2):
@@ -59,8 +75,8 @@ def plan() -> list[tuple[str, str, str, int]]:
     return runs
 
 
-def run_path(video: str, cond: str, mode: str, rep: int) -> Path:
-    return OUT / "runs" / f"{video}__{cond}__{mode}__{rep}.json"
+def run_path(video: str, cond: str, mode: str, rep: int, tag: str = "") -> Path:
+    return OUT / "runs" / (f"{video}__{cond}__{mode}__{rep}" + (f"__{tag}" if tag else "") + ".json")
 
 
 def media_of(video: str, cond: str) -> Path:
@@ -82,7 +98,8 @@ def write(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def measure_one(video: str, cond: str, mode: str, rep: int) -> int:
+def measure_one(video: str, cond: str, mode: str, rep: int, tag: str = "") -> int:
+    device = VARIANTS.get(tag, "cpu")
     segments = segments_of(video)
     src = media_of(video, cond)
     (OUT / "work").mkdir(parents=True, exist_ok=True)
@@ -96,7 +113,8 @@ def measure_one(video: str, cond: str, mode: str, rep: int) -> int:
         prof_dir = job / "syncnet-perf"
         prof_dir.mkdir()
         request, output = prof_dir / "request.json", prof_dir / "profile.json"
-        request.write_text(json.dumps({"video": str(media), "segments": segments, "weights_dir": str(WEIGHTS)}))
+        request.write_text(json.dumps({"video": str(media), "segments": segments, "weights_dir": str(WEIGHTS),
+                                       "device": device}))
         cmd = [str(VENV_PY), str(PROFILE), "--request", str(request), "--output", str(output)]
         t0 = time.monotonic()
         profile = result = None
@@ -111,14 +129,15 @@ def measure_one(video: str, cond: str, mode: str, rep: int) -> int:
             finally:
                 stop_process(proc, fd)
         else:
-            result = run_syncnet(media, segments, job, SyncNetConfig(timeout_sec=1800.0))
+            result = run_syncnet(media, segments, job, SyncNetConfig(timeout_sec=1800.0, device=device))
             code = 0 if result["status"] in ("completed", "insufficient_input") else 1
         wall = time.monotonic() - t0
         if mode != "adapter" and output.is_file():
             profile = json.loads(output.read_text(encoding="utf-8"))
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    write(run_path(video, cond, mode, rep), {
+    write(run_path(video, cond, mode, rep, tag), {
         "schema_version": SCHEMA_VERSION, "video": video, "condition": cond, "mode": mode, "rep": rep,
+        "tag": tag, "device_requested": device,
         "input": {"name": src.name, "size_bytes": src.stat().st_size},
         "segments_requested": segments, "wall_sec": round(wall, 3), "exit_code": code,
         "children_max_rss_bytes": usage.ru_maxrss, "machine": {"platform": platform.platform(), "machine": platform.machine()},
@@ -127,15 +146,16 @@ def measure_one(video: str, cond: str, mode: str, rep: int) -> int:
 
 
 def run_all(force: bool) -> int:
-    for video, cond, mode, rep in plan():
-        path = run_path(video, cond, mode, rep)
+    for video, cond, mode, rep, *rest in plan():
+        tag = rest[0] if rest else ""
+        path = run_path(video, cond, mode, rep, tag)
         if path.is_file() and not force:
             continue
         t0 = time.monotonic()
-        code = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--one", video, cond, mode, str(rep)],
+        code = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--one", video, cond, mode, str(rep), tag],
                               cwd=REPO_ROOT).returncode
         done = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
-        print(f"[{video}] {cond:18s} {mode:10s} #{rep} {time.monotonic() - t0:7.1f}s driver_exit={code} "
+        print(f"[{video}] {cond:18s} {mode:10s} #{rep} {tag:9s} {time.monotonic() - t0:7.1f}s driver_exit={code} "
               f"child_exit={None if done is None else done['exit_code']}", flush=True)
     return 0
 
@@ -165,7 +185,7 @@ def stage_value(profile: dict, name: str) -> float:
 
 def load_runs() -> dict:
     runs = {}
-    for video, cond, mode, rep in plan():
+    for video, cond, mode, rep in baseline_plan():
         path = run_path(video, cond, mode, rep)
         if path.is_file():
             runs[(video, cond, mode, rep)] = json.loads(path.read_text(encoding="utf-8"))
@@ -269,12 +289,12 @@ def tables() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--one", nargs=4, metavar=("VIDEO", "CONDITION", "MODE", "REP"), help="(내부용) 한 건만 잰다")
+    p.add_argument("--one", nargs=5, metavar=("VIDEO", "CONDITION", "MODE", "REP", "TAG"), help="(내부용) 한 건만 잰다")
     p.add_argument("--report", action="store_true")
     p.add_argument("--force", action="store_true")
     opt = p.parse_args(argv)
     if opt.one:
-        return measure_one(opt.one[0], opt.one[1], opt.one[2], int(opt.one[3]))
+        return measure_one(opt.one[0], opt.one[1], opt.one[2], int(opt.one[3]), opt.one[4])
     if opt.report:
         OUT.mkdir(parents=True, exist_ok=True)
         (OUT / "tables.md").write_text(tables(), encoding="utf-8")

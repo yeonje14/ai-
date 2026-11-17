@@ -65,7 +65,7 @@ def default_settings(s: Optional[Settings] = None) -> dict:
                     "sample_fps": s.waverep_sample_fps, "batch_size": s.waverep_batch_size,
                     "timeout_sec": s.waverep_timeout_seconds},
         "motionphys": {"version": motionphys.MODEL_VERSION, "timeout_sec": s.motionphys_timeout_seconds},
-        "syncnet": {"version": syncnet_report.MODEL_VERSION, "timeout_sec": 600.0},
+        "syncnet": {"version": syncnet_report.MODEL_VERSION, "device": s.syncnet_device, "timeout_sec": 600.0},
     }
 
 
@@ -115,7 +115,8 @@ def run_motionphys_axis(media: Path, work: Path, segments, settings: dict) -> di
 
 
 def run_syncnet_axis(media: Path, work: Path, segments, settings: dict) -> dict:
-    out = run_syncnet(media, segments, work, SyncNetConfig(timeout_sec=settings["syncnet"]["timeout_sec"]))
+    out = run_syncnet(media, segments, work, SyncNetConfig(timeout_sec=settings["syncnet"]["timeout_sec"],
+                                                           device=settings["syncnet"]["device"]))
     return {"status": out["status"], "reason_code": out["reason_code"], "segments": out["segments"]}
 
 

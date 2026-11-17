@@ -187,3 +187,26 @@ def test_old_result_is_not_reused_and_empty_worker_input_is_skipped(tmp_path, jo
     assert out['status'] == 'error'
     assert old.read_text() == 'old result from another invocation'
     assert alignment.run(AxisContext(job_dir=work))['reason_code'] == 'no_segments'
+
+
+def test_device_is_cpu_by_default_and_passed_to_runner(tmp_path, job):
+    from dataclasses import replace
+    work, video = job
+    seen = tmp_path / 'seen.json'
+    body = f"Path({str(seen)!r}).write_text(json.dumps(r)); out['device_used'] = r['device']; Path(a.output).write_text(json.dumps(out))"
+    cfg = fake_config(tmp_path, body)
+    assert cfg.device == 'cpu'
+    out = adapter().run_syncnet(video, [(0, 3)], work, cfg)
+    assert json.loads(seen.read_text())['device'] == 'cpu' and out['device_used'] == 'cpu'
+    out = adapter().run_syncnet(video, [(0, 3)], work, replace(cfg, device='mps'))
+    assert json.loads(seen.read_text())['device'] == 'mps' and out['device_used'] == 'mps'
+    assert out['status'] == 'completed' and out['raw_score'] is None
+
+
+@pytest.mark.parametrize('device', ['cuda', 'cuda:0', '', None, 'gpu'])
+def test_other_devices_never_launch(tmp_path, job, device):
+    from dataclasses import replace
+    work, video = job
+    cfg = replace(fake_config(tmp_path, "raise AssertionError('must not run')"), device=device)
+    out = adapter().run_syncnet(video, [(0, 3)], work, cfg)
+    assert (out['status'], out['reason_code']) == ('error', 'invalid_request')

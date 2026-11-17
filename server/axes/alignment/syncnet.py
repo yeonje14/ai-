@@ -27,6 +27,8 @@ class SyncNetConfig:
     script: Path = RESEARCH / 'infer_segments.py'
     weights_dir: Path = ROOT / 'data/models/syncnet'
     timeout_sec: float = 600.0
+    # cpu 또는 mps. 기본은 cpu다. mps는 선택지이며 쓸 수 없으면 실행기가 cpu로 대체한다(docs/syncnet-adapter.md)
+    device: str = 'cpu'
 
 
 def _run(cmd: list[str], timeout: float, on_tick, tick_sec: float) -> str | None:
@@ -68,7 +70,7 @@ def run_syncnet(video: Path, segments: Sequence[Sequence[float]], work_dir: Path
         if not bounds:
             return failure('insufficient_input', 'no_segments')
         if (not finite_number(config.timeout_sec) or config.timeout_sec <= 0
-                or not finite_number(tick_sec) or tick_sec <= 0):
+                or not finite_number(tick_sec) or tick_sec <= 0 or config.device not in ('cpu', 'mps')):
             return failure('error', 'invalid_request')
         work_dir, video = Path(work_dir).resolve(), Path(video).resolve()
         if not work_dir.is_dir() or not video.is_relative_to(work_dir):
@@ -91,7 +93,8 @@ def run_syncnet(video: Path, segments: Sequence[Sequence[float]], work_dir: Path
             folder = Path(tmp)
             request, output = folder / 'request.json', folder / 'result.json'
             request.write_text(json.dumps({'video': str(video), 'segments': bounds,
-                                           'weights_dir': str(Path(config.weights_dir).resolve())}))
+                                           'weights_dir': str(Path(config.weights_dir).resolve()),
+                                           'device': config.device}))
             cmd = [str(config.python), str(config.script), '--request', str(request), '--output', str(output)]
             try:
                 reason = _run(cmd, config.timeout_sec, on_tick, tick_sec)
@@ -99,6 +102,10 @@ def run_syncnet(video: Path, segments: Sequence[Sequence[float]], work_dir: Path
                 return failure('error', 'model_unavailable')
             if reason:
                 return failure('error', reason)
-            return parse_result(json.loads(output.read_text()), bounds)
+            raw = json.loads(output.read_text())
+            result = parse_result(raw, bounds)
+            used = raw.get('device_used') if isinstance(raw, dict) else None
+            result['device_used'] = used if used in ('cpu', 'mps') else None  # 내부 기록(API 결과 아님)
+            return result
     except (OSError, ValueError, TypeError, RecursionError):
         return failure('error', 'inference_error')

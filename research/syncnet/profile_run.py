@@ -183,7 +183,8 @@ def main(argv: list[str] | None = None) -> int:
     # --- 프로세스 단계(infer_segments와 같은 순서) ---
     infer_segments.verify_weights = prof.wrap(infer_segments.verify_weights, "weights_verify")
     infer_segments.load_pipeline = prof.wrap(infer_segments.load_pipeline, "model_load")
-    pipeline = infer_segments.load_pipeline(Path(request["weights_dir"]))
+    device = infer_segments.resolve_device(request.get("device", "cpu"))
+    pipeline = infer_segments.load_pipeline(Path(request["weights_dir"]), device)
     cfg = pipeline.cfg
 
     # --- 파이프라인 인스턴스 ---
