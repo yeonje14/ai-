@@ -18,16 +18,18 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from server import fusion
 from server.axes import AxisContext, alignment, physics, signal as signal_axis
+from server.axes.device import clean_device
 from server.config import Settings
 from server.gate import report as gate_report
 from server.gate.runner import GATE_ERROR, GATE_TIMEOUT, run_gate_process
 from server.gate.types import MEDIA_UNREADABLE, GateResult
 from server.ingest.media_resolver import AuthorizedMediaRegistry
 from server.ingest.youtube_url import is_valid_video_id
+from server.jobs.device_state import THERMAL_NAMES, thermal_state
 from server.jobs.queue import LEASE_CANCEL, LEASE_LOST, Job, JobQueue
 from server.jobs.runtime import remove_job_dir, worker_lock
 from server.schemas import AnalysisResult, dump
@@ -249,6 +251,15 @@ def run_axis(
         return _axis_not_run(axis_name, "inference_error", "error")
 
 
+def _thermal() -> Optional[str]:
+    """기기 열 상태 이름. 읽지 못하거나 모르는 값이면 None(작업에는 영향이 없다)."""
+    try:
+        state = thermal_state()
+    except Exception:
+        return None
+    return state if state in THERMAL_NAMES else None
+
+
 def process(
     job: Job,
     queue: JobQueue,
@@ -371,10 +382,25 @@ def process(
             bundle=None if gate_bypassed else fusion.load_active(settings),
         )
         axes: dict[str, dict[str, Any]] = {}
+        # 축별 실행기 장치와 실행 시작·끝의 열 상태(내부 기록, API 결과 아님). 이 시도의 항목만 쌓는다
+        run_info: dict[str, dict[str, Optional[str]]] = {}
         for stage, axis_name, module in AXES:
             enter(stage)
             ctx.timeout_seconds = max(deadline - time.monotonic(), 0.0)
+            ctx.device_used = None
+            thermal_start = _thermal()
             axes[axis_name] = run_axis(axis_name, module.run, ctx)
+            entry = {"device_used": clean_device(ctx.device_used), "thermal_state_start": thermal_start,
+                     "thermal_state_end": _thermal()}
+            # 취소·timeout·lease 상실로 멈춘 축도 남긴다(interrupted 확인 전)
+            log.info("job %s axis %s device=%s thermal_start=%s thermal_end=%s", job.analysis_id, axis_name,
+                     *(entry[k] or "unknown" for k in ("device_used", "thermal_state_start", "thermal_state_end")))
+            run_info[axis_name] = entry
+            try:
+                queue.save_run_info(job.analysis_id, worker_id, job.attempts, dict(run_info))
+            except Exception:
+                # 기록 실패가 분석을 막지 않는다. 내용은 로그에 남기지 않는다
+                log.warning("job %s run info not saved", job.analysis_id)
             if interrupted:
                 # 추론 중에 lease를 잃었거나 취소·작업 타임아웃이 났다. 결과를 만들지 않는다.
                 raise interrupted[0]

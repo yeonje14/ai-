@@ -31,7 +31,7 @@ def _no_real_thermal_probe(monkeypatch):
     프로브 자체는 tests/test_device_state.py가 server.jobs.device_state를 직접 불러 확인한다.
     값을 보는 Worker 테스트는 이 이름을 다시 바꾼다.
     """
-    monkeypatch.setattr("server.jobs.worker.thermal_state", lambda: None, raising=False)
+    monkeypatch.setattr("server.jobs.worker.thermal_state", lambda: None)
 
 
 @pytest.fixture(autouse=True)
