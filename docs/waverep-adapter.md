@@ -214,3 +214,5 @@ Gate는 torch 없는 conda `trinity`의 별도 프로세스, WaveRep은 기존
 - 결과는 `finished` / `partial` / `abstained`였고 `raw_score`·`overall_score`·
   `verdict_label`은 `null`이었다. Gate 표본 결과는 `docs/gate.md`에 있다.
   이 영상의 MPS 성능과 실제 추론 중 취소, 실제 YouTube ID로 앱에서 시연하는 경로는 미검증이다.
+  (2026-11-19: A의 실제 WaveRep **MPS** 추론 중 API 취소를 확인했다. heartbeat 2초에서 1.88초 만에 cancelled, 실행기·supervisor 종료,
+  작업 폴더 삭제. `docs/syncnet-adapter.md` "실제 Worker 수명주기 확인" (다). WaveRep 실행 중 Worker SIGKILL은 여전히 미검증.)

@@ -91,6 +91,7 @@ trinity에서 torch 설치 없음·import 없음, 전용 Python의 실행기 CLI
 
 **미검증:** 이 어댑터 경유 실제 모델 추론, 실제 발화 영상의 오프셋·정확도,
 Gate 발화자와 SyncNet 트랙의 대응, Worker 연결 및 실제 취소, MPS 실행.
+(이후 확인: 어댑터 경유 실제 추론·Worker 연결 2026-11-16, MPS 실행 2026-11-17, 실제 Worker에서 SyncNet 실행 중 취소·Worker SIGKILL 2026-11-19 — 맨 아래 "실제 Worker 수명주기 확인" 절.)
 이번 조각에서는 실제 발화 영상 실험을 수행하지 않았다.
 **확인 필요:** 가중치 상업 이용·재배포 조건과 S3FD의 파일별 라이선스 범위(조각 1에서 이어짐).
 
@@ -651,7 +652,7 @@ SyncNet 단계 제한이 끝난 뒤 작업 deadline을 마지막으로 확인하
 
 **테스트** `tests/test_syncnet_stage_timeout.py`(15개): 길이 규칙(짧음 2.5초 → 100초, 길음 37초 → 652초, 150초 → 2,460초), 남은 시간 − 여유가 더 짧을 때, 기본 작업 제한 식이 SyncNet 규칙 + 여유보다 항상 큼, 환경 변수, 잘못된 설정 거부, 남은 시간이 여유보다 짧으면 SyncNet 미실행. Worker에서는 실제 별도 프로세스로 도는 느린 가짜 SyncNet으로 (a) 남은 시간 부족, (b) 길이 규칙, (c) 진입 때 시간 없음의 세 경우 모두 작업 `finished`, SyncNet 축만 `error` / `timeout`, WaveRep·MotionPhys 결과 유지, `analysis_status=partial`을 확인했다. 여유를 빼면 이 중 5개가 실패한다(작업이 `failed`가 됨).
 
-**미검증:** 실제 Worker에서 SyncNet 단계 제한에 걸리는 종단 실행은 하지 않았다(가짜 SyncNet 프로세스로만 확인).
+~~**미검증:** 실제 Worker에서 SyncNet 단계 제한에 걸리는 종단 실행은 하지 않았다(가짜 SyncNet 프로세스로만 확인).~~ → 2026-11-19 실제 A로 확인했다(길이 규칙·남은 시간 두 경로). 아래 "실제 Worker 수명주기 확인" 절.
 
 ## Worker 안 대 단독 — 같은 세션 교차 측정 (2026-11-18~19, 브랜치 `research/syncnet-worker-gap`)
 
@@ -732,3 +733,70 @@ python scripts/measure_syncnet_worker_gap.py --plan a1,b1,c1,d1,e1 --dry   # 하
 ```
 
 테스트: `tests/test_measure_syncnet_worker_gap.py`(7개: 계획 형식, 전력 값 부호, 프로세스 트리, 표본 시간 창, 쉬기 조건, 실행기 점검 모드의 결과 형식). 측정 뒤 `pytest -q` **822 passed, 1 skipped**(건너뜀은 LightGBM 없음, 기존과 같음).
+
+## 실제 Worker 수명주기 확인: SyncNet 단계 제한·Worker SIGKILL·MPS 실행 중 취소 (2026-11-19, 브랜치 `research/real-timeout-verify`)
+
+**조건.** 실제 API 서버(uvicorn)와 별도 Worker 프로세스(`python -m server.jobs.worker`)를 띄우고, 임시 레지스트리(테스트 ID → 허가 샘플 A)·DB·runtime(Git 밖, 끝나면 삭제)을 썼다. 요청은 API `POST /api/v1/analyses`, 취소는 `DELETE`(If-Match). **제품 코드·기본값은 바꾸지 않았고** 시나리오마다 아래 환경 변수만 바꿨다. 그 밖은 기본값이다: SyncNet·WaveRep MPS, heartbeat 10초, lease 30초, 재시도 상한 2. 기기는 같은 MacBook Air M3, 20W 충전기 연결·충전 중(배터리 75~78%), 열 경고 기록 없음. 기준 커밋 main `5aa7acf`. 스크립트 `scripts/verify_real_worker_lifecycle.py`, 결과 JSON은 Git 밖 `data/research/real-lifecycle/`.
+
+### (가) SyncNet 단계 제한에 실제로 걸리게 하기 — 두 경로, 각 1회
+
+| | 길이 규칙 경로 | 남은 시간 경로 |
+|---|---|---|
+| 측정용 환경 변수 | `TRINITY_SYNCNET_TIMEOUT_BASE_SECONDS=30`, `TRINITY_SYNCNET_TIMEOUT_PER_ELIGIBLE_SECOND=0` → SyncNet 제한 30초 | `TRINITY_JOB_TIMEOUT_BASE_SECONDS=150`, `TRINITY_JOB_TIMEOUT_PER_ELIGIBLE_SECOND=0` → Gate 뒤 작업 제한 150초, SyncNet 제한 = 남은 작업 시간 − 마무리 여유 10초 |
+| Worker 로그의 작업 제한 | 920초(기본 식) | 150초 |
+| 앞 단계 Gate·WaveRep·MotionPhys | 12.8 · 17.9 · 44.6초 | 21.2 · 29.0 · 52.1초(합 102.3초) |
+| **SyncNet 단계** | **30.05초** | **37.71초**(150 − 102.3 − 10 ≈ 37.7) |
+| **작업** | **finished**, 105.3초 | **finished**, 140.05초(작업 제한 150초보다 약 10초 먼저 끝남) |
+| 상태 | `analysis_status=partial`, `verdict_status=abstained`, `overall_score`·`verdict_label` null | 같음 |
+| 축 | signal completed, physics completed, **alignment error / timeout**(`lse_c`·`lse_d` null, `included_in_fusion=false`) | 같음 |
+| 정리 | 관찰한 작업 프로세스 11개(Gate, WaveRep·MotionPhys·SyncNet 실행기, supervisor, FFmpeg) 모두 종료, 작업 폴더 삭제(runtime에 `.worker.lock`만), Worker 종료 코드 0 | 같음 |
+
+- 다른 축의 결과와 설명(`MOTIONPHYS_FEATURES_ONLY`, Gate 설명 항목)이 남았다. SyncNet 축이 completed가 아니므로 `SYNCNET_UNAGGREGATED` 설명은 없다. coverage의 분석량(37.021초)은 signal 기준 그대로다.
+- 남은 시간 경로가 "SyncNet이 느려져도 작업은 finished로 끝나고 SyncNet 축만 `error`/`timeout`"이라는 보완 규칙의 실제 확인이다. 이 실행은 앞 단계가 평소(약 68초)보다 느렸는데(앞 시나리오 직후라 기기가 데워진 상태, 위 "Worker 안 대 단독" 절과 같은 현상으로 보인다) SyncNet 제한이 그만큼 줄어 작업 제한 안에서 끝났다.
+
+### (나) SyncNet(MPS) 실행 중 Worker SIGKILL — 2회
+
+| | 1회 | 2회 |
+|---|---|---|
+| kill 시점 | SyncNet 실행기 확인 뒤 20초(단계 `syncnet`, 시도 1) | 같음 |
+| MPS 근거(실행기 1초 스택 표본의 Metal/MPS 프레임 수) | 539 | 344 |
+| kill 때 작업 프로세스 | supervisor 1, SyncNet 실행기 1 | 같음 |
+| Worker 종료 | SIGKILL(-9) | 같음 |
+| **자식 모두 종료까지** | **0.074초** | **0.075초** |
+| kill 직후 DB | `processing` / `syncnet` / 시도 1 / lease 소유자는 죽은 Worker | 같음 |
+| kill 직후 작업 폴더 | 남아 있음(복구 때 정리) | 같음 |
+| kill 때 lease 남은 시간 | 기록 못 함(아래) | 28.1초 |
+| **새 Worker 기동 → 재선점** | **28.2초** | **28.2초**(lease 만료 시각과 일치) |
+| 2차 시도 | finished / completed / abstained, 세 축 completed, 시도 2, SyncNet 170.0초 | 같음, SyncNet 170.5초 |
+| 끝난 뒤 | 작업 폴더 없음, 2차 시도에서 본 프로세스 모두 종료, 새 Worker는 SIGTERM으로 정상 종료(0) | 같음 |
+
+- supervisor가 Worker 생존 파이프의 EOF를 보고 SyncNet 프로세스 그룹을 바로 끝냈다. 새 Worker는 lease가 만료될 때까지 기다렸다가 이전 작업 폴더를 지우고 작업을 다시 대기열에 넣은 뒤 2차로 끝까지 처리했다. 재시도 상한(2)에는 걸리지 않았다.
+- 1회의 "kill 때 lease 남은 시간"은 측정 스크립트가 작업 종료 뒤에 계산하는 실수로 쓸 수 없는 값(-257.2초)이 나와, 고친 뒤 2회를 다시 쟀다. 다른 항목은 1회에도 유효하다.
+
+### (다) MPS 실행 중 API 취소 — 각 1회
+
+| | SyncNet(MPS) 실행 중 | WaveRep(MPS) 실행 중 |
+|---|---|---|
+| 측정용 환경 변수 | 없음(heartbeat 10초) | `TRINITY_HEARTBEAT_INTERVAL_SECONDS=2`(WaveRep이 약 20초라 취소가 반영되기 전에 끝나지 않게) |
+| 취소 시점 | SyncNet 실행기 확인 뒤 20초 | WaveRep 실행기 확인 뒤 4초 |
+| MPS 근거(Metal/MPS 프레임 수) | 431 | 148 |
+| `DELETE` 응답 | 202, `processing` | 202, `processing` |
+| **cancelled까지** | **8.24초**(heartbeat 10초 안) | **1.88초**(heartbeat 2초 안) |
+| 취소 때 단계 / 완료 단계 | `syncnet` / validating~motionphys | `waverep` / validating~preprocessing(WaveRep은 끝나지 않음) |
+| 자식(supervisor·모델 실행기) | cancelled 확인 때 모두 종료 | 같음. 축 로그 `waverep error reason=aborted` |
+| 작업 폴더 | 삭제 | 삭제 |
+| Worker(`--drain`) 종료 코드 | 0 | 0 |
+
+**미검증으로 남는 것**
+
+- MotionPhys·Gate·WaveRep 실행 중의 Worker SIGKILL(이번에는 SyncNet만). MotionPhys 실행 중 취소.
+- MPS를 쓸 수 없어 CPU로 대체되는 경우의 같은 경로, B·E 영상, 반복 안정성(SIGKILL 2회, 나머지 1회).
+- "MPS 근거"는 스택 표본의 Metal/MPS 프레임 수다. 실행기의 `device_used`는 Worker 결과·로그에 남지 않아 직접 보지 못했다(2026-11-18과 같은 한계).
+
+**재현**
+
+```bash
+conda activate trinity
+python scripts/verify_real_worker_lifecycle.py            # 다섯 시나리오(된 것은 건너뜀)
+python scripts/verify_real_worker_lifecycle.py --report   # 요약
+```
