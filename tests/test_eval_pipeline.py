@@ -211,12 +211,16 @@ def test_missing_split_fails():
 
 def test_missing_identity_is_a_warning_not_an_error():
     report = hygiene.check([
-        rec("a"), rec("b", source="unknown:synth/b.mp4"), replace(fake("c"), generator_id="", manipulation_type=""),
+        rec("a"), rec("b", source="unknown:synth/b.mp4", identity_ids=("p-b",)),
+        replace(fake("c"), generator_id="", manipulation_type=""),
     ], LOCK)
     assert report.ok
-    assert report.warnings["identity_missing"] == 3
+    assert report.warnings["identity_missing"] == 2
     assert report.warnings["source_unverified"] == 1
     assert report.warnings["fake_generator_missing"] == report.warnings["fake_manipulation_type_missing"] == 1
+    # 인물 ID와 확인된 원본 계보가 둘 다 없으면 묶을 수 없어 오류다(README §15.3 2026-11-18, 감사 A11)
+    bad = hygiene.check([rec("b", source="unknown:synth/b.mp4")], LOCK)
+    assert "ungroupable_video" in codes(bad)
 
 
 def test_hygiene_cli_exit_codes(tmp_path, capsys):
@@ -296,7 +300,8 @@ def _items(n_groups=80, seed=0, sep=2.0, null_every=0) -> list[Item]:
 def test_evaluate_reports_overall_breakdowns_and_ci():
     items = _items()
     out = metrics.evaluate(items, threshold=1.0, n_boot=200, seed=7)
-    assert out["counts"] == {"videos": 320, "groups": 80, "real": 160, "fake": 160, "real_scored": 160, "fake_scored": 160}
+    assert out["counts"] == {"videos": 320, "groups": 80, "real": 160, "fake": 160, "real_scored": 160, "fake_scored": 160,
+                             "real_groups_scored": 80, "fake_groups_scored": 80}
     for name in ("roc_auc", "tpr", "fpr"):
         m = out["overall"][name]
         assert m["ci_low"] <= m["value"] <= m["ci_high"] and m["n_boot_valid"] == 200

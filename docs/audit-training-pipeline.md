@@ -24,6 +24,9 @@
 | 중간 | A3 1080p 쌍둥이, A4 장치 대체, A5 digest 밖 파일, A6 480p 혼입, A7 잠금 별칭, A8 같은 바이트 | A10 FPR 상한 퇴화, A11 묶을 수 없는 영상, A15 최종 평가 프로파일의 관문 포함(결정 대기), A16 숫자까지 고친 위조 |
 | 낮음 | A12 숫자 ID 표기, A13 q75 서버 미지원, A14 SyncNet 규칙 판 | A17 서로 다른 집합의 TPR 차이 |
 
+> **2026-11-18 결정 반영(브랜치 `audit/decisions`):** 제안만 했던 A9·A10·A11·A15·A16·A17을 사용자 결정대로 구현했다.
+> A7의 남은 부분(MAVOS-DD 파일 해시)은 보류. 아래 표의 "결과" 칸과 "결정 반영" 절을 본다.
+
 ## 발견 표
 
 재현: `conda activate trinity && pytest -q tests/test_audit_training_pipeline.py -k A<번호>` (학습이 필요한 것은 `research/training/.venv`가 있어야 돈다).
@@ -34,7 +37,7 @@
 |---|---|---|---|
 | A1 | **검증 리포트를 고치면 서버가 받아들였다.** 묶음 생성(`bundle.create`)과 서버(`bundle.load`)는 리포트의 `decision` 문자열과 `servable_candidates` 목록만 믿었다. (1) 관문을 넘지 않은 `W+M+S`를 리포트 서빙 목록과 묶음에 끼워 넣고 파일 해시·digest를 다시 맞추면, 세 축이 모두 성공한 요청에 서버가 `assessed`를 냈다. (2) 신호 없는 데이터의 **보류** 리포트를 문자열만 "WaveRep 단독"으로 바꾸면 묶음이 만들어졌다 | `test_A1_report_listing_an_ungated_candidate_as_servable_is_rejected`, `test_A1_hold_report_forged_to_waverep_only_cannot_become_a_bundle` | **고침.** `decision.rederive`가 리포트에 적힌 dev·test 지표와 커밋된 채택 기준으로 선택·관문·판단을 다시 계산한다. `create`와 `load` 모두 결과가 리포트의 판단·서빙 후보·선택과 다르면 `report_inconsistent`로 거부한다 |
 | A2 | **사전 고정 설정과 다른 설정으로 학습해도 통과했다.** `train.py --config`는 아무 파일이나 받고, 리포트는 run 폴더의 `train_meta.json`에 든 설정(채택 기준 포함)으로 판단했다. 묶음·서버는 이를 커밋된 `configs/training.json`과 견주지 않았다. 채택 기준을 느슨하게 바꾼 설정(AUC CI 하한 > 0, FPR CI 상한 ≤ 100%)으로 학습하면 리포트가 채택을 내고 묶음이 만들어졌다 | `test_A2_run_trained_with_uncommitted_config_cannot_become_a_bundle`, `test_A2_server_rejects_bundle_when_committed_training_config_changes` | **고침.** 리포트에 `training_config_matches_committed`를 싣고 다르면 Markdown 맨 위에 경고한다. 묶음은 학습 설정이 커밋된 설정과 같을 때만 만들고 본문에 `training_config`를 넣는다(묶음 형식 2). 서버는 `Settings.training_config_path`(기본 `configs/training.json`)를 읽어 묶음의 설정과 다르면 `config_not_committed`로 보류한다. **설정을 바꾸면 묶음을 다시 만들어야 한다** |
-| A9 | **서버가 판정하는 영상 집단이 검증한 집단과 다르다.** 서버는 성공한 축 집합과 *정확히 같은* 후보만 쓴다(§15.3 결정 5·8 보완 (5)). 그런데 리포트는 각 후보를 "그 후보의 입력이 모두 있는 test 영상"에서 검증한다. 예: "WaveRep 단독" 묶음의 `W`는 test 전체(WaveRep 점수가 있는 영상)에서 FPR을 확인했지만, 서버에서는 **physics와 alignment가 모두 실패한 영상에서만** 판정한다. 결합 `W+M`도 alignment가 실패한 영상에서만 쓰인다. 추적 실패·짧은 구간처럼 다른 축이 실패하는 영상은 품질이 낮은 쪽으로 치우칠 수 있어, 고정 임계값의 FPR이 그 집단에서 유지된다는 근거가 없다 | `test_A9_each_servable_candidate_is_validated_on_the_videos_it_would_serve` (xfail) | **제안만.** 아래 "제안" A9 |
+| A9 | **서버가 판정하는 영상 집단이 검증한 집단과 다르다.** 서버는 성공한 축 집합과 *정확히 같은* 후보만 쓴다(§15.3 결정 5·8 보완 (5)). 그런데 리포트는 각 후보를 "그 후보의 입력이 모두 있는 test 영상"에서 검증한다. 예: "WaveRep 단독" 묶음의 `W`는 test 전체(WaveRep 점수가 있는 영상)에서 FPR을 확인했지만, 서버에서는 **physics와 alignment가 모두 실패한 영상에서만** 판정한다. 결합 `W+M`도 alignment가 실패한 영상에서만 쓰인다. 추적 실패·짧은 구간처럼 다른 축이 실패하는 영상은 품질이 낮은 쪽으로 치우칠 수 있어, 고정 임계값의 FPR이 그 집단에서 유지된다는 근거가 없다 | `test_A9_*` 4개 | **결정 반영(2026-11-18).** 선택 후보는 축이 모두 성공하고 입력이 있으면 사용, 대체 후보는 자기 서빙 집단에서 따로 검증 + 최소 그룹 수. 아래 "결정 반영" |
 
 ### 중간
 
@@ -46,10 +49,10 @@
 | A6 | **480p(운영 범위 밖)가 test 관문 지표에 섞였다.** 문서(“압축 조건”)는 480p를 탐지 지표에 섞지 않고 판정 제공 비율·실패율만 따로 보고한다고 정했지만, 리포트는 test 전체로 관문을 계산했다. WaveRep이 없는 단일 후보(`M-*`)는 480p에서도 점수를 내므로 "결합 − 단일 최강" TPR 비교와 판정 제공 비율이 다른 조건 위에서 계산됐다 | `test_A6_out_of_range_480p_is_excluded_from_test_gates_and_reported_separately`, `test_A6_config_requires_...` | **고침.** `configs/training.json`에 `out_of_range_compression_profiles`(480p 세 개, 2026-11-17 결정을 그대로 옮김). 리포트는 이 조건을 test 관문에서 빼고 후보별 `test_out_of_range`(영상 수, 판정 제공 비율, 보류 사유만)와 Markdown 절로 따로 적는다. `test_gate_compression_conditions`로 관문에 들어간 조건을 밝힌다. dev 조건·최종 평가용 목록과 겹치면 설정 검사가 거부 |
 | A7 | **잠금 대상 외부 평가 자료를 다른 이름으로 넣으면 통과했다.** `hygiene`는 `dataset_id`가 잠금 키(`mavos-dd`)와 정확히 같을 때만 막았다. `mavos_dd`·`MAVOS-DD`로 train에 넣으면 통과했다 | `test_A7_locked_external_dataset_under_alias_id_is_a_leak` | **고침(일부).** 대소문자·기호를 무시한 이름이 잠금 대상과 같으면 `external_dataset_alias_in_internal_split` 오류. **남은 것:** 이름을 아예 바꾸면 막지 못한다. 외부 표본 목록에 파일 해시가 없어 내용 비교가 불가능하다(제안 A7) |
 | A8 | **같은 바이트의 원본이 여러 분할에 있어도 몰랐다.** 어댑터는 영상을 열지 않아 원본 행의 `file_hash`가 비어 있고, 추출기는 sha256을 계산하지만 비교하지 않았다. 데이터셋 안의 중복 파일(이름만 다름)이 train과 test에 나뉘면 누수다 | `test_A8_extract_records_input_hash_for_rows_without_manifest_hash`, `test_A8_train_refuses_same_bytes_in_two_splits` | **고침.** 추출기가 `features.jsonl`에 `input_sha256`을 쓰고, `train.py`가 manifest의 `file_hash`와 함께 보아 여러 분할에 걸친 해시가 있으면 거부 |
-| A10 | **오탐 0건이면 FPR 상한 관문이 표본 수와 무관하게 통과한다.** 그룹 백분위 bootstrap은 test 진짜 영상에서 오탐이 0건이면 모든 재표본의 FPR이 0이라 CI 상한이 0이 된다. 진짜 20개(20그룹)·오탐 0건도 "FPR CI 상한 ≤ 10%"를 통과한다. 정확(Clopper–Pearson) 95% 상한은 16.8%이고, 오탐 0건으로 10% 이하를 보이려면 서로 독립인 진짜 영상이 최소 36개 필요하다. 문서가 말한 "FPR 관문은 진짜 영상 수에 민감하다"는 오탐이 1건 이상일 때만 성립한다 | `test_A10_fpr_upper_bound_gate_does_not_pass_on_too_few_real_videos` (xfail) | **제안만.** 아래 "제안" A10 |
-| A11 | **인물 ID도 확인된 원본 계보도 없는 영상은 혼자 그룹이 된다.** DeepSpeak 진짜 영상의 녹화 ID는 카드에 없어 `unknown:<경로>`가 되고 인물 ID로만 묶인다(문서에 적힌 한계). 그 행의 인물 ID까지 비면 어디에도 이어지지 않아 같은 인물의 가짜와 다른 분할에 갈 수 있는데, `identity_missing`·`source_unverified` 경고만 남는다 | `test_A11_video_without_identity_or_verified_source_is_not_silently_ungrouped` (xfail) | **제안만.** 설계(인물 ID 없음은 경고)를 바꾸는 일이다 |
-| A15 | **최종 평가 전용 압축 프로파일이 test 관문 계산에 들어간다(결정 대기).** test 분할의 `x264-crf34-source` 등 행이 채택 판단(G2·G3·FPR 관문)에 섞인다. 관문은 한 번만 쓰고 다시 고르지 않으므로 그 자체로 수치가 낙관적으로 치우치지는 않지만, 그 조건이 "모델 채택 판단에 쓰지 않은 최종 평가"인지는 정해야 한다 | `test_A15_current_behavior_held_out_profiles_enter_the_test_gate` (지금 동작 고정) | **결정 대기(제안만).** 사용자 지시로 고치지 않았다. 지금은 넣고, 리포트 `test_gate_compression_conditions`에 적는다 |
-| A16 | **지표 숫자까지 앞뒤가 맞게 고친 리포트는 A1의 재계산으로도 걸러지지 않는다.** 리포트·점수 파일·모델 JSON은 서명이 아니라 스스로 계산한 해시다. 보류 리포트의 W test AUC CI·FPR CI를 고치고 판단을 그 숫자로 다시 계산해 넣으면 묶음이 만들어진다 | `test_A16_report_with_consistently_forged_metrics_cannot_become_a_bundle` (xfail) | **제안만.** 아래 "제안" A16(재현 검증) |
+| A10 | **오탐 0건이면 FPR 상한 관문이 표본 수와 무관하게 통과한다.** 그룹 백분위 bootstrap은 test 진짜 영상에서 오탐이 0건이면 모든 재표본의 FPR이 0이라 CI 상한이 0이 된다. 진짜 20개(20그룹)·오탐 0건도 "FPR CI 상한 ≤ 10%"를 통과한다. 정확(Clopper–Pearson) 95% 상한은 16.8%이고, 오탐 0건으로 10% 이하를 보이려면 서로 독립인 진짜 영상이 최소 36개 필요하다. 문서가 말한 "FPR 관문은 진짜 영상 수에 민감하다"는 오탐이 1건 이상일 때만 성립한다 | `test_A10_*` 10개 | **결정 반영(2026-11-18).** FPR 관문 = max(그룹 bootstrap 상한, Clopper–Pearson 정확 상한(n = 진짜 그룹 수, k = n × 영상 단위 FPR)) |
+| A11 | **인물 ID도 확인된 원본 계보도 없는 영상은 혼자 그룹이 된다.** DeepSpeak 진짜 영상의 녹화 ID는 카드에 없어 `unknown:<경로>`가 되고 인물 ID로만 묶인다(문서에 적힌 한계). 그 행의 인물 ID까지 비면 어디에도 이어지지 않아 같은 인물의 가짜와 다른 분할에 갈 수 있는데, `identity_missing`·`source_unverified` 경고만 남는다 | `test_A11_video_without_identity_or_verified_source_is_an_error_before_training` | **결정 반영(2026-11-18).** 내부 분할의 그런 행은 `ungroupable_video` 오류 |
+| A15 | **최종 평가 전용 압축 프로파일이 test 관문 계산에 들어간다(결정 대기).** test 분할의 `x264-crf34-source` 등 행이 채택 판단(G2·G3·FPR 관문)에 섞인다. 관문은 한 번만 쓰고 다시 고르지 않으므로 그 자체로 수치가 낙관적으로 치우치지는 않지만, 그 조건이 "모델 채택 판단에 쓰지 않은 최종 평가"인지는 정해야 한다 | `test_A15_held_out_profiles_are_reported_once_after_the_gate_not_used_for_adoption` | **결정 반영(2026-11-18).** test 관문에서 빼고 `test_held_out`에 탐지 지표·CI·판정 제공 비율을 관문 뒤 1회 보고("채택 판단에 사용하지 않음") |
+| A16 | **지표 숫자까지 앞뒤가 맞게 고친 리포트는 A1의 재계산으로도 걸러지지 않는다.** 리포트·점수 파일·모델 JSON은 서명이 아니라 스스로 계산한 해시다. 보류 리포트의 W test AUC CI·FPR CI를 고치고 판단을 그 숫자로 다시 계산해 넣으면 묶음이 만들어진다 | `test_A16_report_with_consistently_forged_metrics_cannot_become_a_bundle`, `test_A16_tampered_run_folder_is_not_reproducible` | **결정 반영(2026-11-18).** 묶음 생성 전 재현 검증(`not_reproducible`). `features.jsonl` 위조는 못 잡는다 |
 
 ### 낮음
 
@@ -58,9 +61,30 @@
 | A12 | 어댑터가 인물·녹화 ID를 `str()`로만 바꿔, 결측이 섞인 정수 열을 JSON Lines로 내보내면 생기는 `12.0`과 `12`가 다른 인물이 됐다(같은 인물의 진짜·가짜가 다른 그룹 → train/dev에 나뉠 수 있음). NaN은 `"nan"` 인물 하나로 모든 결측을 묶었다 | `test_A12_numeric_identity_written_as_float_still_links_real_and_fake` | **고침.** 정수인 float은 정수로, NaN·무한대는 결측으로 |
 | A13 | 설정은 `waverep_score`로 `logit_q75`를 허용하지만 서버는 중앙값·평균만 계산해, q75 묶음은 서버에서 언제나 보류였다(안전한 쪽 실패). 서버와 학습이 집계를 각자 계산했다 | `test_A13_server_waverep_input_equals_training_feature_for_every_allowed_aggregate[3종]` | **고침.** `waverep.aggregate_logits`를 서버 결합 입력과 학습 특징이 함께 쓴다 |
 | A14 | SyncNet 짧은 구간 규칙(2026-11-17)은 특징 버전·캐시 키에 들어가지 않았다. 규칙을 바꿔도 옛 규칙의 캐시·묶음이 "같은 버전"으로 통과한다(지금은 실제 SyncNet 캐시가 없어 영향 없음) | `test_A14_syncnet_status_rule_is_part_of_feature_version` | **고침.** `report.STATUS_RULE`을 특징 버전(`syncnet.status_rule`)과 캐시 키에 넣었다. **특징 버전이 바뀌었으므로 이전에 추출한 SyncNet 캐시는 다시 계산된다** |
-| A17 | "결합 − 단일 최강" TPR 차이는 두 후보가 각자 점수를 낸 서로 다른 영상에서 계산되고, 판정 제공 비율 관문은 WaveRep 대비만 있다. 결합이 어려운 가짜에서 보류하면 함께 점수를 낸 영상에서 똑같아도 TPR 이득으로 보인다 | `test_A17_tpr_gain_is_not_produced_by_abstaining_on_hard_fakes` (xfail) | **제안만** |
+| A17 | "결합 − 단일 최강" TPR 차이는 두 후보가 각자 점수를 낸 서로 다른 영상에서 계산되고, 판정 제공 비율 관문은 WaveRep 대비만 있다. 결합이 어려운 가짜에서 보류하면 함께 점수를 낸 영상에서 똑같아도 TPR 이득으로 보인다 | `test_A17_tpr_gain_is_not_produced_by_abstaining_on_hard_fakes` | **결정 반영(2026-11-18).** TPR 차이는 두 후보가 모두 점수를 낸 가짜에서 계산 |
 
-## 제안(고치지 않은 것)
+## 결정 반영 (2026-11-18, 브랜치 `audit/decisions`)
+
+| # | 결정 | 구현 |
+|---|---|---|
+| A9 | (나) 선택 후보는 "그 후보의 입력이 모두 있으면 사용". 대체 후보는 서버에서 실제로 쓰일 test 영상(축 성공 패턴이 정확히 같은 영상)에서만 검증하고, 진짜·가짜 그룹 수가 최소값보다 적으면 서빙하지 않음. 대체 후보 관문은 자기 관문 + 최소 그룹 수(TPR 이득 비교 없음). 최소값 36·36 | 공용 규칙 `training/serving.py`(`successful_axes`, `choose`)를 서버(`fusion.fuse`, `Bundle.choose`)·학습(`train.py`)·리포트가 함께 쓴다. 학습은 서버 축 상태 기준(MotionPhys `full`)으로 축 성공을 정해 성공하지 않은 축의 값을 입력·적합에 쓰지 않고, `availability.csv`에 남긴다. 리포트는 대체 후보마다 `serving`(서빙 집단 평가와 관문)을, 판단은 `primary`·`fallbacks_considered`를 싣는다. 묶음 형식 3은 후보마다 역할(primary/fallback)을 적고 로드할 때 리포트와 견준다. 설정 `adoption.fallback_min_real_groups`·`fallback_min_fake_groups` = 36 |
+| A10 | (b) FPR 관문 = max(그룹 bootstrap 상한, Clopper–Pearson 상한), n = 진짜 그룹 수, k = n × 영상 단위 FPR. 리포트에 둘 다 | `metrics.clopper_pearson_upper`(표준 라이브러리, 정규화 불완전 베타 + 이분법. scipy 값과 상대 오차 1e-9 이내), `overall.fpr_exact_upper`, `decision.fpr_upper`. Markdown 표에 "FPR 정확 상한(진짜 그룹 수)" 열 |
+| A11 | 인물 ID와 확인된 원본 계보가 둘 다 없는 행은 학습 전 오류 | `hygiene`의 `ungroupable_video`(train·dev·test만, external 제외) |
+| A15 | (나) 최종 평가 전용 프로파일은 test 관문에서 빼고 관문 뒤 따로 1회 보고. 탐지 지표(AUC·TPR·FPR와 CI)까지 싣고 "관문 뒤 1회 보고, 채택 판단에 사용하지 않음"을 표에 명시. 480p는 판정 제공 비율만 | 리포트 후보별 `test_held_out`(`used_for_adoption: false`), 최상위 `held_out_compression_profiles`, Markdown 절 "최종 평가 전용 압축 조건 (test, 관문 뒤 1회 보고, 채택 판단에 사용하지 않음)" |
+| A16 | (나) 묶음 생성 전 같은 manifest·features·커밋된 설정으로 새 폴더에서 학습·리포트를 다시 돌려 비교. features.jsonl 위조는 못 잡는다는 한계를 문서에 | `training.bundle.reproduce`. CLI에 `--manifest`·`--features` 필수. 학습 결과 폴더의 **모든 파일**과 리포트(`shortcut_diagnostic`·`training_config_matches_committed`만 빼고)를 비교, 다르면 `not_reproducible`. 묶음 본문에 `reproduction`(파일 수, 트리 해시) |
+| A17 | TPR 차이를 두 후보가 모두 점수를 낸 영상에서 | `paired_difference`의 TPR(`basis: both_scored`). FPR·AUC·판정 제공 비율 차이는 그대로 |
+
+**결정 전 확인한 것:**
+- 학습·리포트는 결정적이다. 같은 입력으로 두 번 학습하면 산출물 28개가 바이트 단위로 같고 리포트도 같다(A16의 전제).
+- A10의 처음 지시 공식(k = 오탐이 있는 *그룹* 수)은 그룹당 진짜 영상이 m개일 때 영상 FPR 5%에서 상한이 (m=2, 그룹 1,000개) 11.8%, (m=4) 21.0%라 관문이 사실상 통과 불가능했다. 그래서 (b)로 정했다.
+
+**결정이 낳은 결과(알아 둘 것):**
+- **FPR 관문은 test 진짜 *그룹* 수가 충분해야 넘는다.** 영상 FPR 5%면 그룹 약 150개, 2%면 약 70개에서 정확 상한이 10% 밑이 된다. 합성 테스트의 "채택에 도달" 시나리오는 인물 1,000명(test 진짜 그룹 약 100개)과 테스트 설정의 목표 FPR 2%로 바꿨다(커밋된 설정은 5% 그대로).
+- **대체 후보는 드물게 서빙된다.** 결합 채택에는 "판정 제공 비율이 WaveRep보다 5%p 넘게 줄지 않음"이 필요하다. 그래서 결합의 축이 실패해 대체 후보가 쓰일 영상은 많아야 test의 5% 안팎이고, 최소 그룹 수 36과 FPR 정확 상한을 넘기 어렵다. 그런 영상은 보류된다. 묶음 테스트는 대체 후보 경로를 시험하려고 테스트 설정에서만 `max_coverage_drop`을 0.6으로 풀었다.
+- 선택 후보가 다른 축이 더 성공한 영상에서도 쓰이므로, 예전 테스트 "세 축이 다 성공하면 2축 모델을 쓰지 않고 보류"는 "W+M으로 판정"으로 바뀌었다.
+- 묶음 형식 3, 리포트 형식 3이다. 형식 2 묶음은 거부된다(아직 커밋된 묶음은 없다).
+
+## 제안(감사 당시 기록. 2026-11-18 결정은 위 절)
 
 - **A9 (높음) 서빙 모집단 검증.** 둘 중 하나를 §15.3에 정한다.
   (가) 지금 규칙(정확히 같은 축 집합) 유지 + 리포트가 서빙 후보마다 **그 후보가 실제로 쓰일 test 영상**(축 성공 패턴이 정확히 같은 영상)만으로 TPR·FPR·CI를 계산하고, 관문을 그 값으로 본다. 표본이 작으면 그 후보는 서빙하지 않는다.
@@ -73,9 +97,9 @@
 - **A16 (중간) 재현 검증.** 학습은 결정적이다(고정 시드, LightGBM `deterministic`). 묶음을 만들기 전에 같은 manifest·특징·커밋된 설정으로 학습·리포트를 다시 돌려 모델·임계값·리포트 해시가 같은지 확인하는 단계를 `training.bundle`에 넣는다. 서버는 데이터가 없으므로 이 확인은 묶음을 만드는 쪽에서만 할 수 있다.
 - **A17 (낮음)** TPR 차이를 두 후보가 모두 점수를 낸 영상에서 계산하거나, 단일 최강 대비에도 판정 제공 비율 관문을 둔다.
 
-## README §15.3 문구 보완 제안 (승인 전 README는 고치지 않았다)
+## README §15.3 문구 (2026-11-18 승인, README에 반영함)
 
-결정 5·8 보완의 서버 조건 (1)~(5)에 이어 다음을 적는 것을 제안한다. 코드는 이미 이렇게 동작한다(설계를 바꾸지 않고 "사전 고정"을 강제한 것이다).
+결정 5·8 보완의 서버 조건 (1)~(5)에 이어 다음을 README §15.3 "결정 5·6·7·8·12 보완(독립 감사 결정) — 2026-11-18"에 적었다. A9·A10·A11·A15 결정도 같은 항목에 있다.
 
 > (6) 묶음의 학습 설정이 저장소에 커밋된 `configs/training.json`과 같다. 설정을 바꾸면 그 묶음은 쓰지 않고 다시 학습·검증한다.
 > (7) 검증 리포트의 판단과 서빙 후보는 리포트에 적힌 dev·test 지표를 그 설정의 채택 기준으로 다시 계산한 결과와 같다.
@@ -127,6 +151,7 @@
 - "WaveRep 단독"은 신호가 없어도 일정 비율로 나온다. 이 관문은 사실상 W의 AUC에 대한 한쪽 2.5% 검정이고, FPR 상한 관문을 통과할 만큼 test가 크면 그 비율에 가까워진다(120명: FPR 관문 통과 74/197이라 1.5%). 설계대로의 동작이다. 다만 실제 결과 보고에 "신호가 없어도 약 2.5%는 WaveRep 단독이 나온다"를 함께 적는 것이 정직하다.
 - 후보 6개 각각의 자기 관문(G2·FPR)만 보면 120명에서 197회 중 18회(9%)는 어떤 후보든 하나가 통과했다(여러 번 비교). 판단은 dev에서 고른 결합과 W만 보므로 판단에 새지는 않았다. 단일축 후보의 test 표를 "통과"처럼 읽지 않도록 주의.
 - 800명은 시드당 시간이 길어(약 1분) 37회에서 멈췄다. 비율의 구간이 넓다.
+- **이 표는 2026-11-18 결정 반영 전(A10 이전) 코드로 잰 것이다.** A10으로 FPR 관문이 더 엄격해졌으므로 우연 채택은 같거나 줄어야 하지만, 반영 뒤에는 다시 재지 않았다(미측정). 다시 재려면 같은 명령을 돌린다.
 
 ## 고친 파일
 
@@ -157,6 +182,7 @@ API 필드·상태 값은 바꾸지 않았다. 서버는 여전히 묶음이 없
   - 건너뜀 1: `tests/test_motionphys_train.py`(trinity에 LightGBM 없음, 감사 전과 같다). 학습이 필요한 테스트는 `research/training/.venv`로 돌았다.
   - xfail 5: A9·A10·A11·A16·A17(제안만 한 발견의 성질). 각각 의도한 단언에서 실패하는 것을 `--runxfail`로 확인했다.
 - 감사 테스트 파일만: `pytest -q tests/test_audit_training_pipeline.py`.
+- **결정 반영 후(브랜치 `audit/decisions`):** `pytest -q` **815 passed, 1 skipped**(xfail 0). xfail이던 A9·A10·A11·A16·A17은 결정대로 고쳐 보통 테스트가 됐다. 건너뜀은 같은 이유(LightGBM 없음).
 
 ## 감사의 한계
 

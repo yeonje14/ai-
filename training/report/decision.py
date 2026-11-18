@@ -7,9 +7,16 @@
   (2) WaveRep 단독과 단일 최강 후보 각각에 대해 TPR 차이(짝지은 그룹 bootstrap)의 CI 하한 > min_tpr_gain_ci_low,
   (3) 실제 FPR이 WaveRep 단독보다 max_fpr_worsening 넘게 나쁘지 않고,
   (4) 판정 제공 비율이 max_coverage_drop 넘게 줄지 않으며,
-  (5) 고정 임계값의 FPR CI 상한 ≤ max_test_fpr_ci_high.
+  (5) 고정 임계값의 FPR 상한 ≤ max_test_fpr_ci_high. 상한은 그룹 bootstrap 상한과 Clopper–Pearson 정확 상한
+      (n = 진짜 그룹 수, k = n × 영상 단위 FPR) 중 큰 값이다(README §15.3 2026-11-18, 감사 A10).
+  (2)의 TPR 차이는 두 후보가 모두 점수를 낸 가짜에서만 계산한다(README §15.3 2026-11-18, 감사 A17).
 - "WaveRep 단독": 결합이 위를 못 넘고, WaveRep 단독이 (1)과 (5)를 넘는다.
 - 그 밖에는 "보류". 3축을 강제로 채택하지 않는다.
+- 서빙(README §15.3 2026-11-18, 감사 A9, 규칙은 training/serving.py): 채택 가능이면 dev에서 고른 결합이 선택 후보(primary),
+  WaveRep 단독이면 W가 선택 후보다. 선택 후보보다 축이 적은 결합 후보와 W는 대체 후보(fallback) 후보이며,
+  서버에서 실제로 쓰일 test 영상(축 성공 패턴이 정확히 같은 영상)에서 (1)·(5)와 최소 진짜·가짜 그룹 수
+  (fallback_min_real_groups·fallback_min_fake_groups)를 넘은 것만 서빙한다. 대체 후보에는 TPR 이득 비교를 하지 않는다
+  (그 영상에서는 선택 후보가 쓰이지 않고 대안은 보류뿐이다).
 README §13.3에는 숫자 기준이 없다. G3의 "단일 최강 모델 대비"를 따라 (2)는 WaveRep과 단일 최강 둘 다 본다.
 """
 
@@ -21,6 +28,7 @@ from collections import defaultdict
 from typing import Optional, Sequence
 
 from training.evaluation.metrics import Item, _percentile, rate_at, roc_auc
+from training.serving import RULE as SERVING_RULE
 
 FUSION_ADOPTABLE = "fusion_adoptable"
 WAVEREP_ONLY = "waverep_only"
@@ -72,7 +80,14 @@ def paired_difference(a: Sequence[Item], b: Sequence[Item], threshold_a: float, 
     def diff(rows) -> dict:
         sa = _stats([(label, x) for label, x, _ in rows], threshold_a)
         sb = _stats([(label, y) for label, _, y in rows], threshold_b)
-        return {m: (sa[m] - sb[m] if sa[m] is not None and sb[m] is not None else None) for m in metrics}
+        out = {m: (sa[m] - sb[m] if sa[m] is not None and sb[m] is not None else None) for m in metrics}
+        # TPR 차이는 두 후보가 모두 점수를 낸 가짜에서만 센다. 한쪽이 어려운 가짜에서 보류해 TPR이 오른 것처럼
+        # 보이지 않게 한다(README §15.3 2026-11-18, 감사 A17). FPR·AUC·판정 제공 비율은 그대로다
+        both = [(x, y) for label, x, y in rows if label == "fake" and x is not None and y is not None]
+        ta = rate_at([x for x, _ in both], threshold_a)
+        tb = rate_at([y for _, y in both], threshold_b)
+        out["tpr"] = ta - tb if ta is not None and tb is not None else None
+        return out
 
     point = diff([row for g in names for row in by_group[g]])
     rng = random.Random(seed)
@@ -88,6 +103,7 @@ def paired_difference(a: Sequence[Item], b: Sequence[Item], threshold_a: float, 
         values = sorted(samples[m])
         out[m] = {"value": point[m], "ci_low": _percentile(values, alpha) if values else None,
                   "ci_high": _percentile(values, 1 - alpha) if values else None, "n_boot_valid": len(values)}
+    out["tpr"]["basis"] = "both_scored"  # 두 후보가 모두 점수를 낸 가짜만
     return out
 
 
@@ -110,11 +126,19 @@ def _check(name: str, value: Optional[float], op: str, limit: float) -> dict:
     return {"check": name, "value": value, "rule": f"{op} {limit}", "passed": bool(ok)}
 
 
+def fpr_upper(test: dict) -> Optional[float]:
+    """FPR 관문 값: bootstrap 상한과 정확 상한 중 큰 값. 하나라도 없으면 None(통과 아님)."""
+    boot = test["overall"]["fpr"]["ci_high"]
+    exact = (test["overall"].get("fpr_exact_upper") or {}).get("value")
+    return max(boot, exact) if boot is not None and exact is not None else None
+
+
 def own_gates(test: dict, adoption: dict) -> list[dict]:
-    """후보 하나가 혼자서 넘어야 하는 관문: 구분 능력(G2)과 FPR 신뢰구간 상한."""
+    """후보 하나가 혼자서 넘어야 하는 관문: 구분 능력(G2)과 FPR 상한."""
     return [
         _check("test ROC-AUC CI 하한", test["overall"]["roc_auc"]["ci_low"], ">", adoption["g2_min_auc_ci_low"]),
-        _check("test FPR CI 상한(고정 임계값)", test["overall"]["fpr"]["ci_high"], "<=", adoption["max_test_fpr_ci_high"]),
+        _check("test FPR 상한(고정 임계값, bootstrap·정확 상한 중 큰 값)", fpr_upper(test), "<=",
+               adoption["max_test_fpr_ci_high"]),
     ]
 
 
@@ -130,25 +154,51 @@ def fusion_gates(vs_baseline: dict, vs_best_single: Optional[dict], adoption: di
     return checks
 
 
-def decide(selection: dict, own: dict[str, list[dict]], fusion_checks: dict[str, list[dict]]) -> dict:
-    """own[후보] = own_gates 결과, fusion_checks[결합 후보] = fusion_gates 결과."""
-    def passed(checks) -> bool:
-        return bool(checks) and all(c["passed"] for c in checks)
+def _passed(checks) -> bool:
+    return bool(checks) and all(c["passed"] for c in checks)
 
+
+def primary_of(selection: dict, own: dict[str, list[dict]], fusion_checks: dict[str, list[dict]]) -> tuple[str, Optional[str]]:
+    """(판단, 선택 후보). 채택 가능이면 dev에서 고른 결합, WaveRep 단독이면 W, 보류면 None."""
     fusion = selection["fusion"]
-    fusion_ok = fusion is not None and passed(own.get(fusion)) and passed(fusion_checks.get(fusion))
-    baseline_ok = passed(own.get(BASELINE))
-    decision = FUSION_ADOPTABLE if fusion_ok else WAVEREP_ONLY if baseline_ok else HOLD
-    # 서버가 쓸 수 있는 후보. 축이 많은 것부터. 각 후보는 자기 축 조합으로 따로 관문을 넘은 것만 넣는다
-    servable = []
+    if fusion is not None and _passed(own.get(fusion)) and _passed(fusion_checks.get(fusion)):
+        return FUSION_ADOPTABLE, fusion
+    if _passed(own.get(BASELINE)):
+        return WAVEREP_ONLY, BASELINE
+    return HOLD, None
+
+
+def fallback_candidates(primary: Optional[str], candidates: Sequence[dict]) -> list[str]:
+    """대체 후보가 될 수 있는 후보: 선택 후보보다 축이 적은(진부분집합) 결합 후보와 W. 단일 MotionPhys는 서빙하지 않는다."""
+    axes = {c["candidate"]: frozenset(c["axes"]) for c in candidates}
+    if primary is None or primary not in axes:
+        return []
+    return [c["candidate"] for c in candidates
+            if (c["candidate"] == BASELINE or len(c["axes"]) > 1) and axes[c["candidate"]] < axes[primary]]
+
+
+def fallback_gates(serving: dict, adoption: dict) -> list[dict]:
+    """대체 후보가 서버에서 실제로 쓰일 test 영상에서 넘어야 하는 관문: 자기 관문과 최소 그룹 수."""
+    counts = serving["counts"]
+    return own_gates(serving, adoption) + [
+        _check("서빙 집단의 진짜 그룹 수(점수 있음)", counts["real_groups_scored"], ">=", adoption["fallback_min_real_groups"]),
+        _check("서빙 집단의 가짜 그룹 수(점수 있음)", counts["fake_groups_scored"], ">=", adoption["fallback_min_fake_groups"]),
+    ]
+
+
+def decide(selection: dict, own: dict[str, list[dict]], fusion_checks: dict[str, list[dict]],
+           fallback_checks: Optional[dict[str, list[dict]]] = None) -> dict:
+    """own[후보] = own_gates 결과, fusion_checks[결합 후보] = fusion_gates 결과,
+    fallback_checks[대체 후보] = 서빙 집단에서의 fallback_gates 결과(채택 가능일 때만 쓴다)."""
+    decision, primary = primary_of(selection, own, fusion_checks)
+    servable = [primary] if primary else []
     if decision == FUSION_ADOPTABLE:
-        servable = [c for c in sorted(fusion_checks, key=lambda c: -c.count("+"))
-                    if passed(own.get(c)) and passed(fusion_checks[c]) and c.count("+") <= fusion.count("+")]
-    if decision != HOLD and baseline_ok:
-        servable.append(BASELINE)
-    return {"decision": decision, "decision_ko": LABELS_KO[decision], "selected_fusion": fusion,
-            "best_single": selection["best_single"], "servable_candidates": servable,
-            "three_axis_forced": False}
+        fallbacks = [c for c, checks in (fallback_checks or {}).items() if _passed(checks)]
+        servable += sorted(fallbacks, key=lambda c: (-c.count("+"), c))
+    return {"decision": decision, "decision_ko": LABELS_KO[decision], "selected_fusion": selection["fusion"],
+            "best_single": selection["best_single"], "primary": primary, "servable_candidates": servable,
+            "fallbacks_considered": sorted(fallback_checks or {}) if decision == FUSION_ADOPTABLE else [],
+            "serving_rule": SERVING_RULE, "three_axis_forced": False}
 
 
 SHORTCUT_FIELDS = ("width", "height", "fps", "duration_sec", "has_audio")
@@ -199,9 +249,14 @@ def rederive(report: dict, adoption: dict) -> dict:
         if len(c["axes"]) > 1 and BASELINE in report["candidates"]:
             vs_best = comparisons[comparison_key(name, best)] if best not in (None, BASELINE) else None
             fusion_checks[name] = fusion_gates(comparisons[comparison_key(name, BASELINE)], vs_best, adoption)
-    return decide(selection, own, fusion_checks)
+    decision, primary = primary_of(selection, own, fusion_checks)
+    fallback_checks = {}
+    if decision == FUSION_ADOPTABLE:
+        for name in fallback_candidates(primary, cands):
+            fallback_checks[name] = fallback_gates(report["candidates"][name]["serving"]["evaluation"], adoption)
+    return decide(selection, own, fusion_checks, fallback_checks)
 
 
 def same_decision(a: dict, b: dict) -> bool:
-    keys = ("decision", "selected_fusion", "best_single", "servable_candidates")
+    keys = ("decision", "selected_fusion", "best_single", "primary", "servable_candidates", "fallbacks_considered")
     return all(a.get(k) == b.get(k) for k in keys)

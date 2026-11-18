@@ -148,6 +148,13 @@ def check(records: Iterable[Record], lock: dict[str, dict]) -> HygieneReport:
     if alias:
         report.errors.append(_error("external_dataset_alias_in_internal_split", len(alias), alias))
 
+    # 6) 인물 ID도 확인된 원본 계보도 없는 내부 분할 영상. 어떤 그룹에도 이어지지 않아 누수를 잡을 수 없다
+    #    (README §15.3 2026-11-18, 감사 A11). 외부 평가 자료는 대상이 아니다(MAVOS-DD는 원래 인물 ID가 없다)
+    ungroupable = sorted(r.uid for r in records
+                         if r.split in INTERNAL_SPLITS and not r.identity_ids and r.source_unverified)
+    if ungroupable:
+        report.errors.append(_error("ungroupable_video", len(ungroupable), ungroupable))
+
     # 경고: 실패는 아니지만 검증할 수 없었던 것. 0이어도 항목을 남긴다
     report.warnings = {
         "identity_missing": sum(1 for r in records if not r.identity_ids),

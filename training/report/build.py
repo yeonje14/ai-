@@ -20,14 +20,14 @@ import json
 import sys
 from pathlib import Path
 
-from training import config as training_config, hygiene
+from training import config as training_config, hygiene, serving
 from training.datasets import groups
 from training.datasets.manifest import ManifestError, read_manifest, sha256_file
 from training.evaluation import metrics, thresholds
 from training.evaluation.lock import DEFAULT_LOCK_PATH, load_lock
 from training.report import decision as rules
 
-SCHEMA_VERSION = 2  # 2: training_config_matches_committed, test_gate_compression_conditions, test_out_of_range(감사 2026-11-18)
+SCHEMA_VERSION = 3  # 3: test_held_out, fpr_exact_upper, 후보별 serving, decision.primary(감사 결정 2026-11-18)
 
 
 class ReportError(RuntimeError):
@@ -37,6 +37,16 @@ class ReportError(RuntimeError):
 def _scores(path: Path) -> dict[str, dict]:
     with path.open(newline="", encoding="utf-8") as f:
         return {f"{r['dataset_id']}:{r['video_id']}": r for r in csv.DictReader(f)}
+
+
+def _availability(run: Path, meta: dict) -> dict[str, frozenset]:
+    """학습이 서버와 같은 함수로 정한 영상별 축 성공(availability.csv). 해시가 다르면 거부한다."""
+    path = run / "availability.csv"
+    if not path.is_file() or sha256_file(path) != meta.get("availability_sha256"):
+        raise ReportError("availability.csv가 없거나 학습 뒤에 바뀌었다")
+    with path.open(newline="", encoding="utf-8") as f:
+        return {f"{r['dataset_id']}:{r['video_id']}": frozenset(a for a in ("signal", "physics", "alignment") if r[a] == "1")
+                for r in csv.DictReader(f)}
 
 
 def _media(features_dir: Path | None) -> dict:
@@ -75,6 +85,7 @@ def build(manifest: Path, run: Path, lock_path: Path = DEFAULT_LOCK_PATH, n_boot
     seed, confidence = adoption["bootstrap_seed"], adoption["confidence"]
     if sha256_file(manifest) != meta["manifest_sha256"]:
         raise ReportError("학습에 쓴 manifest가 아니다(sha256 불일치)")
+    ok_axes = _availability(run, meta)
     records = read_manifest(manifest)
     report = hygiene.check(records, load_lock(lock_path))
     if not report.ok:
@@ -82,11 +93,15 @@ def build(manifest: Path, run: Path, lock_path: Path = DEFAULT_LOCK_PATH, n_boot
     gid = groups.group_ids(records)
     dev_conditions = set(meta["dev_compression_conditions"])
     out_of_range = set(config["out_of_range_compression_profiles"])
+    # 최종 평가 전용 압축은 test 관문에 넣지 않고 관문 뒤에 한 번 따로 보고한다(README §15.3 2026-11-18, 감사 A15)
+    held_out = set(config["held_out_compression_profiles"])
     split_rows = {
         "dev": [r for r in records if r.split == "dev"
                 and (r.compression_profile_id or training_config.ORIGINAL) in dev_conditions],
-        "test": [r for r in records if r.split == "test" and r.compression_profile_id not in out_of_range],
+        "test": [r for r in records if r.split == "test"
+                 and r.compression_profile_id not in out_of_range | held_out],
         "test_out_of_range": [r for r in records if r.split == "test" and r.compression_profile_id in out_of_range],
+        "test_held_out": [r for r in records if r.split == "test" and r.compression_profile_id in held_out],
     }
 
     candidates, items, threshold_of, evaluated = [], {}, {}, {}
@@ -114,6 +129,9 @@ def build(manifest: Path, run: Path, lock_path: Path = DEFAULT_LOCK_PATH, n_boot
                 continue
             evaluated[name][split] = metrics.evaluate(items[name][split], threshold_of[name], n_boot, seed, confidence)
             evaluated[name][split]["calibration"] = rules.calibration_metrics(items[name][split], model["calibration"])
+            if split == "test_held_out":
+                # 관문 계산(own·fusion·선택)은 이 값을 읽지 않는다. 표에도 그렇게 적는다
+                evaluated[name][split]["used_for_adoption"] = False
 
     selection = rules.select_on_dev({n: evaluated[n]["dev"] for n in evaluated}, candidates)
     own = {n: rules.own_gates(evaluated[n]["test"], adoption) for n in evaluated}
@@ -132,7 +150,24 @@ def build(manifest: Path, run: Path, lock_path: Path = DEFAULT_LOCK_PATH, n_boot
         if len(c["axes"]) > 1 and rules.BASELINE in evaluated:
             vs_best = compare(name, best_single) if best_single not in (None, rules.BASELINE) else None
             fusion_checks[name] = rules.fusion_gates(compare(name, rules.BASELINE), vs_best, adoption)
-    verdict = rules.decide(selection, own, fusion_checks)
+
+    # 서빙(README §15.3 2026-11-18, 감사 A9): 선택 후보는 입력이 모두 있으면 쓰이므로 test 관문의 집단이 곧 서빙 집단이다.
+    # 대체 후보는 서버에서 실제로 쓰일 test 영상(축 성공 패턴이 그 후보의 축과 정확히 같은 영상)만으로 따로 평가한다
+    decision, primary = rules.primary_of(selection, own, fusion_checks)
+    serving_of: dict[str, dict] = {}
+    fallback_checks: dict[str, list[dict]] = {}
+    if decision == rules.FUSION_ADOPTABLE:
+        for name in rules.fallback_candidates(primary, candidates):
+            axes = frozenset(next(c["axes"] for c in candidates if c["candidate"] == name))
+            population = [it for it in items[name]["test"] if ok_axes.get(it.uid, frozenset()) == axes]
+            evaluation = metrics.evaluate(population, threshold_of[name], n_boot, seed, confidence)
+            fallback_checks[name] = rules.fallback_gates(evaluation, adoption)
+            serving_of[name] = {"role": serving.FALLBACK, "population": "축 성공 패턴이 정확히 " + "+".join(sorted(axes))
+                                + "인 test 영상(관문 집단 안)", "evaluation": evaluation, "gates": fallback_checks[name]}
+    verdict = rules.decide(selection, own, fusion_checks, fallback_checks)
+    if primary is not None:
+        serving_of[primary] = {"role": serving.PRIMARY, "population": "test 관문 집단 전체(입력이 모두 있으면 다른 축의 성공과 "
+                               "상관없이 쓰인다). 지표는 test와 같다", "videos": evaluated[primary]["test"]["counts"]["videos"]}
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -144,6 +179,8 @@ def build(manifest: Path, run: Path, lock_path: Path = DEFAULT_LOCK_PATH, n_boot
         "test_gate_compression_conditions": sorted({r.compression_profile_id or training_config.ORIGINAL
                                                     for r in split_rows["test"]}),
         "out_of_range_compression_profiles": sorted(out_of_range),
+        # 최종 평가 전용. test 관문에서 빠지고 후보별 test_held_out에 관문 뒤 1회 보고된다(채택 판단에 쓰지 않음)
+        "held_out_compression_profiles": sorted(held_out),
         "train_compression_conditions": meta["train_compression_conditions"],
         "decision": verdict, "selection": selection,
         "gates": {"adoption_config": adoption, "own": own, "fusion": fusion_checks},
@@ -152,7 +189,9 @@ def build(manifest: Path, run: Path, lock_path: Path = DEFAULT_LOCK_PATH, n_boot
             "axes": c["axes"], "inputs": c["inputs"], "motion_variant": c["motion_variant"],
             "threshold": threshold_of[c["candidate"]], "threshold_digest": c["threshold_digest"],
             "dev": evaluated[c["candidate"]]["dev"], "test": evaluated[c["candidate"]]["test"],
-            "test_out_of_range": evaluated[c["candidate"]]["test_out_of_range"]} for c in candidates},
+            "test_out_of_range": evaluated[c["candidate"]]["test_out_of_range"],
+            "test_held_out": evaluated[c["candidate"]]["test_held_out"],
+            **({"serving": serving_of[c["candidate"]]} if c["candidate"] in serving_of else {})} for c in candidates},
         "data": {"manifest_sha256": meta["manifest_sha256"], "features_sha256": meta["features_sha256"],
                  "feature_version": meta["feature_version"], "split_videos": meta["split_videos"],
                  "dev_videos_used": meta["dev_videos_used"], "group_sizes": meta["group_sizes"],
@@ -168,6 +207,7 @@ def build(manifest: Path, run: Path, lock_path: Path = DEFAULT_LOCK_PATH, n_boot
             "판정 제공 비율(coverage)은 분석한 양이다. 정확도나 신뢰도가 아니다.",
             "TPR·FPR은 점수가 나온 영상만으로 계산한다. 점수가 없는 영상은 보류로 센다.",
             "운영 범위 밖 압축 조건(480p)은 test 관문 지표에 넣지 않고 판정 제공 비율·보류 사유만 따로 적는다.",
+            "최종 평가 전용 압축 조건은 test 관문에 넣지 않는다. 관문 뒤 1회 보고하며 채택 판단에 사용하지 않는다.",
         ],
     }
 
@@ -194,20 +234,39 @@ def to_markdown(r: dict) -> str:
     lines += [
         f"- **dev 압축 조건(임계값·후보 선택에 쓴 것):** {', '.join(r['dev_compression_conditions'])}",
         f"- test 관문에 들어간 압축 조건: {', '.join(r['test_gate_compression_conditions'])} "
-        f"(운영 범위 밖으로 뺀 조건: {', '.join(r['out_of_range_compression_profiles']) or '없음'})",
+        f"(운영 범위 밖으로 뺀 조건: {', '.join(r['out_of_range_compression_profiles']) or '없음'}, "
+        f"최종 평가 전용으로 뺀 조건: {', '.join(r['held_out_compression_profiles']) or '없음'})",
         f"- train 압축 조건: {', '.join(r['train_compression_conditions'])}",
         f"- **판단: {d['decision_ko']}** (`{d['decision']}`)",
         f"- dev에서 고른 결합 후보: {d['selected_fusion'] or '없음'} / 단일 최강: {d['best_single'] or '없음'}",
         f"- 서버에 쓸 수 있는 후보: {', '.join(d['servable_candidates']) or '없음'}",
         f"- 신뢰구간: 그룹 bootstrap {r['bootstrap']['n_boot']}회, {int(r['bootstrap']['confidence'] * 100)}%. 값 [하한, 상한].",
         "", "## 후보별 지표 (test, dev에서 잠근 임계값)", "",
-        "| 후보 | 축 | ROC-AUC | TPR | 실제 FPR | 판정 제공 비율 | Brier | ECE |", "|---|---|---|---|---|---|---|---|",
+        "FPR 관문은 bootstrap 상한(실제 FPR의 [ ] 오른쪽 값)과 정확 상한(Clopper–Pearson, n = 진짜 그룹 수, "
+        "k = n × 영상 단위 FPR) 중 큰 값으로 본다.", "",
+        "| 후보 | 축 | ROC-AUC | TPR | 실제 FPR | FPR 정확 상한(진짜 그룹 수) | 판정 제공 비율 | Brier | ECE |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for name, c in r["candidates"].items():
         t = c["test"]
+        exact = t["overall"]["fpr_exact_upper"]
         lines.append(f"| {name} | {'+'.join(c['axes'])} | {_ci(t['overall']['roc_auc'])} | {_ci(t['overall']['tpr'], _pct)} | "
-                     f"{_ci(t['overall']['fpr'], _pct)} | {_pct(t['selective']['verdict_coverage'])} | "
+                     f"{_ci(t['overall']['fpr'], _pct)} | {_pct(exact['value'])} ({exact['n_real_groups']}) | "
+                     f"{_pct(t['selective']['verdict_coverage'])} | "
                      f"{_num(t['calibration']['brier'])} | {_num(t['calibration']['ece'])} |")
+    lines += ["", "## 서빙 규칙과 대체 후보 (test)", "", f"- 규칙: {d['serving_rule']}",
+              f"- 선택 후보: {d['primary'] or '없음'}. 대체 후보로 검토한 것: {', '.join(d['fallbacks_considered']) or '없음'}",
+              "- 대체 후보는 서버에서 실제로 쓰일 test 영상(축 성공 패턴이 정확히 같은 영상)만으로 평가한다. "
+              "TPR 이득 비교는 하지 않는다.", "",
+              "| 대체 후보 | 서빙 집단 | 영상 | 진짜·가짜 그룹(점수 있음) | ROC-AUC | 실제 FPR | FPR 정확 상한 | 서빙 |",
+              "|---|---|---|---|---|---|---|---|"]
+    for name in d["fallbacks_considered"]:
+        sv = r["candidates"][name]["serving"]
+        ev = sv["evaluation"]
+        lines.append(f"| {name} | {sv['population']} | {ev['counts']['videos']} | "
+                     f"{ev['counts']['real_groups_scored']}·{ev['counts']['fake_groups_scored']} | {_ci(ev['overall']['roc_auc'])} | "
+                     f"{_ci(ev['overall']['fpr'], _pct)} | {_pct(ev['overall']['fpr_exact_upper']['value'])} | "
+                     f"{'예' if name in d['servable_candidates'] else '아니오'} |")
     lines += ["", "## dev (선택에 쓴 값)", "", "| 후보 | ROC-AUC | dev TPR | dev FPR | 판정 제공 비율 |", "|---|---|---|---|---|"]
     for name, c in r["candidates"].items():
         v = c["dev"]
@@ -218,6 +277,9 @@ def to_markdown(r: dict) -> str:
     for key, c in r["comparisons_test"].items():
         lines.append(f"| {key} | {_ci(c['tpr'], _pct)} | {_ci(c['fpr'], _pct)} | {_ci(c['roc_auc'])} | {_ci(c['coverage'], _pct)} |")
     lines += ["", "## 관문", "", "| 후보 | 확인 | 값 | 기준 | 통과 |", "|---|---|---|---|---|"]
+    for name in d["fallbacks_considered"]:
+        for c in r["candidates"][name]["serving"]["gates"]:
+            lines.append(f"| {name}(대체, 서빙 집단) | {c['check']} | {_num(c['value'])} | {c['rule']} | {'예' if c['passed'] else '아니오'} |")
     for group in ("own", "fusion"):
         for name, checks in r["gates"][group].items():
             for c in checks:
@@ -226,6 +288,16 @@ def to_markdown(r: dict) -> str:
     for name, c in r["candidates"].items():
         for cond, v in c["test"]["by_compression"].items():
             lines.append(f"| {name} | {cond} | {v['videos']} | {_ci(v['roc_auc'])} | {_ci(v['tpr'], _pct)} | {_ci(v['fpr'], _pct)} |")
+    lines += ["", "## 최종 평가 전용 압축 조건 (test, 관문 뒤 1회 보고, 채택 판단에 사용하지 않음)", "",
+              "임계값은 dev에서 잠근 값 그대로다. 이 표의 값은 위의 판단·서빙 후보에 영향을 주지 않는다.", "",
+              "| 후보 | 조건 | 영상 | ROC-AUC | TPR | 실제 FPR | 판정 제공 비율 | 용도 |", "|---|---|---|---|---|---|---|---|"]
+    for name, c in r["candidates"].items():
+        h = c["test_held_out"]
+        for cond, v in h["by_compression"].items():
+            lines.append(f"| {name} | {cond} | {v['videos']} | {_ci(v['roc_auc'])} | {_ci(v['tpr'], _pct)} | "
+                         f"{_ci(v['fpr'], _pct)} | "
+                         f"{_pct((v['real_scored'] + v['fake_scored']) / v['videos'] if v['videos'] else None)} | "
+                         "관문 뒤 1회 보고, 채택 판단에 사용하지 않음 |")
     lines += ["", "## 운영 범위 밖 압축 조건 (test, 관문 제외)", "",
               "탐지 지표는 계산하지 않는다. 판정 제공 비율과 보류 사유만 적는다.", "",
               "| 후보 | 조건 | 영상 | 판정 제공 비율 | 보류 사유별 |", "|---|---|---|---|---|"]

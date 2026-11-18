@@ -3,7 +3,9 @@
 3축 결합을 강제로 채택하지 않는다(README §5.4, 백로그 12번). 규칙은 README §15.3 결정 5·8 보완(2026-11-16):
 묶음의 digest가 저장소에 커밋된 값과 같고, 검증 리포트가 채택 조건을 통과했고(판단을 리포트 지표로 다시 계산해
 확인하고, 학습 설정이 커밋된 configs/training.json과 같아야 한다), 특징 버전이 서버와 같고,
-이번에 성공한 축의 집합과 정확히 일치하는 후보가 있을 때만 overall_score와 verdict_label을 낸다.
+이번 요청에 쓸 후보가 있을 때만 overall_score와 verdict_label을 낸다. 후보는 training/serving.py의 규칙으로 고른다:
+선택 후보는 그 축이 모두 성공하고 입력이 모두 있으면 쓰고, 아니면 성공한 축 집합과 정확히 같은 대체 후보를 쓴다
+(README §15.3 2026-11-18).
 하나라도 어긋나면 null / abstained / no_valid_fusion_model이다. 결측을 0이나 평균으로 채우지 않는다.
 """
 
@@ -54,8 +56,11 @@ def fuse(axes: dict[str, dict[str, Any]], bundle: Optional[Any] = None,
     """bundle이 없으면 지금까지와 같이 보류한다. 있으면 성공한 축 집합에 맞는 후보로만 판정한다."""
     if bundle is None:
         return dict(ABSTAINED)
-    available = {name for name, a in axes.items() if a.get("status") == "completed"}
-    candidate = bundle.for_axes(available)
+    from training import serving
+
+    # 축 성공은 학습과 같은 함수로 정하고, 후보는 학습·리포트와 같은 규칙으로 고른다(README §15.3 2026-11-18, 감사 A9)
+    available = serving.successful_axes({name: a.get("status") for name, a in axes.items()})
+    candidate = bundle.choose(available, inputs or {})
     score = candidate.score(inputs or {}) if candidate is not None else None
     if score is None:
         return dict(ABSTAINED)

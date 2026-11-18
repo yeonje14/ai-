@@ -35,10 +35,14 @@ def made(tmp_path_factory):
     original = synth.FEATURE_VERSION
     synth.FEATURE_VERSION = extract.feature_version(extract.default_settings())
     try:
-        c = config()
-        c["adoption"] = {**c["adoption"], "n_boot": 200}
-        # 진짜 영상이 충분해야 WaveRep 단독도 FPR CI 관문을 넘어 대체 후보가 된다
-        cfg = synth.SynthConfig(identities=800, signal={"waverep": 1.3, "full": 1.6}, seed=7)
+        # 목표 FPR 2%·인물 1000명(test 진짜 그룹 약 100개): FPR 관문의 정확 상한(감사 A10)을 넘을 수 있게 한다.
+        # physics를 절반, alignment를 전부 실패시켜 W가 "physics·alignment가 모두 실패한 영상"이라는 자기 서빙 집단에서
+        # 따로 검증된 대체 후보가 되게 한다(감사 A9). 그만큼 결합의 판정 제공 비율이 줄므로 이 테스트 설정에서만
+        # max_coverage_drop을 풀어 둔다(커밋된 설정은 0.05).
+        c = config(target_fpr=0.02)
+        c["adoption"] = {**c["adoption"], "n_boot": 200, "max_coverage_drop": 0.6}
+        cfg = synth.SynthConfig(identities=1000, signal={"waverep": 1.6, "full": 1.6},
+                                missing={"full": 0.5, "syncnet": 1.0}, seed=7)
         assert run_train(folder, cfg, c).returncode == 0
     finally:
         synth.FEATURE_VERSION = original
@@ -46,8 +50,10 @@ def made(tmp_path_factory):
                        "--out", str(folder / "rep")]) == 0
     # 테스트의 학습 설정(n_boot 200, dev 원본만)을 "커밋된 설정"으로 본다. 실제로는 configs/training.json과 견준다
     (folder / "training.json").write_text(json.dumps(c), encoding="utf-8")
-    manifest = bundles.create(folder / "run", folder / "rep/report.json", folder / "fusion/b1", expected_config=c)
+    manifest = bundles.create(folder / "run", folder / "rep/report.json", folder / "fusion/b1", expected_config=c,
+                              manifest=folder / "run-data/manifest.csv", features=folder / "run-data")
     assert manifest["decision"] == "fusion_adoptable" and manifest["synthetic"] is True
+    assert manifest["reproduction"]["verified"] is True  # 같은 입력으로 다시 학습·리포트해 같았다(감사 A16)
     return folder, manifest
 
 
@@ -129,7 +135,7 @@ def test_synthetic_bundle_cannot_be_enabled_from_environment(monkeypatch):
 
 def test_valid_bundle_assesses_with_exactly_matching_axes(pinned, queue, registry, monkeypatch):
     settings, manifest, _ = pinned
-    assert [c["candidate"] for c in manifest["candidates"]] == ["W+M", "W"]
+    assert [(c["candidate"], c["role"]) for c in manifest["candidates"]] == [("W+M", "primary"), ("W", "fallback")]
     fake_axes(monkeypatch, signal=4.0, physics=6.0)
     _, job = run_job(queue, registry, settings)
     r = job.result
@@ -150,15 +156,25 @@ def test_low_scores_get_low_suspicion_label_not_real(pinned, queue, registry, mo
     assert job.result["verdict_label"] == "low_suspicion" and job.result["overall_score"] < 0.5
 
 
-def test_partial_axis_failure_uses_separately_validated_subset_or_abstains(pinned, queue, registry, monkeypatch):
+def test_selected_candidate_serves_when_its_axes_succeed_and_fallback_only_on_its_exact_pattern(pinned, queue, registry,
+                                                                                               monkeypatch):
+    """README §15.3 2026-11-18(감사 A9): 선택 후보는 축이 모두 성공하고 입력이 있으면 쓴다(다른 축이 더 성공해도).
+    대체 후보는 성공한 축 집합이 정확히 그 후보의 축일 때만 쓴다."""
     settings, _, _ = pinned
+    # 세 축이 모두 성공 → 선택 후보 W+M. SyncNet 값은 결합에 쓰지 않으므로 API에 싣지 않는다
+    fake_axes(monkeypatch, signal=4.0, physics=6.0, alignment=True)
+    _, job = run_job(queue, registry, settings)
+    r = job.result
+    assert r["verdict_status"] == "assessed" and "(W+M)" in r["explanations"][0]["message"]
+    assert r["axes"]["alignment"]["included_in_fusion"] is False and r["axes"]["alignment"]["lse_c"] is None
+    # physics 실패, alignment 실패 → 성공 축 {signal} = W의 서빙 집단 → 따로 검증된 W
     fake_axes(monkeypatch, signal=4.0, physics_status="insufficient_input")
     _, job = run_job(queue, registry, settings)
-    r = job.result  # physics 실패 → signal만으로 따로 검증된 W 후보
+    r = job.result
     assert r["verdict_status"] == "assessed" and "(W)" in r["explanations"][0]["message"]
     assert r["axes"]["signal"]["raw_score"] == 4.0 and r["axes"]["physics"]["raw_score"] is None
-    # 세 축이 모두 성공했지만 3축 후보는 검증되지 않았다 → 2축 모델로 내려 쓰지 않고 보류
-    fake_axes(monkeypatch, alignment=True)
+    # physics 실패, alignment 성공 → 선택 후보를 못 쓰고 {signal, alignment}와 정확히 같은 대체 후보도 없다 → 보류
+    fake_axes(monkeypatch, signal=4.0, physics_status="insufficient_input", alignment=True)
     _, job = run_job(queue, registry, settings)
     assert_abstained(job.result)
 
@@ -247,29 +263,32 @@ def test_bundle_is_not_created_from_hold_or_mismatched_report(made, tmp_path):
     report = json.loads((folder / "rep/report.json").read_text())
     report["decision"].update(decision="hold", servable_candidates=[])
     (tmp_path / "hold.json").write_text(json.dumps(report))
+    data = {"manifest": folder / "run-data/manifest.csv", "features": folder / "run-data"}
     with pytest.raises(bundles.BundleError, match="report_not_adoptable"):
-        bundles.create(folder / "run", tmp_path / "hold.json", tmp_path / "b")
+        bundles.create(folder / "run", tmp_path / "hold.json", tmp_path / "b", **data)
     assert not (tmp_path / "b").exists()
     report = json.loads((folder / "rep/report.json").read_text())
     report["data"]["manifest_sha256"] = "0" * 64
     (tmp_path / "other.json").write_text(json.dumps(report))
     with pytest.raises(bundles.BundleError, match="report_mismatch"):
-        bundles.create(folder / "run", tmp_path / "other.json", tmp_path / "b2")
+        bundles.create(folder / "run", tmp_path / "other.json", tmp_path / "b2", **data)
     with pytest.raises(FileExistsError):
         bundles.create(folder / "run", folder / "rep/report.json", folder / "fusion/b1",
-                       expected_config=json.loads((folder / "training.json").read_text()))
+                       expected_config=json.loads((folder / "training.json").read_text()), **data)
 
 
 def test_candidate_score_matches_training_formula_and_threshold_side(pinned):
     settings, _, folder = pinned
     loaded = fusion.load_active(settings)
-    wm = loaded.for_axes({"signal", "physics"})
+    wm = loaded.choose(frozenset({"signal", "physics"}), {"W": 1.0, "M-full": 2.0})
+    assert wm.name == "W+M" and loaded.primary == "W+M"
     model = json.loads((folder / "models/W+M.json").read_text())["model"]
     expected = model["intercept"] + sum(c * (x - m) / s for c, x, m, s in zip(model["coef"], (1.0, 2.0), model["mean"], model["scale"]))
     assert wm.score({"W": 1.0, "M-full": 2.0}) == pytest.approx(expected)
     assert wm.score({"W": 1.0}) is None and wm.score({"W": 1.0, "M-full": float("nan")}) is None
-    assert loaded.for_axes({"physics"}) is None and loaded.for_axes(set()) is None
-    w = loaded.for_axes({"signal"})
+    assert loaded.choose(frozenset({"physics"}), {"M-full": 2.0}) is None and loaded.choose(frozenset(), {}) is None
+    w = loaded.choose(frozenset({"signal"}), {"W": 0.0})
+    assert w.name == "W"
     at = fusion.fuse({"signal": {"status": "completed"}}, loaded, {"W": w.threshold})
     below = fusion.fuse({"signal": {"status": "completed"}}, loaded, {"W": w.threshold - 1e-6})
     assert at["verdict_label"] == "suspicious_signals" and below["verdict_label"] == "low_suspicion"

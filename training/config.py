@@ -17,7 +17,8 @@ KEYS = {"schema_version", "_comment", "dev_compression_conditions", "held_out_co
         "out_of_range_compression_profiles", "max_group_share", "n_folds", "fold_seed",
         "target_fpr", "waverep_score", "lightgbm", "logistic", "adoption"}
 ADOPTION_KEYS = {"g2_min_auc_ci_low", "min_tpr_gain_ci_low", "max_fpr_worsening", "max_coverage_drop",
-                 "max_test_fpr_ci_high", "n_boot", "bootstrap_seed", "confidence"}
+                 "max_test_fpr_ci_high", "n_boot", "bootstrap_seed", "confidence",
+                 "fallback_min_real_groups", "fallback_min_fake_groups"}
 WAVEREP_SCORES = ("logit_median", "logit_mean", "logit_q75")
 ORIGINAL = "original"
 
@@ -62,6 +63,10 @@ def validate(config: dict) -> dict:
     adoption = config["adoption"]
     if set(adoption) != ADOPTION_KEYS:
         raise ConfigError(f"adoption의 키는 정확히 {sorted(ADOPTION_KEYS)}")
+    for key in ("fallback_min_real_groups", "fallback_min_fake_groups"):
+        # 대체 후보가 서버에서 쓰일 test 영상의 최소 그룹 수(README §15.3 2026-11-18, 감사 A9)
+        if not isinstance(adoption[key], int) or isinstance(adoption[key], bool) or adoption[key] < 1:
+            raise ConfigError(f"adoption.{key}는 1 이상의 정수")
     return config
 
 
