@@ -53,6 +53,9 @@ def run(ctx: AxisContext) -> dict:
                         + (' 남은 구간이 없어 동기화를 확인하지 못했습니다.' if none_left else '')),
         })
     features = fusion_features(raw) if ctx.bundle is not None else None
+    if features and raw.get('device_used') != ctx.settings.syncnet_device:
+        # 장치가 대체되면 특징 버전과 다른 값이다(README §15.3 결정 9 보완). 결합 입력으로 넘기지 않는다(감사 A4)
+        features = None
     if features:
         # 학습과 같은 함수·같은 기준(completed일 때만). 결합 입력으로만 넘긴다
         for key, value in features.items():

@@ -58,6 +58,23 @@ class WaveRepConfig:
     measure_peak_footprint: bool = False
 
 
+# 영상 단위 결합 입력으로 쓸 수 있는 프레임 logit 집계. 서버(결합 입력)와 학습(특징 추출)이 같은 함수를 쓴다(감사 A13)
+FUSION_AGGREGATES = ("logit_median", "logit_mean", "logit_q75")
+
+
+def aggregate_logits(logits: Sequence[float], name: str) -> Optional[float]:
+    """프레임 logit의 영상 단위 집계. 프레임이 없으면 None(0이 아님). 모르는 이름은 ValueError."""
+    if name not in FUSION_AGGREGATES:
+        raise ValueError(f"집계는 {FUSION_AGGREGATES} 중 하나: {name!r}")
+    if not logits:
+        return None
+    if name == "logit_median":
+        return statistics.median(logits)
+    if name == "logit_mean":
+        return statistics.fmean(logits)
+    return statistics.quantiles(logits, n=4, method="inclusive")[2] if len(logits) > 1 else logits[0]
+
+
 def summarize_logits(logits: Sequence[float]) -> dict[str, Any]:
     """프레임 logit 요약. 프레임이 없으면 통계는 None이다(0이 아님)."""
     n = len(logits)

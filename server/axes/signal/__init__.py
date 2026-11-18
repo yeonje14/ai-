@@ -75,11 +75,15 @@ def run(ctx: AxisContext) -> dict[str, Any]:
         )
 
     if ctx.bundle is not None and out["status"] == waverep.COMPLETED:
-        # 묶음이 정한 집계(학습 때와 같은 것)만 결합 입력으로 넘긴다. API의 raw_score는 fusion이 채운다
-        key = {"logit_median": "median", "logit_mean": "mean"}.get(ctx.bundle.waverep_score)
-        value = out["raw_metrics"]["frame_logit"].get(key) if key else None
-        if value is not None:
-            ctx.fusion_inputs["W"] = float(value)
+        used = (out.get("model") or {}).get("device_used")
+        if used != ctx.settings.waverep_device:
+            # 묶음의 특징 버전은 설정한 장치로 추출한 값이다. 다른 장치로 대체된 점수는 넣지 않는다(감사 A4)
+            log.warning("waverep device mismatch: fusion input withheld")
+        elif ctx.bundle.waverep_score in waverep.FUSION_AGGREGATES:
+            # 묶음이 정한 집계를 학습과 같은 함수로 계산해 결합 입력으로만 넘긴다. API의 raw_score는 fusion이 채운다
+            value = waverep.aggregate_logits([f["logit"] for f in out["frames"]], ctx.bundle.waverep_score)
+            if value is not None:
+                ctx.fusion_inputs["W"] = float(value)
 
     return {
         "status": out["status"],

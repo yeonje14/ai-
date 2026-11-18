@@ -175,3 +175,33 @@ def shortcut_diagnostic(labels: dict[str, str], media: dict[str, Optional[dict]]
         if auc is not None and abs(auc - 0.5) > SHORTCUT_WARN_MARGIN:
             out["warnings"].append(name)
     return out
+
+
+def comparison_key(a: str, b: str) -> str:
+    """리포트의 comparisons_test 키."""
+    return f"{a} − {b}"
+
+
+def rederive(report: dict, adoption: dict) -> dict:
+    """리포트에 적힌 지표만으로 선택·관문·판단을 다시 계산한다(감사 A1).
+
+    판단 문자열이나 서빙 후보 목록만 고친 리포트, 다른 채택 기준으로 계산한 리포트를 걸러 내는 데 쓴다.
+    지표 숫자까지 일관되게 고친 위조는 막지 못한다(서명이 아니다).
+    """
+    cands = [{"candidate": n, "axes": c["axes"], "inputs": c["inputs"]} for n, c in report["candidates"].items()]
+    selection = select_on_dev({n: c["dev"] for n, c in report["candidates"].items()}, cands)
+    own = {n: own_gates(c["test"], adoption) for n, c in report["candidates"].items()}
+    best = selection["best_single"]
+    comparisons = report["comparisons_test"]
+    fusion_checks = {}
+    for c in cands:
+        name = c["candidate"]
+        if len(c["axes"]) > 1 and BASELINE in report["candidates"]:
+            vs_best = comparisons[comparison_key(name, best)] if best not in (None, BASELINE) else None
+            fusion_checks[name] = fusion_gates(comparisons[comparison_key(name, BASELINE)], vs_best, adoption)
+    return decide(selection, own, fusion_checks)
+
+
+def same_decision(a: dict, b: dict) -> bool:
+    keys = ("decision", "selected_fusion", "best_single", "servable_candidates")
+    return all(a.get(k) == b.get(k) for k in keys)

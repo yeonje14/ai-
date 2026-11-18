@@ -33,7 +33,9 @@ def env(tmp_path, monkeypatch):
     def wave(m, work, segments, settings):
         calls.append(("waverep", m.read_bytes()))
         assert segments == [[1.0, 6.0]]
-        return {"status": "completed", "reason_code": None, "frame_logits": [1.0, 3.0, 8.0], "device_used": "cpu"}
+        # 실제 실행기처럼 쓴 장치를 적는다. 설정(기본 mps)과 다르면 캐시를 다시 계산한다(감사 A4)
+        return {"status": "completed", "reason_code": None, "frame_logits": [1.0, 3.0, 8.0],
+                "device_used": settings["waverep"]["device"]}
 
     def phys(m, work, segments, settings):
         calls.append(("motionphys", m.read_bytes()))
@@ -46,7 +48,7 @@ def env(tmp_path, monkeypatch):
         calls.append(("syncnet", m.read_bytes()))
         if m.read_bytes() == b"crash":
             raise RuntimeError("secret path /x/y")
-        return {"status": "completed", "reason_code": None, "segments": [
+        return {"status": "completed", "reason_code": None, "device_used": settings["syncnet"]["device"], "segments": [
             {"tracks": [{"lse_c": 4.0, "lse_d": 8.0, "offset_frames": -2}, {"lse_c": 6.0, "lse_d": 7.0, "offset_frames": 4}]},
             {"tracks": None}]}
 

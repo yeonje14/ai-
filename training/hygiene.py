@@ -56,6 +56,11 @@ def _error(code: str, count: int, examples: list) -> dict:
     return {"code": code, "count": count, "examples": examples[:MAX_EXAMPLES]}
 
 
+def _name_key(dataset_id: str) -> str:
+    """데이터셋 이름 비교용: 대소문자와 기호를 무시한다."""
+    return "".join(ch for ch in dataset_id.lower() if ch.isalnum())
+
+
 def check(records: Iterable[Record], lock: dict[str, dict]) -> HygieneReport:
     """누수 검사. 예외를 던지지 않고 리포트로 돌려준다(형식 오류는 ManifestError)."""
     records = validate(records)
@@ -136,6 +141,12 @@ def check(records: Iterable[Record], lock: dict[str, dict]) -> HygieneReport:
     unregistered = sorted({r.dataset_id for r in records if r.split == "external" and r.dataset_id not in lock})
     if unregistered:
         report.errors.append(_error("external_dataset_not_registered", len(unregistered), unregistered))
+    # 5-1) 잠금 대상과 표기만 다른 이름(mavos_dd, MAVOS-DD 등)으로 내부 분할에 들어온 영상 (감사 A7)
+    locked_names = {_name_key(d) for d in lock}
+    alias = sorted(r.uid for r in records if r.dataset_id not in lock and r.split in INTERNAL_SPLITS
+                   and _name_key(r.dataset_id) in locked_names)
+    if alias:
+        report.errors.append(_error("external_dataset_alias_in_internal_split", len(alias), alias))
 
     # 경고: 실패는 아니지만 검증할 수 없었던 것. 0이어도 항목을 남긴다
     report.warnings = {

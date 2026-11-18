@@ -64,3 +64,23 @@ def get_profile(profile_id: str) -> Profile:
         return PROFILES[profile_id]
     except KeyError:
         raise ProfileError(f"없는 프로파일: {profile_id!r}. 있는 것: {sorted(PROFILES)}") from None
+
+
+def may_equal_output(profile_id: str, other_id: str, source_short_side: Optional[int]) -> bool:
+    """두 프로파일이 이 원본에서 같은 파일을 낼 수 있는가(감사 A3, docs/compression-emulator.md §5).
+
+    해상도만 다르고 나머지 설정이 같은 두 프로파일은 실제 출력의 짧은 변이 같으면 같은 바이트를 낸다.
+    `source`는 원본 크기(짝수로 내림)를 쓰고, 목표가 원본보다 크면 에뮬레이터가 만들지 않는다.
+    예: 짧은 변 1080px 원본에서 x264-crf34-1080p == x264-crf34-source.
+    원본 크기를 모르면(None) 같을 수 있다고 본다. 막는 쪽으로 틀린다.
+    """
+    a, b = get_profile(profile_id), get_profile(other_id)
+    rest = lambda p: {k: v for k, v in p.to_dict().items() if k not in ("profile_id", "short_side")}  # noqa: E731
+    if rest(a) != rest(b):
+        return False
+    if a.short_side == b.short_side:
+        return True
+    if a.short_side is not None and b.short_side is not None:
+        return False
+    sized = a.short_side if a.short_side is not None else b.short_side
+    return source_short_side is None or source_short_side - source_short_side % 2 == sized

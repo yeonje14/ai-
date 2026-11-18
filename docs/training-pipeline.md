@@ -28,12 +28,17 @@ README §14.1 백로그 8번·12번. 작성일: 2026-11-16. 브랜치 `feat/trai
 | 그룹(인물·원본 계보)이 분할에 걸치면 안 된다 | `training/hygiene.py`. 어댑터는 manifest를 쓰지 않고, 추출·학습·리포트는 실행을 거부한다 |
 | 공식 분할이 그룹을 쪼개면 조용히 다시 나누지 않는다 | 어댑터가 공식 `test`를 그대로 두고 공식 `train`만 train/dev로 나눈 뒤 누수 검사에 맡긴다 |
 | 압축 파생본은 부모의 분할과 라벨을 물려받는다 | `derived_not_inheriting_parent` 오류 |
+| 같은 바이트의 영상이 여러 분할에 있으면 안 된다 | `hygiene`(manifest의 `file_hash`)과 `train.py`(추출기가 계산해 `features.jsonl`에 남긴 `input_sha256`). 어댑터는 영상을 열지 않아 원본 행의 `file_hash`가 비어 있으므로 추출기의 해시로도 본다(감사 A8) |
+| 잠금 대상 외부 평가 자료는 이름 표기를 바꿔도 내부 분할에 넣지 못한다 | `hygiene`의 `external_dataset_alias_in_internal_split`(대소문자·기호를 무시하고 비교, 감사 A7). 내용(바이트) 비교는 외부 표본의 파일 해시가 없어 하지 못한다 |
 | 한 그룹이 내부 영상의 25%를 넘으면 학습하지 않는다 | `groups.size_summary`, `train.py`. 리포트에 그룹 크기 분포 |
 | dev 압축 조건에는 기본값이 없다 | `configs/training.json`의 값이 `null`이면 `training/config.py`가 거부. 리포트 맨 위에 표시 |
 | 임계값은 dev에서만, FPR 5% 목표로 정해 잠근다 | `thresholds.fit_threshold`(dev가 아닌 분할 거부), 읽기 전용 파일과 digest. 설정에는 임계값 분할을 바꾸는 키가 없고 모르는 키는 거부된다. test의 특징·라벨을 바꿔도 모델·보정·임계값이 같다는 테스트가 있다 |
 | 결합 모델의 입력은 OOF 점수다 | `train.py`: MotionPhys는 그룹 5-fold OOF, 결합 모델도 같은 폴드로 교차 적합. 보정은 그 OOF 예측에만 맞춘다 |
 | 계산하지 못한 점수는 null이다 | 특징·점수 파일의 빈칸, `Candidate.score`가 입력 결측이면 None |
+| 설정한 장치(특징 버전)와 다른 장치로 대체된 값은 쓰지 않는다 | 추출: WaveRep·SyncNet이 `device_used`가 설정과 다르면 `error`/`device_mismatch`(캐시하지 않음). 서버: 같은 경우 결합 입력을 넘기지 않아 보류(축 상태는 그대로, 감사 A4) |
+| 서버와 학습은 같은 함수로 결합 입력을 만든다 | WaveRep 집계 `waverep.aggregate_logits`(중앙값·평균·q75), SyncNet `report.fusion_features`. SyncNet 상태 규칙의 판(`report.STATUS_RULE`)이 특징 버전·캐시 키에 들어간다(감사 A13·A14) |
 | 외부 평가 자료는 쓰지 않는다 | 추출·학습·리포트 모두 `external` 분할을 읽지 않는다. 잠금(`configs/external_eval_lock.json`)과 `--final-external` 절차는 그대로다(`docs/evaluation-pipeline.md`) |
+| 사전 고정 설정으로 학습한 결과만 서버에 간다 | 리포트는 학습 설정이 커밋된 `configs/training.json`과 다르면 맨 위에 적는다(`training_config_matches_committed`). 묶음은 같을 때만 만들고, 서버도 묶음의 설정이 지금 커밋된 설정과 같을 때만 쓴다. 설정을 바꾸면 다시 학습·검증해야 한다(감사 A2) |
 | 3축을 강제로 채택하지 않는다 | 아래 채택 판단 |
 
 ## 데이터셋 어댑터
@@ -67,8 +72,8 @@ README §14.1 백로그 8번·12번. 작성일: 2026-11-16. 브랜치 `feat/trai
 | 역할 | 조건 | 설정 |
 |---|---|---|
 | dev(임계값·후보 선택) | `original`, `x264-crf28-720p` | `configs/training.json`의 `dev_compression_conditions` |
-| **최종 평가 전용**(학습·압축 증강·모델 선택·임계값·dev에 쓰지 않는다) | `x264-crf34-source`, `x264-crf34-720p`, `x264-crf20-source` | `held_out_compression_profiles`. train·dev에 이 프로파일의 행이 있으면 학습이 거부된다. dev 조건에 넣으면 설정 검사가 거부한다 |
-| 운영 범위 밖(따로 보고) | 480p 세 개(`x264-crf20-480p`, `x264-crf28-480p`, `x264-crf34-480p`) | 짧은 변 480px는 WaveRep의 최소 504px보다 작아 `unsupported_input`이다. WaveRep이 들어간 후보는 이 조건에서 전부 보류가 되므로 dev·최종 평가의 탐지 지표에 섞지 않고, 판정 제공 비율·실패율만 따로 보고한다 |
+| **최종 평가 전용**(학습·압축 증강·모델 선택·임계값·dev에 쓰지 않는다) | `x264-crf34-source`, `x264-crf34-720p`, `x264-crf20-source` | `held_out_compression_profiles`. train·dev에 이 프로파일의 행이 있으면 학습이 거부된다. 원본 짧은 변이 1080px(또는 모름)이라 같은 바이트가 될 수 있는 1080p 파생본(`x264-crf34-1080p`, `x264-crf20-1080p`)이 train·dev에 있어도 거부된다(감사 A3, Gate가 읽은 부모 영상 크기로 판단). dev 조건에 넣으면 설정 검사가 거부한다. test 관문에 넣을지는 결정 대기(감사 A15) — 지금은 넣고, 리포트 `test_gate_compression_conditions`에 적는다 |
+| 운영 범위 밖(따로 보고) | 480p 세 개(`x264-crf20-480p`, `x264-crf28-480p`, `x264-crf34-480p`) | `out_of_range_compression_profiles`. 짧은 변 480px는 WaveRep의 최소 504px보다 작아 `unsupported_input`이다. WaveRep이 들어간 후보는 이 조건에서 전부 보류가 되므로 dev·test 관문의 탐지 지표에 섞지 않고, 리포트의 `test_out_of_range`에 판정 제공 비율·보류 사유만 따로 적는다(감사 A6에서 코드로 옮김). dev 조건·최종 평가용 목록과 겹치면 설정 검사가 거부한다 |
 
 - 남은 프로파일(`x264-crf20-720p`, `x264-crf28-source`, `x264-crf28-720p`, `1080p` 세 개)은 train의 압축 증강에 쓸 수 있다. `1080p` 프로파일은 짧은 변이 1080px인 원본에서 `source`와 같은 출력을 낸다(`docs/compression-emulator.md` §5). 그런 원본에서 `x264-crf34-1080p`·`x264-crf20-1080p`는 최종 평가 전용과 같은 파일이 되므로 **train 증강에도 쓰지 않는다**(최종 평가와 같은 바이트를 학습에 넣지 않기 위해서다).
 - dev는 두 조건을 합쳐 임계값을 **하나** 정한다. 조건별 실제 FPR은 5%가 아니며 리포트의 "압축 조건별" 표에서 따로 읽는다.
@@ -93,6 +98,7 @@ README §14.1 백로그 8번·12번. 작성일: 2026-11-16. 브랜치 `feat/trai
 
 - 묶음: 서버가 쓸 수 있는 후보(`servable_candidates`)의 계수·표준화·보정, 잠근 임계값, MotionPhys 모델, 특징 버전, 데이터 해시, 검증 리포트. `bundle.json`의 digest로 고정한다. 판단이 보류면 만들지 않는다.
 - 서버는 digest, 파일 해시, 리포트 판단, 합성 여부, 특징 버전을 확인하고, **성공한 축의 집합과 정확히 일치하는 후보**가 있을 때만 `overall_score`·`verdict_label`을 낸다. 어긋나면 `null` / `abstained` / `no_valid_fusion_model`이다.
+- 감사(2026-11-18)로 더한 확인(묶음 형식 2): 서버가 읽는 파일(리포트·모델·임계값·MotionPhys 모델)은 모두 digest가 덮는 `files`에 있어야 한다. 판단·서빙 후보는 리포트의 지표를 커밋된 채택 기준으로 다시 계산한 결과와 같아야 한다. 학습 설정이 커밋된 `configs/training.json`과 같아야 한다. 지표 숫자까지 앞뒤가 맞게 고친 위조는 막지 못한다(재현 검증 제안, `docs/audit-training-pipeline.md` A16).
 - 새 API 필드와 상태 값은 없다. 판정할 때 채워지는 기존 필드는 §15.3에 적혀 있다.
 - 앱은 실제 서버 모드에서 라벨을 숨기는 현재 동작 그대로다.
 
