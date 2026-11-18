@@ -1,5 +1,17 @@
 # HANDOFF
 
+## 우연 채택률 1,000명 재측정 (2026-11-19, 브랜치 `audit/null-rerun-1000`)
+
+- 한 일: `scripts/audit_null_adoption.py --identities 1000 --seeds 100`(커밋된 설정, dev 조건만 `["original"]`)을 main `5aa7acf` 기준으로 끝까지 돌렸다(02:04~02:30, 시드당 약 16초, 중단 없음). `docs/audit-training-pipeline.md` 표에 "결정 반영 후 1,000명" 행과 "W의 FPR 관문 통과" 열을 더했다.
+- 결과: **결합 채택 0/100, WaveRep 단독 0/100, 보류 100/100**(각 정확 95% 상한 3.6%), 학습 거부 0. test 진짜 400개(100그룹).
+- **FPR 관문 통과: W 20/100**(정확 95% CI 12.7~29.2%). 이 크기에서는 관문을 넘을 수 있다(120명은 구조적으로 0). 100회 모두 정확 상한이 관문을 정했다(bootstrap 상한만이면 92/100). 진짜 100그룹에서는 test 영상 FPR 4.0% 이하일 때만 통과한다.
+- W의 AUC 관문은 1/100이었고 그 시드는 FPR 관문에서 떨어져 WaveRep 단독은 0. 고른 결합의 자기 FPR 관문 26/100, 결합 전용 관문을 모두 넘은 시드 0. 후보 6개 중 하나라도 자기 관문을 다 넘은 시드 7/100(여러 번 비교 효과, 판단에는 안 씀).
+- 한계: 100회로는 1% 아래 비율을 가를 수 없다. WaveRep 단독의 우연 비율은 두 관문이 독립이면 약 0.5%로 **추정**될 뿐 측정이 아니다.
+- 코드: `scripts/audit_null_adoption.py`가 시드별 관문 값(`w_fpr_gate_value` = max(bootstrap, 정확 상한))·정확 상한·test 영상 FPR·후보별 AUC/FPR 관문 통과·고른 결합과 결합 전용 관문 통과를 더 남기고, 요약에 관문 통과 횟수를 낸다. **판단 논리 변경 없음.** 테스트 `tests/test_audit_null_adoption_script.py`(3개, 학습·리포트는 가짜).
+- `pytest -q`: **818 passed, 1 skipped**(건너뜀은 LightGBM 없음).
+- 결과(Git 밖): `data/research/audit-null/identities1000-seeds100/`(`results.jsonl`, 시드 폴더, 약 780MB), 로그 `data/research/audit-null/identities1000-seeds100.log`.
+- 막힌 점: 없음. PR은 이 브랜치로 생성, merge는 사용자 지시 후.
+
 ## 실제 Worker 수명주기 확인 (2026-11-19, 브랜치 `research/real-timeout-verify`)
 
 - 한 일: 실제 API 서버와 별도 Worker, 실제 영상 A(임시 레지스트리의 테스트 ID)로 세 가지를 확인했다. **제품 코드·기본값 변경 없음**(설정은 시나리오별 환경 변수만). 상세 표는 `docs/syncnet-adapter.md` "실제 Worker 수명주기 확인".
@@ -41,6 +53,7 @@
 - main `f9cfcf4`(감사 결정 반영 후)에서 `scripts/audit_null_adoption.py --identities 120 --seeds 200`을 다시 돌려 `docs/audit-training-pipeline.md` 해당 절에 "결정 반영 후" 행을 추가했다. 코드 변경 없음.
 - 결과: 결합 채택 0/200, WaveRep 단독 0/200(반영 전 3/197). 단 120명 데이터는 test 진짜 그룹이 12개라 A10 정확 상한 때문에 FPR 관문을 구조적으로 넘을 수 없어, 이 0은 우연 채택이 줄었다는 증거가 아니다.
 - **남은 일:** 관문이 통과 가능한 크기(진짜 그룹 약 100개 이상, 인물 800~1,000명)에서 다시 재야 의미 있는 비율이 나온다(시드당 약 1분). `pytest`는 문서만 바꿔 다시 돌리지 않았다.
+  → 2026-11-19 인물 1,000명·시드 100회로 측정(맨 위 "우연 채택률 1,000명" 절).
 - PR: 이 브랜치로 생성. merge는 사용자 지시 후.
 
 ## 감사 결정 반영 (2026-11-18, 브랜치 `audit/decisions`)
