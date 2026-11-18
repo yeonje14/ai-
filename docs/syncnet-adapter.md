@@ -230,7 +230,7 @@ B·E의 SyncNet 진단은 실행하지 않았다. 임계값·모델·API 계약�
 
 - supervisor 경유와 standalone의 단계별 시간은 같은 영상에서 거의 같았다(예: A `s3fd_detect` 204.0 대 201.9초). 시작·종료 오버헤드는 0.2~0.3초다. **supervisor가 시간을 늘린 증거는 없다.**
 - 타이머 없는 어댑터는 A·E에서 타이머 있는 실행과 비슷했고(274.0, 254.1초), B는 312.8초로 더 느렸다. 같은 설정의 반복 사이에서도 최대 13%(B supervised 263.3/299.0초) 벗어난 적이 있어 타이머가 시간을 늘리지 않았다고 단정하지는 못하고, 늘렸다는 증거도 없다(1회 측정).
-- **미해결:** `docs/motionphys-adapter.md`의 Worker 안 A 실행에서 SyncNet 단계는 약 400초였다. 이번 어댑터 단독은 274~294초다. 차이의 원인은 확인하지 않았다. 이번 측정은 Worker 밖이다.
+- **미해결:** `docs/motionphys-adapter.md`의 Worker 안 A 실행에서 SyncNet 단계는 약 400초였다. 이번 어댑터 단독은 274~294초다. 차이의 원인은 확인하지 않았다. 이번 측정은 Worker 밖이다. → 2026-11-18~19 같은 세션 교차 측정 결과는 아래 "Worker 안 대 단독 — 같은 세션 교차 측정" 절(Worker 경로 자체는 원인이 아니고, 앞 단계가 데운 기기의 열 제한이 이번 세션 차이를 설명했다).
 - 결과 일치: 15건 모두 로버스트니스 실측의 트랙 지표(오프셋·LSE-C·LSE-D)와 같았다(구간별 완전 일치, A 5/5·B 9/9·E 6/6 구간).
 
 **단계별 시간 (초, standalone 2회 평균 / 괄호는 두 회의 차이)**
@@ -456,6 +456,8 @@ python scripts/profile_syncnet_baseline.py --report   # data/research/syncnet-pe
 
 ### Worker 안 약 400초 대 단독 274~294초 — 측정 방법 제안 (원인 추정 없음)
 
+> 2026-11-18~19에 이 방법의 (a)(b)(c)와 진단 조건 (d)(e)로 쟀다. 결과는 맨 아래 "Worker 안 대 단독 — 같은 세션 교차 측정" 절.
+
 1. **같은 세션에서 번갈아 잰다.** 오늘 같은 기기에서 CPU 실행 시간이 2배까지 달라졌다(A 285 → 577초). 다른 시간대의 숫자끼리 견주지 않는다. Worker 실행과 단독 실행을 A·B·A·B 순서로 3회씩 돌린다.
 2. **Worker 안에서도 단계별로 잰다.** Worker의 `alignment.build_config`를 측정 스크립트에서만 `profile_run.py`를 가리키게 바꿔(복구 테스트의 부트스트랩과 같은 방식, 제품 코드 변경 없음) Worker 안 SyncNet의 단계별 시간을 단독 실행과 같은 표로 얻는다.
 3. **앞 단계의 영향을 분리한다.** Worker는 SyncNet 전에 Gate·WaveRep(MPS)·MotionPhys를 돌린다. (a) Worker 전체 경로, (b) 앞 단계를 가짜로 바꾼 Worker(SyncNet만 실제), (c) 단독 실행을 같은 세션에서 비교한다.
@@ -650,3 +652,83 @@ SyncNet 단계 제한이 끝난 뒤 작업 deadline을 마지막으로 확인하
 **테스트** `tests/test_syncnet_stage_timeout.py`(15개): 길이 규칙(짧음 2.5초 → 100초, 길음 37초 → 652초, 150초 → 2,460초), 남은 시간 − 여유가 더 짧을 때, 기본 작업 제한 식이 SyncNet 규칙 + 여유보다 항상 큼, 환경 변수, 잘못된 설정 거부, 남은 시간이 여유보다 짧으면 SyncNet 미실행. Worker에서는 실제 별도 프로세스로 도는 느린 가짜 SyncNet으로 (a) 남은 시간 부족, (b) 길이 규칙, (c) 진입 때 시간 없음의 세 경우 모두 작업 `finished`, SyncNet 축만 `error` / `timeout`, WaveRep·MotionPhys 결과 유지, `analysis_status=partial`을 확인했다. 여유를 빼면 이 중 5개가 실패한다(작업이 `failed`가 됨).
 
 **미검증:** 실제 Worker에서 SyncNet 단계 제한에 걸리는 종단 실행은 하지 않았다(가짜 SyncNet 프로세스로만 확인).
+
+## Worker 안 대 단독 — 같은 세션 교차 측정 (2026-11-18~19, 브랜치 `research/syncnet-worker-gap`)
+
+위 "Worker 안 약 400초 대 단독 274~294초 — 측정 방법 제안"의 (a)(b)(c)를 같은 세션에서 번갈아 각 3회 이상 쟀고, 원인을 가르려고 진단 조건 (d)(e)를 더했다. **제품 코드·설정 기본값은 바꾸지 않았다.** 기준 커밋은 main `5aa7acf`.
+
+**조건 (모두 A 원본, SyncNet CPU, 같은 Gate 적합 구간 5개 37.021초)**
+
+| 조건 | 내용 |
+|---|---|
+| a | Worker 전체 경로: 별도 Worker 프로세스, 임시 레지스트리·DB, 실제 Gate → WaveRep(MPS) → MotionPhys → SyncNet |
+| b | Worker, 앞 단계 가짜: Gate는 로버스트니스 실측의 A 적합 구간을 바로 돌려주고 WaveRep·MotionPhys는 실행하지 않는다. SyncNet만 실제 |
+| c | 단독: Worker·supervisor 없이 SyncNet 실행기만 `subprocess.run`으로 |
+| d (진단) | Worker 없이 측정 프로세스가 실제 Gate·WaveRep·MotionPhys 어댑터를 차례로 부른 직후 c와 같은 단독 SyncNet |
+| e (진단) | 모델·미디어·GPU 없이 8개 논리 코어 모두에 순수 계산 프로세스를 68초(a·d의 앞 단계 길이) 돌린 직후 c와 같은 단독 SyncNet |
+
+- SyncNet 장치는 원래 차이가 관측된 조건인 **CPU**(`TRINITY_SYNCNET_DEVICE=cpu`, 측정용 환경 변수). 지금 기본값은 MPS이고, 2026-11-18의 MPS 1회 비교에서는 Worker 안과 단독의 차이가 +0.9%였다(위 "A의 Worker 종단 재측정 결과").
+- 네 조건 모두 SyncNet 자식은 같은 프로파일 실행기(`research/syncnet/profile_adapter_shim.py` → `profile_run.py`)다. Worker 조건은 측정 프로세스 안에서만 `alignment.build_config`의 실행기 경로를 바꿨다(`tests/test_job_lifecycle.py` 부트스트랩과 같은 방식). 측정용으로 작업·SyncNet 제한만 환경 변수로 1,800초로 늘렸다.
+- 순서는 라틴 방격(a1 b1 c1 d1 / b2 c2 d2 a2 / c3 d3 a3 b3), 뒤이어 e1 c4 e2 c5 e3. 실행마다 최소 180초 쉬고, thermalState가 0이고 쉬는 때 CPU 탐침(한 스레드 고정 계산)이 세션 최솟값의 5% 안에 들 때까지 더 쉬었다(최대 600초). 17회 모두 이 조건을 채운 뒤 시작했다.
+- 기록: 실행 전후 `pmset -g batt`·`pmset -g therm`·`ProcessInfo.thermalState`·`vm_stat`·부하·충전기 정보, 실행 중 5초마다 시스템 전력(`AppleSmartBattery`의 SystemLoad, root 없이 읽힘)·thermalState·다른 프로세스 CPU(실행 파일 이름만). 결과 JSON은 Git 밖 `data/research/syncnet-worker-gap/runs/`.
+- 기기: Apple M3 MacBook Air(`Mac15,12`, **팬 없음**) 16GB, macOS 27.0.1. **측정 내내 20W USB-C 충전기 연결·충전 중**(배터리 34% → 73%, `pmset -g batt` "AC Power; charging"). 저전력 모드 꺼짐. `pmset -g therm`은 측정 내내 "No thermal warning level has been recorded"였다(이 기기에서는 열 제한을 보여 주지 않는다). CPU 주파수는 root 권한(`powermetrics`)이 없어 **직접 재지 못했다.**
+
+**결과 (17회, 실패 0, 측정 시각 2026-11-18 23:07 ~ 11-19 01:31 AEST)**
+
+| 조건 | 회수 | SyncNet 시간 평균(최소–최대, 초) | S3FD 평균 | 구간 절단(FFmpeg) 평균 | SyncNet 시작 때 thermalState | 첫 구간 S3FD 프레임당(초) |
+|---|---|---|---|---|---|---|
+| a Worker 전체 | 3 | **281.1** (255.2–302.3) | 203.0 | 27.0 | 1(a1은 시작 19초 뒤 1) | 0.166~0.216 |
+| b Worker, 앞 단계 가짜 | 3 | **241.0** (230.7–249.7) | 175.1 | 21.1 | 0 (66~116초 뒤 1) | 0.165 |
+| c 단독 | 5 | **253.3** (243.7–276.4) | 184.3 | 22.6 | 0 (66~86초 뒤 1) | 0.162~0.175 |
+| d Worker 밖, 실제 앞 단계 직후 | 3 | **289.0** (278.1–305.3) | 208.3 | 27.8 | 1 | 0.185~0.224 |
+| e 순수 계산 열 68초 직후 | 3 | **276.2** (268.4–280.7) | 198.2 | 27.4 | 0~1(시작 4초 안에 1) | 0.169~0.192 |
+
+실행별(SyncNet 초): a 255.2 / 302.3 / 285.8, b 242.4 / 249.7 / 230.7, c 243.7 / 246.2 / 276.4 / 248.5 / 251.6, d 278.1 / 305.3 / 283.5, e 268.4 / 280.7 / 279.5. Worker 안 SyncNet 시간은 어댑터 호출 시간, 단독은 자식 프로세스 바깥 시간이다(프로세스 안 시간과 0.3~0.4초 차이).
+
+- **17회 모두 결과가 같다**: 5구간 모두 트랙 1개, 오프셋 +4, LSE-C·LSE-D가 실행 사이에 완전히 같았다. a의 작업은 3회 모두 finished / completed / abstained, 세 축 completed, `device_used=cpu`. 측정 뒤 남은 모델 프로세스·작업 폴더 없음.
+- a의 앞 단계: Gate 12.1~12.5, WaveRep 18.1~18.7, MotionPhys 36.9~38.2초(2026-11-16 Worker 실측의 18·26·61초보다 짧다). d의 앞 단계도 같은 크기(Gate 12.2~12.6, WaveRep 18.3~18.7, MotionPhys 37.2~38.3초).
+- **mediaanalysisd(macOS 사진·미디어 분석)가 60~80% CPU를 쓴 실행이 3회 있었다(a2, c3, d2).** 셋 다 자기 조건에서 가장 느렸다: a2 302.3(a의 나머지 평균 270.5, +31.8초), c3 276.4(c의 나머지 평균 247.5, +28.9초), d2 305.3(d의 나머지 평균 280.8, +24.5초). 나머지 14회의 다른 프로세스 CPU는 평균 81~108%(ecosystemd·mysqld·coreaudiod 등)로 비슷했다.
+- 그 3회를 빼면: **차게 시작한 b·c 7회 평균 244.7초(230.7~251.6), 앞에 부하가 있었던 a·d·e 7회 평균 275.9초(255.2~285.8), 차이 +31.2초(+12.8%).**
+- 메모리 압박: 17회 모두 실행 중 새 swapout 0. 최대 RSS 2.6~2.7GiB.
+
+**판단 (위 측정 방법 절의 판단 규칙)**
+
+- b ≈ c이고(오히려 b가 약간 빠르다) a만이 아니라 d·e도 느리다. 규칙대로면 "**앞 단계의 영향**"이고, Worker 경로 자체는 원인이 아니다.
+- e는 모델·미디어·GPU 없이 CPU 열만 만들었는데 a·d와 같은 만큼 느려졌다. 그래서 앞 단계의 영향은 **기기 온도(열 제한)**로 설명된다. 근거: 앞 부하가 있었던 9회 모두 SyncNet 시작 19초 안에(8회는 4초 안에) thermalState 1이었고 차게 시작한 8회는 시작 뒤 66~116초 동안 0이었다. S3FD 프레임당 시간이 thermalState 0에서 약 0.163~0.17초, 1에서 0.22~0.25초다. 차게 시작한 실행도 thermalState가 1이 된 마지막 구간에서 0.22~0.23초로 올라간다. torch와 무관한 FFmpeg 구간 절단도 약 25% 같이 느려져 기기 전체가 느려진 것이다. 팬 없는 기기라 약 1분 전체 코어 부하로 열 상태가 바뀐다.
+
+**가설 정리**
+
+| 가설 | 판정 | 근거 |
+|---|---|---|
+| Worker 경로 자체(supervisor·새 세션, heartbeat의 SQLite 기록, Worker 프로세스 환경, 작업 폴더 복사) | **배제(이번 세션)** | b 241.0 ≈ c 253.3, b ≤ c |
+| 앞 단계가 Worker에 남긴 것(남은 자식 프로세스, Worker가 쥔 자원) | **배제** | Worker 없는 d(289.0)도 a(281.1)만큼 느림. 모든 실행 뒤 남은 모델 프로세스 없음 |
+| 앞 단계의 열이 아닌 부작용(파일 캐시, 메모리 압박, WaveRep MPS가 남긴 GPU 상태) | **배제** | 모델·미디어·GPU 없는 e(276.2)가 같은 만큼 느림. swapout 0 |
+| 프로파일러 차이 | **해당 없음** | 모든 조건이 같은 프로파일 실행기를 쓴다(조건 사이 차이를 만들 수 없다) |
+| **앞 단계가 데운 기기의 열 제한** | **이번 세션의 a > b·c를 설명** | 위 판단. CPU 주파수를 직접 재지 못해 thermalState·S3FD 속도·FFmpeg 동반 지연·순수 열 재현으로 본 것이다 |
+| **다른 프로세스 부하**(mediaanalysisd 등) | **기여 확인** | 해당 3회가 각 조건에서 +24.5~31.8초(+9~12%) |
+| **세션 단위 기기 상태**(주변·본체 온도, 충전 상태, 그때 떠 있던 앱) | **남음(확인 불가)** | 아래 |
+
+**원래 차이(Worker 약 400초 대 단독 274~294초)에 대해 — 확정하지 못했다**
+
+- 이번에 확인한 두 요인은 앞 단계의 열(+12.8%)과 다른 프로세스 부하(약 +9~12%)다. 둘을 곱해도 274~294초의 약 1.26배(약 345~370초)라 400초에 30~55초 모자란다.
+- 2026-11-16 Worker 실측은 다른 날·다른 세션이고(단독 274~294초는 11-17 오후), 당시 "다른 프로세스가 떠 있는 상태"였으며 기기 상태를 기록하지 않았다. 그 실행의 앞 단계도 지금보다 1.5배 길었다(105초 대 68초, MotionPhys 61 대 37초). 그 세션 자체가 더 뜨겁거나 바빴을 가능성이 있지만 **확인할 수 없다**. 같은 기기의 CPU 단독 실행도 세션에 따라 2배까지 달랐다(11-17 오후 285 → 저녁 577초, 원인 미확인).
+- 그래서 원래 차이는 "**Worker 경로 때문이 아니다(배제)**, 앞 단계 열과 다른 프로세스 부하가 일부를 설명한다(확인), 나머지는 기록되지 않은 세션 상태(남은 가설)"로 둔다. 2026-11-16의 MotionPhys 단독 37.1초 대 Worker 안 약 61초도 같은 기전(Gate·WaveRep 뒤라 기기가 데워짐)일 수 있으나 이번에는 따로 재지 않았다(미확인). 이번 세션의 Worker 안 MotionPhys는 36.9~38.2초였다.
+
+**제안 (코드 변경 없음, 제안만)**
+
+1. **Worker 코드 변경은 필요 없다.** 차이를 만든 것은 Worker 경로가 아니라 기기 상태다.
+2. 작업 제한(`180 + 20 ×`)·SyncNet 단계 제한(`60 + 16 ×`)은 이 영향을 덮는다. 이번 CPU 최댓값 305.3초 = 적합 구간 1초당 8.2초로 SyncNet 계수 16 안이다. 바꿀 필요 없다.
+3. (관측 개선, 결정 필요) 서버 Worker 로그에 SyncNet `device_used`와 작업 시작 때 thermalState를 남기면 느린 작업의 원인을 사후에 가를 수 있다. 로그 항목 추가라 API는 그대로지만 로그 규칙(§12)에 맞는지 확인이 필요하다. 이번에는 구현하지 않았다.
+4. (측정 규칙) 이 기기에서 시간을 비교할 때는 같은 세션에서 번갈아 재고, 실행 전 열 상태를 맞추고(쿨다운 + thermalState), 다른 프로세스 CPU를 함께 기록한다. 앞 단계가 있는 측정과 없는 측정을 바로 견주지 않는다.
+
+**재현**
+
+```bash
+conda activate trinity
+python scripts/measure_syncnet_worker_gap.py --plan a1,b1,c1,d1,b2,c2,d2,a2,c3,d3,a3,b3 --cooldown 180 --cooldown-max 600
+python scripts/measure_syncnet_worker_gap.py --plan e1,c4,e2,c5,e3 --cooldown 180 --cooldown-max 600
+python scripts/measure_syncnet_worker_gap.py --report      # 실행별·조건별 표
+python scripts/measure_syncnet_worker_gap.py --plan a1,b1,c1,d1,e1 --dry   # 하네스 점검(SyncNet 없이)
+```
+
+테스트: `tests/test_measure_syncnet_worker_gap.py`(7개: 계획 형식, 전력 값 부호, 프로세스 트리, 표본 시간 창, 쉬기 조건, 실행기 점검 모드의 결과 형식). 측정 뒤 `pytest -q` **822 passed, 1 skipped**(건너뜀은 LightGBM 없음, 기존과 같음).
