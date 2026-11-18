@@ -12,6 +12,19 @@
 - 결과(Git 밖): `data/research/audit-null/identities1000-seeds100/`(`results.jsonl`, 시드 폴더, 약 780MB), 로그 `data/research/audit-null/identities1000-seeds100.log`.
 - 막힌 점: 없음. PR은 이 브랜치로 생성, merge는 사용자 지시 후.
 
+## SyncNet Worker 안 대 단독 시간 차이 (2026-11-18~19, 브랜치 `research/syncnet-worker-gap`)
+
+- 한 일: `docs/syncnet-adapter.md` 측정 방법의 (a) Worker 전체 경로, (b) 앞 단계 가짜 Worker, (c) 단독 실행을 같은 세션에서 라틴 방격 순서로 각 3회 이상(c는 5회) 쟀다. 원인을 가르려고 (d) Worker 없이 실제 앞 단계 직후 단독, (e) 모델 없이 순수 CPU 열 68초 직후 단독을 각 3회 더했다. 17회, 실패 0. SyncNet은 원래 차이가 난 조건인 CPU(측정용 환경 변수). **제품 코드·기본값 변경 없음.**
+- 측정 전 기기 상태(`pmset -g batt`): 20W 충전기 연결·충전 중, 배터리 34%(끝날 때 73%). 기기는 팬 없는 MacBook Air M3(`Mac15,12`). 실행마다 쿨다운(최소 180초 + thermalState 0 + CPU 탐침 회복)을 맞췄다.
+- 결과(SyncNet 초, 평균): a 281.1, b 241.0, c 253.3, d 289.0, e 276.2. mediaanalysisd가 돈 3회를 빼면 차게 시작한 b·c 244.7초 대 앞에 부하가 있던 a·d·e 275.9초(+12.8%). 17회 모두 트랙 결과가 완전히 같다.
+- **판단:** Worker 경로 자체는 원인이 아니다(b ≈ c, 배제). 앞 단계가 남긴 것·파일 캐시·메모리·MPS 상태도 배제(d·e가 같은 만큼 느림, swapout 0). 이번 세션의 차이는 **앞 단계가 데운 기기의 열 제한**으로 설명된다(앞 부하 뒤 9회 모두 SyncNet 시작 19초 안에 thermalState 1, S3FD 프레임당 0.165 → 0.22~0.25초, FFmpeg도 약 25% 같이 느려짐). 다른 프로세스(mediaanalysisd) 부하가 +9~12% 더한다.
+- **원래 차이(약 400초 대 274~294초)는 확정하지 못했다.** 확인한 두 요인으로 약 1.26배(약 345~370초)까지 설명되고, 나머지는 기록되지 않은 2026-11-16 세션 상태(남은 가설)다. CPU 주파수는 root 권한이 없어 직접 재지 못했다.
+- 제안만(코드 변경 없음): Worker 수정 불필요, 작업·SyncNet 제한 계수는 그대로 충분(최댓값 305.3초 = 1초당 8.2초). Worker 로그에 SyncNet `device_used`·thermalState를 남기는 관측 개선은 결정 필요.
+- 추가 파일: `scripts/measure_syncnet_worker_gap.py`(측정 하네스), `research/syncnet/profile_adapter_shim.py`(어댑터 자리의 프로파일 실행기, 측정 전용), `tests/test_measure_syncnet_worker_gap.py`(7개). 결과 JSON은 Git 밖 `data/research/syncnet-worker-gap/runs/`. 임시 레지스트리·DB·작업 폴더는 실행마다 지웠다.
+- `pytest -q`: **822 passed, 1 skipped**(건너뜀은 LightGBM 없음).
+- 실행 방법: `docs/syncnet-adapter.md` "Worker 안 대 단독 — 같은 세션 교차 측정"의 재현 절.
+- 막힌 점: 없음. PR은 이 브랜치로 생성, merge는 사용자 지시 후.
+
 ## README 첫 화면 분리 (2026-11-18, 브랜치 `docs/readme-front`)
 
 - 한 일: 기존 설계 README를 `docs/DESIGN.md`로 옮기고(내용 그대로, 머리말 "README v6.0"만 "설계 문서 v6.0"으로), 저장소 첫 화면용 `README.md`를 새로 썼다. `AGENTS.md`의 설계 기준·절 참조를 `docs/DESIGN.md`로 바꿨다.
@@ -96,7 +109,7 @@
 - **다음 할 일:**
   1. ~~A를 Worker 종단으로 1회 재측정~~ — 2026-11-18 완료(위 절).
   2. ~~작업 제한 정책 결정~~(2026-11-18 결정·구현) (권장 (a) `min(1800, 180 + 20 × 적합 구간 초)`, MPS 기본이면 계수 약 10으로 낮출 수 있음 — 재측정 뒤 다시 계산). 기본값 변경 없음.
-  3. Worker 400초 대 단독 270~290초: 같은 세션 교차 측정 + Worker 안 단계 프로파일 + 앞 단계 가짜 Worker 비교(문서 "Worker 안 약 400초" 절).
+  3. ~~Worker 400초 대 단독 270~290초: 같은 세션 교차 측정 + Worker 안 단계 프로파일 + 앞 단계 가짜 Worker 비교~~ — 2026-11-18~19 측정(맨 위 절). Worker 경로는 배제, 앞 단계 열 제한이 세션 안 차이를 설명, 원래 400초 전체는 미확정.
   4. `feat/motionphys-axis`·`feat/training-pipeline`은 main에 병합됨. 이 브랜치와 `research/robustness-run`의 PR은 사용자 지시 후.
 
 ## SyncNet 개선 1차 (2026-11-17, 브랜치 `feat/syncnet-perf`)
