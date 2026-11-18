@@ -1,4 +1,4 @@
-"""MotionPhys 계열 특징 추출기. 세 후보가 같은 인터페이스를 쓴다 (README §5.2, 백로그 10번).
+"""MotionPhys 계열 특징 추출기. 세 후보가 같은 인터페이스를 쓴다 (docs/DESIGN.md §5.2, 백로그 10번).
 
     full         A. 전체 화면. 논문(arXiv:2608.20770v1)의 재구현. 504차원
     face_roi     B. 같은 알고리즘을 MediaPipe 얼굴 박스 안으로 제한. 504차원 (논문과 다른 조건)
@@ -41,18 +41,18 @@ VARIANTS = ("full", "face_roi", "face_motion")
 FACE_MOTION_REGIONS = ("head", "eyebrows", "lips")
 SCHEMA_VERSION = 1
 
-# axes.*.status (README §10)
+# axes.*.status (docs/DESIGN.md §10)
 COMPLETED = "completed"
 INSUFFICIENT_INPUT = "insufficient_input"
 ERROR = "error"
-# 축별 세부 원인 (README §5.2, §10)
+# 축별 세부 원인 (docs/DESIGN.md §5.2, §10)
 INSUFFICIENT_MOTION = "insufficient_motion"
 TRACKING_FAILED = "tracking_failed"
 
 
 @dataclass(frozen=True)
 class Limits:
-    """분석 가능 기준. 전부 임시값이다. 개발 검증 데이터에서 정한 뒤 고정한다(README §5.2)."""
+    """분석 가능 기준. 전부 임시값이다. 개발 검증 데이터에서 정한 뒤 고정한다(docs/DESIGN.md §5.2)."""
 
     min_valid_per_scale: int = 20       # 스케일마다 끝까지 추적된 궤적 수의 하한
     min_moving_per_scale: int = 10      # 스케일마다 "움직인 궤적" 수의 하한

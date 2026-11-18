@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "note": "최종 외부 평가 전용 자료다. 학습·OOF·확률 보정·임계값 결정·내부 분할 배정에 쓰지 않는다. locked인 동안에는 평가도 거부한다. 모델과 임계값을 고정한 뒤에만 status를 unlocked로 고쳐 커밋한다 (README §6.3, §13.3, §15.3 결정 6).",
+  "note": "최종 외부 평가 전용 자료다. 학습·OOF·확률 보정·임계값 결정·내부 분할 배정에 쓰지 않는다. locked인 동안에는 평가도 거부한다. 모델과 임계값을 고정한 뒤에만 status를 unlocked로 고쳐 커밋한다 (docs/DESIGN.md §6.3, §13.3, §15.3 결정 6).",
   "datasets": {
     "mavos-dd": {
       "status": "locked",

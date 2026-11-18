@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "_comment": "서버가 쓸 검증된 모델 묶음의 고정값(README §15.3 결정 5·8 보완, 2026-11-16). 묶음 자체는 Git 밖 data/models/fusion/<bundle_id>/에 둔다. 둘 다 null이면 묶음이 없는 것이고 서버는 항상 판단을 보류한다. 묶음을 바꾸려면 이 파일의 digest를 고쳐 커밋해야 한다.",
+  "_comment": "서버가 쓸 검증된 모델 묶음의 고정값(docs/DESIGN.md §15.3 결정 5·8 보완, 2026-11-16). 묶음 자체는 Git 밖 data/models/fusion/<bundle_id>/에 둔다. 둘 다 null이면 묶음이 없는 것이고 서버는 항상 판단을 보류한다. 묶음을 바꾸려면 이 파일의 digest를 고쳐 커밋해야 한다.",
   "bundle_id": null,
   "digest": null
 }

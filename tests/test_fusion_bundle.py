@@ -1,4 +1,4 @@
-"""검증된 모델 묶음과 서버 관문 (조각 4, README §15.3 결정 5·8 보완). 합성 묶음만 쓴다. 수치는 성능이 아니다.
+"""검증된 모델 묶음과 서버 관문 (조각 4, docs/DESIGN.md §15.3 결정 5·8 보완). 합성 묶음만 쓴다. 수치는 성능이 아니다.
 
 묶음은 학습 venv로 만든다(없으면 건너뜀). 묶음이 없을 때의 기본 동작은 항상 확인한다.
 """
@@ -158,7 +158,7 @@ def test_low_scores_get_low_suspicion_label_not_real(pinned, queue, registry, mo
 
 def test_selected_candidate_serves_when_its_axes_succeed_and_fallback_only_on_its_exact_pattern(pinned, queue, registry,
                                                                                                monkeypatch):
-    """README §15.3 2026-11-18(감사 A9): 선택 후보는 축이 모두 성공하고 입력이 있으면 쓴다(다른 축이 더 성공해도).
+    """docs/DESIGN.md §15.3 2026-11-18(감사 A9): 선택 후보는 축이 모두 성공하고 입력이 있으면 쓴다(다른 축이 더 성공해도).
     대체 후보는 성공한 축 집합이 정확히 그 후보의 축일 때만 쓴다."""
     settings, _, _ = pinned
     # 세 축이 모두 성공 → 선택 후보 W+M. SyncNet 값은 결합에 쓰지 않으므로 API에 싣지 않는다

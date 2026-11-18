@@ -79,7 +79,7 @@ String verdictText(ScreenKind kind) => switch (kind) {
     };
 
 const _reasonText = <String, String>{
-  // 보류 원인 (README §10)
+  // 보류 원인 (docs/DESIGN.md §10)
   'insufficient_evidence': '판단할 근거가 충분하지 않습니다.',
   'unvalidated_condition': '검증되지 않은 조건의 영상입니다.',
   'no_valid_fusion_model': '검증된 종합 판정 모델이 없습니다.',

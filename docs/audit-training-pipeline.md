@@ -7,7 +7,7 @@
 
 ## 범위와 방법
 
-- 읽은 것: `AGENTS.md`, `docs/training-pipeline.md`, `docs/HANDOFF.md` 상단, README §10·§13·§15.3, `configs/training.json`, `configs/fusion_bundle.json`.
+- 읽은 것: `AGENTS.md`, `docs/training-pipeline.md`, `docs/HANDOFF.md` 상단, docs/DESIGN.md §10·§13·§15.3, `configs/training.json`, `configs/fusion_bundle.json`.
 - 감사한 코드: `training/`, `research/training/train.py`, `server/fusion/`, `server/axes/alignment/report.py`, `server/jobs/worker.py`.
   서버·학습 불일치를 보려고 `server/axes/{signal,physics,alignment}`와 `research/motionphys/infer_axis.py`도 읽었다.
 - 목표: (가) 검증되지 않았거나 부정하게 얻은 성능의 모델이 서버에서 판정을 내는 경로, (나) 나중에 성능 수치를 무효로 만들 결함.
@@ -97,9 +97,9 @@
 - **A16 (중간) 재현 검증.** 학습은 결정적이다(고정 시드, LightGBM `deterministic`). 묶음을 만들기 전에 같은 manifest·특징·커밋된 설정으로 학습·리포트를 다시 돌려 모델·임계값·리포트 해시가 같은지 확인하는 단계를 `training.bundle`에 넣는다. 서버는 데이터가 없으므로 이 확인은 묶음을 만드는 쪽에서만 할 수 있다.
 - **A17 (낮음)** TPR 차이를 두 후보가 모두 점수를 낸 영상에서 계산하거나, 단일 최강 대비에도 판정 제공 비율 관문을 둔다.
 
-## README §15.3 문구 (2026-11-18 승인, README에 반영함)
+## docs/DESIGN.md §15.3 문구 (2026-11-18 승인, README에 반영함)
 
-결정 5·8 보완의 서버 조건 (1)~(5)에 이어 다음을 README §15.3 "결정 5·6·7·8·12 보완(독립 감사 결정) — 2026-11-18"에 적었다. A9·A10·A11·A15 결정도 같은 항목에 있다.
+결정 5·8 보완의 서버 조건 (1)~(5)에 이어 다음을 docs/DESIGN.md §15.3 "결정 5·6·7·8·12 보완(독립 감사 결정) — 2026-11-18"에 적었다. A9·A10·A11·A15 결정도 같은 항목에 있다.
 
 > (6) 묶음의 학습 설정이 저장소에 커밋된 `configs/training.json`과 같다. 설정을 바꾸면 그 묶음은 쓰지 않고 다시 학습·검증한다.
 > (7) 검증 리포트의 판단과 서빙 후보는 리포트에 적힌 dev·test 지표를 그 설정의 채택 기준으로 다시 계산한 결과와 같다.

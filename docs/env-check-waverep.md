@@ -1,6 +1,6 @@
 # 개발 환경 점검 결과
 
-README §14.1 백로그 2번(P0-1). `python scripts/check_env.py`가 만든 파일이다. 직접 고치지 않는다.
+docs/DESIGN.md §14.1 백로그 2번(P0-1). `python scripts/check_env.py`가 만든 파일이다. 직접 고치지 않는다.
 
 - 점검 시각: 2026-11-12 14:58:08 +1000
 - 플랫폼: macOS-27.0.1-arm64-arm-64bit

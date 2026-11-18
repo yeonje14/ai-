@@ -8,7 +8,7 @@ def stage_timeout(ctx: AxisContext) -> float:
     """SyncNet 단계 제한(초) = min(기본항 + 계수 × 적합 구간 초, 남은 작업 시간 − 마무리 여유).
 
     SyncNet이 느려져도 작업 전체 제한보다 먼저 이 단계만 멈추게 해서, 작업은 finished로 끝나고
-    다른 축 결과가 남게 한다(README §15.3 2026-11-18). 0 이하이면 SyncNet을 시작하지 않는다.
+    다른 축 결과가 남게 한다(docs/DESIGN.md §15.3 2026-11-18). 0 이하이면 SyncNet을 시작하지 않는다.
     """
     s = ctx.settings
     eligible_sec = sum(end - start for start, end in ctx.segments)
@@ -54,7 +54,7 @@ def run(ctx: AxisContext) -> dict:
         })
     features = fusion_features(raw) if ctx.bundle is not None else None
     if features and raw.get('device_used') != ctx.settings.syncnet_device:
-        # 장치가 대체되면 특징 버전과 다른 값이다(README §15.3 결정 9 보완). 결합 입력으로 넘기지 않는다(감사 A4)
+        # 장치가 대체되면 특징 버전과 다른 값이다(docs/DESIGN.md §15.3 결정 9 보완). 결합 입력으로 넘기지 않는다(감사 A4)
         features = None
     if features:
         # 학습과 같은 함수·같은 기준(completed일 때만). 결합 입력으로만 넘긴다

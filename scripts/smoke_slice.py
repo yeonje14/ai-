@@ -1,6 +1,6 @@
 """실행 중인 서버와 worker에 URL-only 수직 슬라이스를 실제로 요청해 본다.
 
-사전 조건: API 서버와 worker가 떠 있어야 한다(README 하단 "서버 실행 방법").
+사전 조건: API 서버와 worker가 떠 있어야 한다(docs/DESIGN.md 하단 "서버 실행 방법").
 사용: python scripts/smoke_slice.py [http://127.0.0.1:8000] [작업당 최대 대기 초=180]
 """
 

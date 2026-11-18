@@ -1,4 +1,4 @@
-"""데이터셋 메타데이터 → 공통 manifest (README §6.4). 표준 라이브러리만 쓴다.
+"""데이터셋 메타데이터 → 공통 manifest (docs/DESIGN.md §6.4). 표준 라이브러리만 쓴다.
 
 데이터셋마다 다른 필드 이름은 configs/datasets/<이름>.json에 둔다. 코드에는 필드 이름을 적지 않는다.
 설정의 evidence가 "card"인 필드는 공개 데이터셋 카드에 적힌 것이고, "unconfirmed"는 확인하지 못한 자리다.

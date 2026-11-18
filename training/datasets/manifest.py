@@ -1,4 +1,4 @@
-"""공통 manifest: 데이터셋마다 다른 필드를 TRINITY 내부 공통 레코드로 맞춘다 (README §6.4).
+"""공통 manifest: 데이터셋마다 다른 필드를 TRINITY 내부 공통 레코드로 맞춘다 (docs/DESIGN.md §6.4).
 
 CSV 한 줄이 영상 하나다. 표준 라이브러리만 쓴다. 영상 파일을 열지 않는다.
 모르는 값은 빈칸이다. 0이나 추측값을 넣지 않는다.
@@ -15,7 +15,7 @@ from typing import Iterable
 SPLITS = ("train", "dev", "test", "external")
 INTERNAL_SPLITS = ("train", "dev", "test")
 LABELS = ("real", "fake")
-# README §6.1 위조 유형 관리. 평가용 메타데이터이며 다중분류 클래스가 아니다.
+# docs/DESIGN.md §6.1 위조 유형 관리. 평가용 메타데이터이며 다중분류 클래스가 아니다.
 MANIPULATION_TYPES = ("A1", "A2", "A3", "B1", "B2", "C1", "C2")
 IDENTITY_SEPARATOR = "|"
 

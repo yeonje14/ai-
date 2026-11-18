@@ -70,14 +70,14 @@ class Settings:
     gate_model_dir: Path = Path("data/models/gate")
     gate_models_config_path: Path = Path("configs/gate_models.json")
     gate_timeout_seconds: float = 120.0
-    # README §8 초기값: 동시 분석 1건(큐가 강제), 대기 3건. 실측 후 조정한다.
+    # docs/DESIGN.md §8 초기값: 동시 분석 1건(큐가 강제), 대기 3건. 실측 후 조정한다.
     max_queued: int = 3
     lease_seconds: float = 30.0
     max_attempts: int = 2
     # Gate 전 단계와 적합 구간 길이를 모를 때의 작업 전체 제한(초).
     job_timeout_seconds: float = 600.0
     # Gate가 끝나면 작업 전체 제한을 min(상한, 기본항 + 계수 × 적합 구간 초)로 다시 정한다
-    # (README §15.3 2026-11-18). 계수 20은 MPS를 못 써 CPU로 대체되거나 기기가 2배 느려진 경우까지 덮는다.
+    # (docs/DESIGN.md §15.3 2026-11-18). 계수 20은 MPS를 못 써 CPU로 대체되거나 기기가 2배 느려진 경우까지 덮는다.
     job_timeout_base_seconds: float = 180.0
     job_timeout_per_eligible_second: float = 20.0
     job_timeout_max_seconds: float = 1800.0
@@ -93,9 +93,9 @@ class Settings:
     waverep_batch_size: int = 1
     waverep_sample_fps: float = 2.0
     waverep_timeout_seconds: float = 300.0
-    # SyncNet 장치(cpu 또는 mps). 기본은 mps이고 쓸 수 없으면 cpu로 대체한다(README §15.3 2026-11-17).
+    # SyncNet 장치(cpu 또는 mps). 기본은 mps이고 쓸 수 없으면 cpu로 대체한다(docs/DESIGN.md §15.3 2026-11-17).
     syncnet_device: str = "mps"
-    # SyncNet 단계 제한 = min(기본항 + 계수 × 적합 구간 초, 남은 작업 시간 − 마무리 여유) (README §15.3 2026-11-18).
+    # SyncNet 단계 제한 = min(기본항 + 계수 × 적합 구간 초, 남은 작업 시간 − 마무리 여유) (docs/DESIGN.md §15.3 2026-11-18).
     # 계수 16은 가장 느린 CPU 실측(적합 구간 1초당 15.6초)을 덮는다.
     syncnet_timeout_base_seconds: float = 60.0
     syncnet_timeout_per_eligible_second: float = 16.0
@@ -105,7 +105,7 @@ class Settings:
     motionphys_timeout_seconds: float = 300.0
     # 추론을 기다리는 동안 lease를 연장하는 간격. lease_seconds보다 짧아야 한다.
     heartbeat_interval_seconds: float = 10.0
-    # 검증된 모델 묶음(README §15.3 결정 5·8 보완). 묶음은 Git 밖, digest는 저장소에 커밋한 설정 파일에 둔다.
+    # 검증된 모델 묶음(docs/DESIGN.md §15.3 결정 5·8 보완). 묶음은 Git 밖, digest는 저장소에 커밋한 설정 파일에 둔다.
     fusion_bundle_dir: Path = Path("data/models/fusion")
     fusion_bundle_config_path: Path = Path("configs/fusion_bundle.json")
     # 묶음의 학습 설정과 견줄 커밋된 학습 설정(사전 고정 채택 기준). 다르면 묶음을 쓰지 않는다(감사 A2).

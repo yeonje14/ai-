@@ -27,7 +27,7 @@ class SyncNetConfig:
     script: Path = RESEARCH / 'infer_segments.py'
     weights_dir: Path = ROOT / 'data/models/syncnet'
     timeout_sec: float = 600.0
-    # cpu 또는 mps. 기본은 mps이고 쓸 수 없으면 실행기가 cpu로 대체한다(README §15.3 2026-11-17, docs/syncnet-adapter.md)
+    # cpu 또는 mps. 기본은 mps이고 쓸 수 없으면 실행기가 cpu로 대체한다(docs/DESIGN.md §15.3 2026-11-17, docs/syncnet-adapter.md)
     device: str = 'mps'
 
 

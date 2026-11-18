@@ -27,7 +27,7 @@
   "_fake_source_recording_note": "가짜 영상의 원본 계보로 삼을 필드. 카드는 source/target의 뜻을 '녹화의 정수 식별자'로만 적는다. 어느 쪽이 화면의 원본인지는 확인 필요. 두 녹화 모두 derivation이 아니라 인물 ID로 이어지므로 그룹은 어느 쪽을 골라도 인물 기준으로 묶인다.",
   "manipulation_type": {
     "provisional": true,
-    "_comment": "TRINITY의 잠정 대응이며 게시자의 분류가 아니다(README §6.1). 보고는 생성기별을 기본으로 한다.",
+    "_comment": "TRINITY의 잠정 대응이며 게시자의 분류가 아니다(docs/DESIGN.md §6.1). 보고는 생성기별을 기본으로 한다.",
     "by_kind": {"avatar": "A2", "lip-sync": "B2", "face-swap": "C1"},
     "face_swap_restored_markers": ["codeformer", "restoreformer"],
     "face_swap_restored_type": "C2"

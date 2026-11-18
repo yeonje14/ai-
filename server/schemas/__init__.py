@@ -1,4 +1,4 @@
-"""결과·상태 Pydantic 모델 (README §9, §10).
+"""결과·상태 Pydantic 모델 (docs/DESIGN.md §9, §10).
 
 작업 종료(job_status) ≠ 분석 완료(analysis_status) ≠ 진위 판정(verdict_status).
 실패했거나 실행하지 않은 점수는 null이다. 0을 쓰지 않는다.
@@ -169,7 +169,7 @@ class AnalysisResult(BaseModel):
     job_status: JobStatus
     analysis_status: Optional[AnalysisStatus] = None
     verdict_status: Optional[VerdictStatus] = None
-    # 검증된 결합 모델이 없으면 null이다. assessed가 아닌 결과에는 붙일 수 없다 (README §9).
+    # 검증된 결합 모델이 없으면 null이다. assessed가 아닌 결과에는 붙일 수 없다 (docs/DESIGN.md §9).
     verdict_label: Optional[VerdictLabel] = None
     overall_score: Optional[float] = None
     abstention_reason: Optional[str] = None

@@ -24,7 +24,7 @@ MODEL_VERSION = 'motionphys-reimpl-features-v1'
 VARIANTS = ('full', 'face_roi', 'face_motion')
 PRIMARY = 'full'
 SCALES = ('8', '12', '24')
-# 추출기가 내는 "분석할 수 없음" 원인 가운데 그대로 전달하는 것 (README §5.2, §10)
+# 추출기가 내는 "분석할 수 없음" 원인 가운데 그대로 전달하는 것 (docs/DESIGN.md §5.2, §10)
 INPUT_REASONS = ('tracking_failed', 'insufficient_motion', 'segment_too_short')
 
 

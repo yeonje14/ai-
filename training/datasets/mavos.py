@@ -1,6 +1,6 @@
 """MAVOS-DD 표본을 공통 manifest로 바꾸고 메타데이터만 검사한다 (추론하지 않는다).
 
-MAVOS-DD open-set model 분할의 표본은 최종 외부 평가 전용이다(README §15.3 결정 6,
+MAVOS-DD open-set model 분할의 표본은 최종 외부 평가 전용이다(docs/DESIGN.md §15.3 결정 6,
 configs/external_eval_lock.json). 여기서는 영상을 열지 않는다. 경로, 크기, 목록의 sha256,
 층별 개수만 본다.
 
@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data" / "research" / "mavos-dd"
 MAX_TOTAL_BYTES = 10 * 10**9
 
-# 잠정 대응이다(2026-11-13). MAVOS-DD의 폴더(생성기)를 README §6.1의 A1~C2에 맞춘 판단이며
+# 잠정 대응이다(2026-11-13). MAVOS-DD의 폴더(생성기)를 docs/DESIGN.md §6.1의 A1~C2에 맞춘 판단이며
 # 게시자의 분류가 아니다. 결과 보고는 생성기별을 기본으로 하고 유형별은 보조로만 쓴다.
 MANIPULATION_TYPE_PROVISIONAL = True
 MANIPULATION_TYPE_BY_GENERATOR = {

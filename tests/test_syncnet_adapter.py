@@ -195,7 +195,7 @@ def test_device_is_mps_by_default_and_passed_to_runner(tmp_path, job):
     seen = tmp_path / 'seen.json'
     body = f"Path({str(seen)!r}).write_text(json.dumps(r)); out['device_used'] = r['device']; Path(a.output).write_text(json.dumps(out))"
     cfg = fake_config(tmp_path, body)
-    assert cfg.device == 'mps'  # README §15.3 2026-11-17. 못 쓰면 실행기가 cpu로 대체한다
+    assert cfg.device == 'mps'  # docs/DESIGN.md §15.3 2026-11-17. 못 쓰면 실행기가 cpu로 대체한다
     out = adapter().run_syncnet(video, [(0, 3)], work, cfg)
     assert json.loads(seen.read_text())['device'] == 'mps' and out['device_used'] == 'mps'
     out = adapter().run_syncnet(video, [(0, 3)], work, replace(cfg, device='cpu'))
@@ -213,7 +213,7 @@ def test_other_devices_never_launch(tmp_path, job, device):
 
 
 
-# ---------- 짧은 구간 제외 규칙 (README §15.3 결정 2·8 보완, 2026-11-17) ----------
+# ---------- 짧은 구간 제외 규칙 (docs/DESIGN.md §15.3 결정 2·8 보완, 2026-11-17) ----------
 
 SHORT = "out['segments'][{i}].update(status='insufficient_input', reason_code='segment_too_short', tracks=None);"
 NOTRACK = "out['segments'][{i}].update(status='insufficient_input', reason_code=None, tracks=None);"

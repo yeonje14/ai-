@@ -1,6 +1,6 @@
 """압축 프로파일 정의.
 
-초기 실험값이다(README §6.2). YouTube 내부 설정이 아니며 플랫폼 처리본에서 추정한 값도 아니다.
+초기 실험값이다(docs/DESIGN.md §6.2). YouTube 내부 설정이 아니며 플랫폼 처리본에서 추정한 값도 아니다.
 ID 형식: x264-crf<CRF>-<source|1080p|720p|480p>. "<N>p"는 짧은 변의 픽셀 수다.
 """
 
@@ -29,7 +29,7 @@ class Profile:
     pix_fmt: str = "yuv420p"
     scale_flags: str = "bicubic"
     threads: int = 4                # 고정한다. 스레드 수가 달라지면 출력이 달라질 수 있다
-    audio: str = "copy"             # 오디오 재인코딩은 별도 실험 축이다 (README §6.2)
+    audio: str = "copy"             # 오디오 재인코딩은 별도 실험 축이다 (docs/DESIGN.md §6.2)
 
     def __post_init__(self) -> None:
         if self.encoder not in ALLOWED_ENCODERS:

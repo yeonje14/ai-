@@ -216,7 +216,7 @@ def test_short_segment_guard_keeps_tracks_identical_and_marks_short_segments(mon
         assert (g['tracks'], g['status'], g['start_sec']) == (p['tracks'], p['status'], p['start_sec'])  # 트랙은 같다
         if n >= 50 or n == 0:  # 프레임이 하나도 없으면 셀 기회가 없어 기존대로 둔다(실제 upstream은 오류를 낸다)
             assert g == p
-        else:  # 규칙(README §15.3 2026-11-17): 트랙이 없던 이유를 짧은 구간으로 밝힌다
+        else:  # 규칙(docs/DESIGN.md §15.3 2026-11-17): 트랙이 없던 이유를 짧은 구간으로 밝힌다
             assert (p['reason_code'], g['reason_code']) == ('tracking_failed', 'segment_too_short')
 
 

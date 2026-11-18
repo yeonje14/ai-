@@ -1,6 +1,6 @@
 """MediaPipe 얼굴 박스와 얼굴 특징점. 후보 B(얼굴 영역)와 C(Face Motion)가 쓴다.
 
-MediaPipe는 얼굴 위치와 특징점을 주는 도구다. 딥페이크 탐지기가 아니다(README §5.2).
+MediaPipe는 얼굴 위치와 특징점을 주는 도구다. 딥페이크 탐지기가 아니다(docs/DESIGN.md §5.2).
 모델 파일은 Git 밖(data/models/)에 두고, configs/motionphys_models.json의 sha256과 다르면 실행을 거부한다.
 얼굴 이미지를 디스크에 쓰지 않는다.
 """

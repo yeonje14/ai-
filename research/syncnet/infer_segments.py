@@ -149,7 +149,7 @@ def infer_segments(request: dict, work: Path, pipeline) -> dict:
                 output = pipeline.inference(str(clip), cache_dir=str(segment_dir / 'cache'))
                 tracks = tracks_from_output(output)
                 if guard is not None and guard.short():
-                    # upstream min_track 미만: SyncNet 판단에서 제외한다(README §15.3 2026-11-17)
+                    # upstream min_track 미만: SyncNet 판단에서 제외한다(docs/DESIGN.md §15.3 2026-11-17)
                     row = segment_failure(start, end, 'insufficient_input', SEGMENT_TOO_SHORT)
                 elif tracks:
                     row = {'start_sec': start, 'end_sec': end, 'status': 'completed',

@@ -1,4 +1,4 @@
-"""WaveRep 어댑터 (README §14.1 백로그 7번의 앞부분). Worker는 server/axes/signal/__init__.py를 거쳐 부른다.
+"""WaveRep 어댑터 (docs/DESIGN.md §14.1 백로그 7번의 앞부분). Worker는 server/axes/signal/__init__.py를 거쳐 부른다.
 
 영상 파일과 시간 구간 목록을 받아 프레임별 원시 logit을 돌려준다.
 
@@ -34,7 +34,7 @@ REQUEST_NAME = "waverep_request.json"
 RESULT_NAME = "waverep_result.json"
 MODEL_VERSION = "waverep-dinov2-G4"
 
-# axes.*.status (README §10)
+# axes.*.status (docs/DESIGN.md §10)
 COMPLETED = "completed"
 INSUFFICIENT_INPUT = "insufficient_input"
 UNSUPPORTED_INPUT = "unsupported_input"

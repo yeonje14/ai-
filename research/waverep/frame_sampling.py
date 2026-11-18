@@ -1,4 +1,4 @@
-"""시간 구간 목록에서 분석할 프레임 번호를 고른다 (README §14.1 백로그 7번).
+"""시간 구간 목록에서 분석할 프레임 번호를 고른다 (docs/DESIGN.md §14.1 백로그 7번).
 
 표준 라이브러리만 쓴다(torch, cv2를 import하지 않는다). trinity 환경의 pytest와
 research/waverep/.venv의 infer_frames.py가 같은 함수를 쓴다.

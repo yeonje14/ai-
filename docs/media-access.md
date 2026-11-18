@@ -1,6 +1,6 @@
 # YouTube 미디어 접근 기록 (백로그 1번)
 
-README §14.1 백로그 1번("YouTube 미디어 접근 정책·허가 경로 조사")의 기록이다. 기준은 README §3.1이다.
+docs/DESIGN.md §14.1 백로그 1번("YouTube 미디어 접근 정책·허가 경로 조사")의 기록이다. 기준은 docs/DESIGN.md §3.1이다.
 작성일: 2026-11-12. 법률 자문이 아니다. 확인하지 않은 내용은 "확인 필요"로 적었다.
 
 ## 1. 두 종류의 접근은 다르다
@@ -8,13 +8,13 @@ README §14.1 백로그 1번("YouTube 미디어 접근 정책·허가 경로 조
 | 구분 | 영상 ID·메타데이터 접근 | 분석용 미디어 접근 |
 |---|---|---|
 | 얻는 것 | video ID, 메타데이터, 재생 | 추론에 넣을 프레임·오디오 파일 |
-| 경로 (README §3.1) | YouTube Data API, IFrame Player | 일반적으로 제공하는 API가 없다 |
+| 경로 (docs/DESIGN.md §3.1) | YouTube Data API, IFrame Player | 일반적으로 제공하는 API가 없다 |
 | TRINITY에서의 담당 | URL 정규화·허용 호스트 확인·ID 추출 (`server/ingest/youtube_url.py`, 네트워크 요청 없음). `YouTubeMetadataAdapter`는 설계에만 있고 구현하지 않았다 | `AuthorizedMediaRegistry` (`server/ingest/media_resolver.py`)에 등록된 허가 미디어만 |
-| 제약 | 디코딩용 미디어를 주지 않는다 | YouTube 서비스 이용약관과 API 개발자 정책이 콘텐츠 접근·다운로드·캐싱을 제한한다 (README §3.1) |
+| 제약 | 디코딩용 미디어를 주지 않는다 | YouTube 서비스 이용약관과 API 개발자 정책이 콘텐츠 접근·다운로드·캐싱을 제한한다 (docs/DESIGN.md §3.1) |
 
-- URL은 영상의 **식별자**이고 영상 데이터가 아니다 (README §3.2). URL을 받았다고 해서 분석할 미디어를 얻은 것이 아니다.
-- 권리자의 동의만으로 YouTube 플랫폼의 승인 요건이 충족된다고 가정하지 않는다 (README §3.1). 콘텐츠 권한과 플랫폼 접근 권한은 따로 본다.
-- 약관·정책 원문의 조항별 검토는 하지 않았다. 위 내용은 README §3.1의 정리를 따른 것이다. 조항 단위 근거가 필요하면 **확인 필요.**
+- URL은 영상의 **식별자**이고 영상 데이터가 아니다 (docs/DESIGN.md §3.2). URL을 받았다고 해서 분석할 미디어를 얻은 것이 아니다.
+- 권리자의 동의만으로 YouTube 플랫폼의 승인 요건이 충족된다고 가정하지 않는다 (docs/DESIGN.md §3.1). 콘텐츠 권한과 플랫폼 접근 권한은 따로 본다.
+- 약관·정책 원문의 조항별 검토는 하지 않았다. 위 내용은 docs/DESIGN.md §3.1의 정리를 따른 것이다. 조항 단위 근거가 필요하면 **확인 필요.**
 
 ## 2. 결정: 임의 YouTube URL은 `analysis_unavailable`
 
@@ -22,7 +22,7 @@ README §14.1 백로그 1번("YouTube 미디어 접근 정책·허가 경로 조
 - 따라서 레지스트리에 없는 video ID는 `analysis_status=analysis_unavailable`로 끝내고 보류 원인을 남긴다. 점수는 만들지 않는다(모든 축 점수 `null`).
 - 현재 구현의 원인 코드는 `access_not_authorized`다 (`docs/HANDOFF.md` 백로그 4번 검증 결과).
 - 하지 않는 것: yt-dlp 등으로 임의 URL을 내려받는 코드, 권한 문제를 우회하는 구현, 파일 업로드 경로 (CLAUDE.md 절대 규칙).
-- `ApprovedPlatformAccessAdapter`는 플랫폼과 콘텐츠 양쪽 권한이 확보된 뒤에만 켜는 인터페이스로, 미구현 상태로 둔다 (README §3.1).
+- `ApprovedPlatformAccessAdapter`는 플랫폼과 콘텐츠 양쪽 권한이 확보된 뒤에만 켜는 인터페이스로, 미구현 상태로 둔다 (docs/DESIGN.md §3.1).
 - 이 결정은 "지금 경로가 없다"는 기록이다. YouTube의 사전 서면 승인을 받을 수 있는지, 받는 절차가 무엇인지는 **확인 필요**(신청하지 않았다).
 
 ## 3. 허가 미디어
@@ -49,13 +49,13 @@ README §14.1 백로그 1번("YouTube 미디어 접근 정책·허가 경로 조
 | YouTube 사전 서면 승인의 필요 여부와 신청 절차 | 확인 필요 |
 | 현재 샘플 파일의 카카오톡 재압축 여부 | 확인 필요 |
 
-위 첫 두 항목이 확인되기 전에는 "실제 YouTube 처리본"이라고 부를 수 있는 파일이 없다. README §15.2의 "실제 YouTube 플랫폼 압축 재현" 위험은 그대로 남는다.
+위 첫 두 항목이 확인되기 전에는 "실제 YouTube 처리본"이라고 부를 수 있는 파일이 없다. docs/DESIGN.md §15.2의 "실제 YouTube 플랫폼 압축 재현" 위험은 그대로 남는다.
 
 ## 5. 백로그 1번 완료 조건 대조
 
-| 완료 조건 (README §14.1) | 상태 |
+| 완료 조건 (docs/DESIGN.md §14.1) | 상태 |
 |---|---|
-| 영상 ID/메타데이터 API와 추론용 미디어의 차이를 문서화 | 이 문서 §1 (README §3.1 기준. 약관 조항별 검토는 하지 않음) |
+| 영상 ID/메타데이터 API와 추론용 미디어의 차이를 문서화 | 이 문서 §1 (docs/DESIGN.md §3.1 기준. 약관 조항별 검토는 하지 않음) |
 | 적법하게 사용 가능한 실험/시연 미디어 1건 이상과 권한 근거 기록 | 실험용 로컬 영상 1건과 근거 기록함 (§3). YouTube ID와 연결된 시연용 등록은 없음 |
 | 범용 URL 접근 불가 시 명시적 `Unavailable` 결정 | 결정함 (§2) |
 

@@ -1,4 +1,4 @@
-"""데이터 위생: 분할 누수 검사 (README §6.4, 백로그 8번).
+"""데이터 위생: 분할 누수 검사 (docs/DESIGN.md §6.4, 백로그 8번).
 
 같은 인물·원본 계보 그룹이 여러 분할에 걸치면 실패다. 실패한 manifest로는 평가하지 않는다.
 이 모듈은 manifest만 본다. 영상 파일을 열지 않는다.
@@ -118,7 +118,7 @@ def check(records: Iterable[Record], lock: dict[str, dict]) -> HygieneReport:
     if dup:
         report.errors.append(_error("file_hash_spans_splits", len(dup), dup))
 
-    # 4-1) 압축 등 파생본은 부모의 분할·라벨을 그대로 물려받는다 (README §6.4 "분할을 확정한 뒤 압축")
+    # 4-1) 압축 등 파생본은 부모의 분할·라벨을 그대로 물려받는다 (docs/DESIGN.md §6.4 "분할을 확정한 뒤 압축")
     by_uid = {r.uid: r for r in records}
     inherit_bad, orphan = [], 0
     for r in records:
@@ -149,7 +149,7 @@ def check(records: Iterable[Record], lock: dict[str, dict]) -> HygieneReport:
         report.errors.append(_error("external_dataset_alias_in_internal_split", len(alias), alias))
 
     # 6) 인물 ID도 확인된 원본 계보도 없는 내부 분할 영상. 어떤 그룹에도 이어지지 않아 누수를 잡을 수 없다
-    #    (README §15.3 2026-11-18, 감사 A11). 외부 평가 자료는 대상이 아니다(MAVOS-DD는 원래 인물 ID가 없다)
+    #    (docs/DESIGN.md §15.3 2026-11-18, 감사 A11). 외부 평가 자료는 대상이 아니다(MAVOS-DD는 원래 인물 ID가 없다)
     ungroupable = sorted(r.uid for r in records
                          if r.split in INTERNAL_SPLITS and not r.identity_ids and r.source_unverified)
     if ungroupable:

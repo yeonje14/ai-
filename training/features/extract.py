@@ -268,7 +268,7 @@ def summarize_video(rec: Record, results: dict[str, dict], input_sha256: Optiona
     if s is not None:
         tracks = [t for seg in (s.get("segments") or []) if seg.get("tracks") for t in seg["tracks"]]
         # 서버의 결합 입력과 같은 함수·같은 기준이다: 축이 completed일 때만 값이 있고 그 밖에는 null
-        # (README §15.3 결정 2·8 보완, 2026-11-17). 일부 구간의 트랙만으로 값을 만들지 않는다
+        # (docs/DESIGN.md §15.3 결정 2·8 보완, 2026-11-17). 일부 구간의 트랙만으로 값을 만들지 않는다
         features = syncnet_features(s) or {}
         axes["syncnet"] = {"status": s["status"], "reason_code": s.get("reason_code"), "tracks": len(tracks),
                            **{k: features.get(k) for k in ("lse_c_median", "lse_d_median", "abs_offset_median")}}
