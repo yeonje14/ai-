@@ -1,6 +1,6 @@
 # WaveRep 어댑터: 샘플링·배치 측정 결과
 
-README §14.1 백로그 7번의 앞부분(어댑터). 측정일: 2026-11-12(CPU 3건), 2026-11-13(나머지 11건).
+docs/DESIGN.md §14.1 백로그 7번의 앞부분(어댑터). 측정일: 2026-11-12(CPU 3건), 2026-11-13(나머지 11건).
 
 > **이 문서는 속도·재현성 확인이다. 성능 검증이 아니다.**
 > 테스트 영상에는 **발화가 없다**(본인 얼굴, 주변 소리만). 이번 작업은 발화 여부와 상관없이
@@ -199,7 +199,7 @@ Worker의 기본 경로가 허가 미디어 → 발화 구간 Gate → 적합 �
 Gate는 torch 없는 conda `trinity`의 별도 프로세스, WaveRep은 기존
 `research/waverep/.venv`에서 실행한다. 장치·배치·샘플링 설정은 바꾸지 않았다.
 
-- Gate 적합 구간이 없으면 WaveRep을 호출하지 않는다. 원인별 상태는 README §15.3의 승인 표를 따른다.
+- Gate 적합 구간이 없으면 WaveRep을 호출하지 않는다. 원인별 상태는 docs/DESIGN.md §15.3의 승인 표를 따른다.
 - Gate의 원본/적합 길이를 coverage에 보존하고, WaveRep 성공 때만 analyzed 필드를 채운다.
 - `gate_not_connected` 임시 경로를 제거했다. 수동 구간은 기본 꺼짐이며 개발·테스트 전용으로 유지한다.
 - `raw_score`, `overall_score`, `verdict_label`은 계속 `null`. logit 요약은 판정이 아니다.

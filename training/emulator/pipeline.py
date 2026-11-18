@@ -3,7 +3,7 @@
     python -m training.emulator.pipeline --manifest <m.csv> --media-root <dir> \
         --profile x264-crf28-720p [--profile ...] --out-dir <dir> --out-manifest <m2.csv>
 
-순서: 분할을 먼저 정한다 → 압축한다(README §6.4). 분할이 빈 영상은 거부한다.
+순서: 분할을 먼저 정한다 → 압축한다(docs/DESIGN.md §6.4). 분할이 빈 영상은 거부한다.
 파생 행은 부모의 분할·라벨·원본 계보·인물을 그대로 물려받고 parent_video_id로 부모와 이어지므로
 기존 누수 검사(training/hygiene.py)가 그대로 적용된다.
 out-manifest에는 원본 행과 파생 행이 함께 들어간다. 이미 있는 파일은 덮어쓰지 않는다.
@@ -32,7 +32,7 @@ def derive_record(parent: Record, profile_id: str, video_path: str, file_hash: s
     if not parent.split:
         raise EmulatorError(f"{parent.uid}: 분할이 비어 있다. 분할을 정한 뒤에 압축한다")
     if parent.compression_profile_id:
-        # 반복 인코딩은 별도 실험 축이다 (README §6.2)
+        # 반복 인코딩은 별도 실험 축이다 (docs/DESIGN.md §6.2)
         raise EmulatorError(f"{parent.uid}: 이미 압축 파생본이다. 반복 인코딩은 지원하지 않는다")
     return replace(
         parent,

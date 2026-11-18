@@ -1,4 +1,4 @@
-"""CORS 출처 제한과 verdict_label 계약 (README §9, 백로그 13번 앞부분)."""
+"""CORS 출처 제한과 verdict_label 계약 (docs/DESIGN.md §9, 백로그 13번 앞부분)."""
 
 from __future__ import annotations
 

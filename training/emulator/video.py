@@ -158,7 +158,7 @@ def emulate(
     """열화 영상 하나를 만들고 기록을 돌려준다.
 
     lineage: dataset_id, video_id, source_recording_id, derivation_group_id, split 중 아는 것.
-    분할은 압축 전에 정해 둔 값을 그대로 넘긴다(README §6.4).
+    분할은 압축 전에 정해 둔 값을 그대로 넘긴다(docs/DESIGN.md §6.4).
     인코딩 실패는 예외가 아니라 status=error로 돌려준다. 경로 규칙 위반은 EmulatorError다.
     """
     profile = get_profile(profile_id)

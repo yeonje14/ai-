@@ -3,14 +3,14 @@
 묶음 = 서버가 쓸 수 있는 후보의 계수·표준화·보정 + 잠근 임계값 + MotionPhys 모델 + 특징 버전
       + 학습 manifest·특징 해시 + 검증 리포트. 폴더 하나에 담고 bundle.json의 digest로 고정한다.
 서버는 digest가 저장소에 커밋된 값(configs/fusion_bundle.json)과 같고 검증 리포트의 판단이
-"채택 가능" 또는 "WaveRep 단독"일 때만 쓴다(README §15.3). 합성 데이터의 묶음은 테스트에서만 허용한다.
+"채택 가능" 또는 "WaveRep 단독"일 때만 쓴다(docs/DESIGN.md §15.3). 합성 데이터의 묶음은 테스트에서만 허용한다.
 
 감사(2026-11-18)로 더한 확인. 만들 때와 불러올 때 모두 한다.
 - 학습 설정이 커밋된 configs/training.json과 같아야 한다(사전 고정 기준, A2). 설정이 바뀌면 다시 검증한다.
 - 판단은 리포트에 적힌 지표와 그 설정의 채택 기준으로 다시 계산한 것과 같아야 한다(A1).
 - 서버가 읽는 파일(리포트·모델·임계값·MotionPhys 모델)은 모두 digest가 덮는 files에 있어야 한다(A5).
 
-감사 결정(2026-11-18, README §15.3)으로 더한 것.
+감사 결정(2026-11-18, docs/DESIGN.md §15.3)으로 더한 것.
 - 후보마다 역할(primary/fallback)을 적고 서버는 training/serving.py의 규칙으로 후보를 고른다(A9).
 - 만들기 전에 같은 manifest·특징·커밋된 설정으로 새 폴더에서 학습·리포트를 다시 돌려, 학습 결과 폴더의 모든 파일과
   리포트가 같은지 확인한다(A16). 학습은 결정적이다(고정 시드, LightGBM deterministic).
@@ -221,7 +221,7 @@ class Bundle:
     primary: str = ""                  # 선택 후보. 나머지는 대체 후보다
 
     def choose(self, available: frozenset, inputs: dict[str, Optional[float]]) -> Optional[Candidate]:
-        """이번 요청에 쓸 후보(README §15.3 2026-11-18, 감사 A9). 규칙은 학습·리포트와 같은 training/serving.choose다.
+        """이번 요청에 쓸 후보(docs/DESIGN.md §15.3 2026-11-18, 감사 A9). 규칙은 학습·리포트와 같은 training/serving.choose다.
 
         선택 후보는 그 축이 모두 성공했고 입력이 모두 있으면 쓴다. 아니면 성공한 축 집합과 정확히 같은 대체 후보.
         """

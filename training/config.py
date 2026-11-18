@@ -64,7 +64,7 @@ def validate(config: dict) -> dict:
     if set(adoption) != ADOPTION_KEYS:
         raise ConfigError(f"adoption의 키는 정확히 {sorted(ADOPTION_KEYS)}")
     for key in ("fallback_min_real_groups", "fallback_min_fake_groups"):
-        # 대체 후보가 서버에서 쓰일 test 영상의 최소 그룹 수(README §15.3 2026-11-18, 감사 A9)
+        # 대체 후보가 서버에서 쓰일 test 영상의 최소 그룹 수(docs/DESIGN.md §15.3 2026-11-18, 감사 A9)
         if not isinstance(adoption[key], int) or isinstance(adoption[key], bool) or adoption[key] < 1:
             raise ConfigError(f"adoption.{key}는 1 이상의 정수")
     return config

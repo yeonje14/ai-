@@ -218,7 +218,7 @@ def test_missing_identity_is_a_warning_not_an_error():
     assert report.warnings["identity_missing"] == 2
     assert report.warnings["source_unverified"] == 1
     assert report.warnings["fake_generator_missing"] == report.warnings["fake_manipulation_type_missing"] == 1
-    # 인물 ID와 확인된 원본 계보가 둘 다 없으면 묶을 수 없어 오류다(README §15.3 2026-11-18, 감사 A11)
+    # 인물 ID와 확인된 원본 계보가 둘 다 없으면 묶을 수 없어 오류다(docs/DESIGN.md §15.3 2026-11-18, 감사 A11)
     bad = hygiene.check([rec("b", source="unknown:synth/b.mp4")], LOCK)
     assert "ungroupable_video" in codes(bad)
 

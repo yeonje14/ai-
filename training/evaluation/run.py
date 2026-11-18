@@ -1,4 +1,4 @@
-"""고정 평가 파이프라인의 실행 명령 (README §13, 백로그 8번).
+"""고정 평가 파이프라인의 실행 명령 (docs/DESIGN.md §13, 백로그 8번).
 
     python -m training.evaluation.run fit-threshold \
         --manifest <manifest.csv> --scores <scores.csv> --model-id <이름> --out <threshold.json>

@@ -5,7 +5,7 @@
 **Goal:** 백로그 14번 중 소유권이 적용된 DELETE, Worker 복구·정리, 앱 취소를 완성한다.
 **Architecture:** 기존 SQLite 트랜잭션과 cancel_requested를 사용한다. API는 취소를 접수하고 Worker가 프로세스 종료·폴더 정리를 마친 뒤 종료 상태를 기록한다. 진행 수명주기 ETag로 취소 버튼과 완료의 경합을 막는다.
 **Tech Stack:** Python 3.11, FastAPI, SQLite, macOS 프로세스 그룹, Flutter.
-**Spec:** 사용자가 2026-11-15 대화에서 승인한 요구사항과 README §8·9·10·12·14.1·15.3.
+**Spec:** 사용자가 2026-11-15 대화에서 승인한 요구사항과 docs/DESIGN.md §8·9·10·12·14.1·15.3.
 
 ## Global Constraints
 

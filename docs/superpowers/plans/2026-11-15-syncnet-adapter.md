@@ -5,7 +5,7 @@
 **Goal:** Gate 적합 구간의 SyncNet 원시 지표를 별도 CPU 프로세스에서 얻는 독립 어댑터.
 **Architecture:** `run_syncnet(video, segments, work_dir, config, on_tick, tick_sec)`가 작업 하위 임시 폴더의 요청·결과 JSON을 주고받는다. 전용 Python의 실행기가 구간을 순차 절단하고 원본 pipeline의 트랙별 출력을 같은 인덱스로 묶는다. Worker가 부르는 기존 alignment stub은 그대로 유지한다.
 **Tech Stack:** Python 3.11 표준 라이브러리, 별도 SyncNet venv, FFmpeg, 고정 upstream.
-**Spec:** 사용자가 승인한 조각 2 요청 및 README §5.3·§9·§10·§12.1. HTTP API 변경 없음.
+**Spec:** 사용자가 승인한 조각 2 요청 및 docs/DESIGN.md §5.3·§9·§10·§12.1. HTTP API 변경 없음.
 
 ## Global Constraints
 

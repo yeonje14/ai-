@@ -1,4 +1,4 @@
-"""개발 환경 스모크 점검 (README §14.1 백로그 2번).
+"""개발 환경 스모크 점검 (docs/DESIGN.md §14.1 백로그 2번).
 
 Python·아키텍처, FFmpeg/ffprobe, PyTorch CPU/MPS, OpenCV, LightGBM을 점검하고
 결과를 docs/env-check.md에 기록한다. 아무것도 설치하지 않는다.
@@ -196,7 +196,7 @@ def render_markdown(checks: list[Check], generated_at: str) -> str:
     lines = [
         "# 개발 환경 점검 결과",
         "",
-        "README §14.1 백로그 2번(P0-1). `python scripts/check_env.py`가 만든 파일이다. 직접 고치지 않는다.",
+        "docs/DESIGN.md §14.1 백로그 2번(P0-1). `python scripts/check_env.py`가 만든 파일이다. 직접 고치지 않는다.",
         "",
         f"- 점검 시각: {generated_at}",
         f"- 플랫폼: {platform.platform()}",

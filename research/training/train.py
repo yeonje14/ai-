@@ -1,4 +1,4 @@
-"""단일축 점수 → 그룹 OOF 로지스틱 결합 → OOF 보정 → dev 임계값 잠금 (README §5.4, 백로그 8·12번).
+"""단일축 점수 → 그룹 OOF 로지스틱 결합 → OOF 보정 → dev 임계값 잠금 (docs/DESIGN.md §5.4, 백로그 8·12번).
 
     research/training/.venv/bin/python research/training/train.py \
         --manifest <manifest.csv> --features <특징 폴더> --config configs/training.json --out <새 폴더>
@@ -162,7 +162,7 @@ def train(manifest: Path, features_dir: Path, config: dict, out: Path, lock_path
         return ((feats.get(uid) or {}).get("axes") or {}).get(name) or {}
 
     # 축 성공은 서버와 같은 함수로 정한다(MotionPhys는 full 변형 기준). 성공하지 않은 축의 값은 입력으로 쓰지 않는다.
-    # 그래야 학습·검증한 영상과 서버가 그 후보를 쓰는 영상이 같은 기준으로 갈린다(README §15.3 2026-11-18, 감사 A9)
+    # 그래야 학습·검증한 영상과 서버가 그 후보를 쓰는 영상이 같은 기준으로 갈린다(docs/DESIGN.md §15.3 2026-11-18, 감사 A9)
     ok_axes = {r.uid: serving.successful_axes(serving.feature_statuses((feats.get(r.uid) or {}).get("axes") or {}))
                for r in internal}
 

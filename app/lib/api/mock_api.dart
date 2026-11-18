@@ -96,7 +96,7 @@ class _MockJob {
   }
 }
 
-/// 시나리오별 결과 JSON. README §9의 예시 모양을 따른 가상의 값이다.
+/// 시나리오별 결과 JSON. docs/DESIGN.md §9의 예시 모양을 따른 가상의 값이다.
 Map<String, dynamic> mockResultJson(MockScenario scenario, String analysisId) {
   final base = <String, dynamic>{
     'analysis_id': analysisId,

@@ -6,10 +6,10 @@ import statistics
 from typing import Any
 
 MODEL_VERSION = 'syncnet-python-0.2.3-ab819ba'
-# upstream min_track보다 프레임이 적어 SyncNet에서 제외한 구간의 원인 코드(README §10, §15.3 2026-11-17)
+# upstream min_track보다 프레임이 적어 SyncNet에서 제외한 구간의 원인 코드(docs/DESIGN.md §10, §15.3 2026-11-17)
 SEGMENT_TOO_SHORT = 'segment_too_short'
 # 구간 결과 → 축 상태 규칙(aggregate_status)과 결합 값(fusion_features)의 판. 둘 중 하나라도 바꾸면 올린다.
-# 학습 특징 버전·캐시 키에 들어가 옛 규칙의 특징과 묶음을 쓰지 않게 한다(감사 A14, README §15.3 2026-11-17)
+# 학습 특징 버전·캐시 키에 들어가 옛 규칙의 특징과 묶음을 쓰지 않게 한다(감사 A14, docs/DESIGN.md §15.3 2026-11-17)
 STATUS_RULE = 'short-segments-excluded-2026-11-17'
 OFFSET_FPS = 25  # 고정 upstream PipelineConfig.frame_rate
 
@@ -96,7 +96,7 @@ def parse_result(raw: Any, segments: list[list[float]]) -> dict:
 
 
 def aggregate_status(rows: list[dict]) -> tuple[str, str | None]:
-    """구간 결과 → 축 상태 (README §15.3 결정 2·8 보완, 2026-11-17).
+    """구간 결과 → 축 상태 (docs/DESIGN.md §15.3 결정 2·8 보완, 2026-11-17).
 
     min_track 미만이라 제외한 구간(segment_too_short)은 판단에서 뺀다. 남은 구간이 없으면
     insufficient_input/segment_too_short다. 남은 구간이 하나 이상이고 모두 completed여야 completed다.

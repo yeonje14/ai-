@@ -93,7 +93,7 @@ def build(manifest: Path, run: Path, lock_path: Path = DEFAULT_LOCK_PATH, n_boot
     gid = groups.group_ids(records)
     dev_conditions = set(meta["dev_compression_conditions"])
     out_of_range = set(config["out_of_range_compression_profiles"])
-    # 최종 평가 전용 압축은 test 관문에 넣지 않고 관문 뒤에 한 번 따로 보고한다(README §15.3 2026-11-18, 감사 A15)
+    # 최종 평가 전용 압축은 test 관문에 넣지 않고 관문 뒤에 한 번 따로 보고한다(docs/DESIGN.md §15.3 2026-11-18, 감사 A15)
     held_out = set(config["held_out_compression_profiles"])
     split_rows = {
         "dev": [r for r in records if r.split == "dev"
@@ -151,7 +151,7 @@ def build(manifest: Path, run: Path, lock_path: Path = DEFAULT_LOCK_PATH, n_boot
             vs_best = compare(name, best_single) if best_single not in (None, rules.BASELINE) else None
             fusion_checks[name] = rules.fusion_gates(compare(name, rules.BASELINE), vs_best, adoption)
 
-    # 서빙(README §15.3 2026-11-18, 감사 A9): 선택 후보는 입력이 모두 있으면 쓰이므로 test 관문의 집단이 곧 서빙 집단이다.
+    # 서빙(docs/DESIGN.md §15.3 2026-11-18, 감사 A9): 선택 후보는 입력이 모두 있으면 쓰이므로 test 관문의 집단이 곧 서빙 집단이다.
     # 대체 후보는 서버에서 실제로 쓰일 test 영상(축 성공 패턴이 그 후보의 축과 정확히 같은 영상)만으로 따로 평가한다
     decision, primary = rules.primary_of(selection, own, fusion_checks)
     serving_of: dict[str, dict] = {}

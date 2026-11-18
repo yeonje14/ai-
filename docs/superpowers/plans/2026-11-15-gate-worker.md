@@ -6,7 +6,7 @@
 **목표:** 허가 미디어의 Gate 적합 구간만 WaveRep에 전달한다.
 **구조:** Gate는 기존 trinity Python의 자식 프로세스에서 실행한다. Worker는
 heartbeat·취소·lease 상실·작업 제한시간을 관리한다. WaveRep 환경은 그대로 둔다.
-**수용 기준:** 사용자 요청과 README §8·9·10·14.1. 새 상태·API 필드는 만들지 않는다.
+**수용 기준:** 사용자 요청과 docs/DESIGN.md §8·9·10·14.1. 새 상태·API 필드는 만들지 않는다.
 품질·적합/제외 구간 설명은 기존 explanations, 분석량은 기존 coverage에 기록한다.
 
 ## 작업 1: Gate 실행과 Worker 연결

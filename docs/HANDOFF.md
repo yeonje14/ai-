@@ -1,8 +1,24 @@
 # HANDOFF
 
+## README 첫 화면 분리 (2026-11-18, 브랜치 `docs/readme-front`)
+
+- 한 일: 기존 설계 README를 `docs/DESIGN.md`로 옮기고(내용 그대로, 머리말 "README v6.0"만 "설계 문서 v6.0"으로), 저장소 첫 화면용 `README.md`를 새로 썼다. `AGENTS.md`의 설계 기준·절 참조를 `docs/DESIGN.md`로 바꿨다.
+- 참조 정리: 저장소 전체의 `README §N`·`` `README.md` §N`` 225곳(87개 파일, 코드는 주석·docstring·생성 문서 문구만)과 "README 하단 서버 실행 방법" 등 몇 곳을 `docs/DESIGN.md`로 바꿨다. `app/README.md`·`training/README.md`·외부 저장소 README 참조는 그대로다.
+  - **그대로 둔 과거 기록:** 이 파일의 "바뀐 파일" 목록·git 명령·충돌 기록(PR #12·#13 통합 재현 명령, 취소·삭제, Gate→Worker 연결, PR #9·#10)과 `docs/superpowers/plans/`의 Files 목록에 나오는 `README.md`는 당시 파일 이름이라 고치지 않았다. **2026-11-18 이전 기록의 `README.md`는 지금의 `docs/DESIGN.md`다.**
+- 새 README의 사실을 저장소 문서와 대조해 고쳤다(SyncNet 실측을 11-18 재측정으로, 우연 채택률, 채택 기준, 견고성 측정 영상 수, 데이터셋 상태 등). 저장소에 근거가 없어 확인하지 못한 문구는 PR 설명에 남겼다.
+- 옮기는 일(`README.md => docs/DESIGN.md`, 내용 변경 없음)은 앞 세션에서 `audit/null-rerun` 커밋 `7cdbf6b`(PR #22)에 함께 들어갔다. #22는 고치지 않기로 했다(사용자 결정). PR #23을 main 기준으로 바꿔 그 커밋까지 함께 merge한다. merge commit으로 합치면 #22는 merge된 것으로 표시되고, squash로 합치면 #22를 직접 닫는다.
+- 남은 일: `docs/DESIGN.md` 하단 "서버 실행 방법" 첫 문단("물리·정합 축은 stub")이 현재 동작보다 오래됐다(이번에는 고치지 않음).
+
+## 우연 채택률 재측정 (2026-11-18, 브랜치 `audit/null-rerun`)
+
+- main `f9cfcf4`(감사 결정 반영 후)에서 `scripts/audit_null_adoption.py --identities 120 --seeds 200`을 다시 돌려 `docs/audit-training-pipeline.md` 해당 절에 "결정 반영 후" 행을 추가했다. 코드 변경 없음.
+- 결과: 결합 채택 0/200, WaveRep 단독 0/200(반영 전 3/197). 단 120명 데이터는 test 진짜 그룹이 12개라 A10 정확 상한 때문에 FPR 관문을 구조적으로 넘을 수 없어, 이 0은 우연 채택이 줄었다는 증거가 아니다.
+- **남은 일:** 관문이 통과 가능한 크기(진짜 그룹 약 100개 이상, 인물 800~1,000명)에서 다시 재야 의미 있는 비율이 나온다(시드당 약 1분). `pytest`는 문서만 바꿔 다시 돌리지 않았다.
+- PR: 이 브랜치로 생성. merge는 사용자 지시 후.
+
 ## 감사 결정 반영 (2026-11-18, 브랜치 `audit/decisions`)
 
-- 사용자 결정(감사 제안 A9·A10·A11·A15·A16·A17)을 구현. README §15.3 "결정 5·6·7·8·12 보완(독립 감사 결정) — 2026-11-18"에 서버 조건 (6)~(9)와 A9·A10·A11·A15를 적었다. 세부는 `docs/audit-training-pipeline.md` "결정 반영", `docs/training-pipeline.md`.
+- 사용자 결정(감사 제안 A9·A10·A11·A15·A16·A17)을 구현. docs/DESIGN.md §15.3 "결정 5·6·7·8·12 보완(독립 감사 결정) — 2026-11-18"에 서버 조건 (6)~(9)와 A9·A10·A11·A15를 적었다. 세부는 `docs/audit-training-pipeline.md` "결정 반영", `docs/training-pipeline.md`.
   - A9: 공용 서빙 규칙 `training/serving.py`. 선택 후보는 축이 모두 성공하고 입력이 있으면 사용, 대체 후보는 서버에서 쓰일 test 영상(축 성공 패턴이 정확히 같은 영상)에서 자기 관문 + 최소 그룹 수(진짜·가짜 각 36)를 넘어야 서빙. 학습의 축 성공은 서버와 같은 함수(MotionPhys `full` 기준), `availability.csv`. 묶음 형식 3(후보 역할).
   - A10: FPR 관문 = max(그룹 bootstrap 상한, Clopper–Pearson 상한(n = 진짜 그룹 수, k = n × 영상 FPR)). 처음 지시 공식(k = 오탐 있는 그룹 수)은 관문을 통과 불가능하게 만들어 계획 단계에서 (b)로 바꿔 승인받음.
   - A11 `ungroupable_video` 오류, A15 최종 평가 전용 압축은 관문 뒤 `test_held_out`에 1회 보고(탐지 지표 포함, 채택 판단에 사용하지 않음), A16 묶음 생성 전 재현 검증(`--manifest`·`--features` 필수, `features.jsonl` 위조는 못 잡음), A17 TPR 차이는 두 후보가 모두 점수를 낸 가짜에서.
@@ -24,12 +40,12 @@
 - 바뀐 형식: 묶음 형식 2(`training_config` 포함), 리포트 형식 2, `features.jsonl`에 `input_sha256`, SyncNet 특징 버전에 `status_rule`(이전 SyncNet 캐시는 다시 계산된다). API 필드·상태 값은 그대로.
 - `pytest -q`: 감사 전 766 passed, 1 skipped → **797 passed, 1 skipped, 5 xfailed**(건너뜀은 감사 전과 같은 LightGBM 없음).
 - 신호 없는 합성 데이터의 우연 채택(`scripts/audit_null_adoption.py`): 결합 채택 0/234, WaveRep 단독 3/197(120명)·2/37(800명, 시간 때문에 중단). WaveRep 단독은 AUC 한쪽 2.5% 검정과 같아 신호가 없어도 그 정도 나온다(설계대로, 보고에 적을 것).
-- **다음 할 일(사용자 결정):** A9 서빙 규칙/검증 방식, A10 FPR 상한 방법, A15 최종 평가 프로파일의 관문 포함 여부, A16 묶음 생성 전 재현 검증, A11 묶을 수 없는 영상 처리. README §15.3 결정 5·8 보완에 감사로 더한 서버 확인 조건을 적을지(문안은 감사 문서).
+- **다음 할 일(사용자 결정):** A9 서빙 규칙/검증 방식, A10 FPR 상한 방법, A15 최종 평가 프로파일의 관문 포함 여부, A16 묶음 생성 전 재현 검증, A11 묶을 수 없는 영상 처리. docs/DESIGN.md §15.3 결정 5·8 보완에 감사로 더한 서버 확인 조건을 적을지(문안은 감사 문서).
 - PR: 이 브랜치로 생성. merge는 사용자 지시 후.
 
 ## 작업 제한 정책 구현 (2026-11-18, 브랜치 `research/worker-remeasure`)
 
-- 사용자 결정: `min(1800, 180 + 20 × 적합 구간 초)`. README §15.3 "결정 9·11 보완(작업 제한) — 2026-11-18, Claude 제안, 사용자 승인". 이유(CPU 대체·기기 2배 지연을 덮음, 제한은 상한일 뿐)는 `docs/syncnet-adapter.md` "작업 제한 정책 결정".
+- 사용자 결정: `min(1800, 180 + 20 × 적합 구간 초)`. docs/DESIGN.md §15.3 "결정 9·11 보완(작업 제한) — 2026-11-18, Claude 제안, 사용자 승인". 이유(CPU 대체·기기 2배 지연을 덮음, 제한은 상한일 뿐)는 `docs/syncnet-adapter.md` "작업 제한 정책 결정".
 - 구현: Worker가 Gate 직후 작업 전체 제한을 `시작 + 새 제한`으로 다시 정한다. 기존 600초는 Gate 전·Gate 실패(`gate_error`/`gate_timeout`/`media_unreadable`)·Gate 우회 때의 값. 설정 `TRINITY_JOB_TIMEOUT_BASE_SECONDS`(180)·`TRINITY_JOB_TIMEOUT_PER_ELIGIBLE_SECOND`(20)·`TRINITY_JOB_TIMEOUT_MAX_SECONDS`(1800). 초과는 `failed`/`timeout`. API 변경 없음.
 - 테스트: `tests/test_job_timeout_policy.py` 24개. `pytest -q` **766 passed, 1 skipped**(LightGBM 없음, SyncNet 단계 제한 포함).
 - 실제 미디어로 새 제한을 쓴 Worker 종단 실행은 하지 않았다(**미검증**). 가짜 Gate로 Worker 경로를 확인했다.
@@ -55,7 +71,7 @@
 
 ## SyncNet 결정 반영 (2026-11-17, 브랜치 `feat/syncnet-perf`)
 
-- 사용자 승인: (가) 짧은 구간 규칙 1안, SyncNet 기본 장치 MPS, dev 압축 조건 2안. README §15.3에 "결정 2·8 보완 — 2026-11-17", "결정 9 보완 — 2026-11-17"(Claude 제안, 사용자 승인) 기록.
+- 사용자 승인: (가) 짧은 구간 규칙 1안, SyncNet 기본 장치 MPS, dev 압축 조건 2안. docs/DESIGN.md §15.3에 "결정 2·8 보완 — 2026-11-17", "결정 9 보완 — 2026-11-17"(Claude 제안, 사용자 승인) 기록.
 - 구현:
   - 실행기가 `min_track` 미만 구간을 `segment_too_short`로 표시(S3FD 생략). `report.aggregate_status`가 그 구간을 빼고 축 상태를 정함. 설명 `SYNCNET_SHORT_SEGMENTS_EXCLUDED`.
   - 서버 결합 입력과 학습 특징이 같은 `report.fusion_features` 사용(축 completed일 때만 값). 일치 테스트 `tests/test_syncnet_rule_consistency.py`.
@@ -122,7 +138,7 @@
 15. 채택 조건(설정에 사전 고정): G2 WaveRep AUC 95% CI 하한 > 0.5 / G3 결합 − 기준의 TPR 차이(대응 그룹 bootstrap) 95% CI 하한 > 0 /
     결합의 실제 FPR이 2%p 넘게 나쁘지 않을 것 / 판정 제공 비율이 5%p 넘게 줄지 않을 것 /
     **"WaveRep 단독"이든 "채택 가능"이든 고정 임계값의 test FPR 95% CI 상한 ≤ 10%**(못 넘으면 보류).
-    README §13.3에는 숫자 기준이 없다(차이: §13.3 G3은 "단일 최강 모델 대비"라서 결합은 WaveRep과 단일 최강 둘 다 이겨야 하게 구현한다).
+    docs/DESIGN.md §13.3에는 숫자 기준이 없다(차이: §13.3 G3은 "단일 최강 모델 대비"라서 결합은 WaveRep과 단일 최강 둘 다 이겨야 하게 구현한다).
 16. 신뢰구간: 그룹 bootstrap 1,000회, 고정 시드, 차이는 같은 재표본으로 짝지음.
 17. 묶음: `data/models/fusion/<id>/`(Git 제외). 서버는 순수 파이썬으로 계산.
 18. `configs/fusion_bundle.json`에 묶음 digest만 커밋(기본 비어 있음).
@@ -135,7 +151,7 @@
 | 2 | 단일축·OOF 결합·보정·임계값 잠금 | **완료** (아래) |
 | 3 | 비교 리포트(JSON+Markdown)와 채택 판단 | **완료** (아래) |
 | 4 | 묶음과 서버 관문 | **완료** (아래) |
-| 검증·마무리 | 합성 종단 4종, §15.3, README §14.1 8·12번, `docs/training-pipeline.md` | **완료** |
+| 검증·마무리 | 합성 종단 4종, §15.3, docs/DESIGN.md §14.1 8·12번, `docs/training-pipeline.md` | **완료** |
 
 **조각 1 (완료)**
 
@@ -183,7 +199,7 @@
 
 **조각 4 (완료, 2026-11-16 사용자 승인)**
 
-- README §15.3 "결정 5·8 보완 — 2026-11-16, Claude 제안, 사용자 승인"에 승인 문안을 넣었다.
+- docs/DESIGN.md §15.3 "결정 5·8 보완 — 2026-11-16, Claude 제안, 사용자 승인"에 승인 문안을 넣었다.
 - `training/bundle.py`: 묶음 생성(`python -m training.bundle --run … --report … --out data/models/fusion/<id>`), digest, 불러올 때의 검증, 순수 파이썬 점수 계산.
   판단이 보류인 리포트로는 묶음을 만들지 않는다. `configs/fusion_bundle.json`은 `bundle_id`·`digest`가 null(묶음 없음)이다.
 - 서버: `server/fusion.load_active`(digest·파일 해시·리포트 판단·합성 여부·특징 버전 확인, 실패 이유는 코드만 로그) → Worker가 작업마다 불러
@@ -200,7 +216,7 @@
   실제 영상 + 실제 LightGBM 모델의 종단 실행, 서버 Worker의 signal·alignment 입력 전달(가짜 축으로만 확인), 실제 데이터의 묶음.
 - 앱은 실제 서버 모드에서 라벨을 숨기는 현재 동작 그대로다(G4 뒤 별도 결정).
 
-**문서 (완료):** `docs/training-pipeline.md`(DeepSpeak 승인 후 체크리스트 포함), README §14.1 8·12번, `training/README.md`.
+**문서 (완료):** `docs/training-pipeline.md`(DeepSpeak 승인 후 체크리스트 포함), docs/DESIGN.md §14.1 8·12번, `training/README.md`.
 PR은 만들지 않았다(사용자 지시). main 병합 없음.
 
 **남은 일**
@@ -230,7 +246,7 @@ PR은 만들지 않았다(사용자 지시). main 병합 없음.
 | 1 | MotionPhys를 physics 축으로 연결, 테스트, A 실제 Worker 확인 | **완료** (아래) |
 | 2 | A·B·E × 범용 프로파일 12개 3축 압축 견고성 실측 (`scripts/robustness_selfvideo.py`, `docs/robustness-selfvideo.md`) | 남음 |
 | 3 | B·E SyncNet 오디오 밀기 실험, M3 16GB 축별 시간·메모리 표 | 남음 |
-| 마무리 | README §14.1 10번, §15.3 기록, 전체 테스트, PR | 남음 |
+| 마무리 | docs/DESIGN.md §14.1 10번, §15.3 기록, 전체 테스트, PR | 남음 |
 
 **1단계 (완료)**
 
@@ -238,7 +254,7 @@ PR은 만들지 않았다(사용자 지시). main 병합 없음.
   `server/axes/physics/__init__.py`의 stub을 실제 진입점으로 바꿨다. `AxisContext.explanations`를 추가해
   축 설명을 결과의 `explanations` 인덱스 1에 넣는다(`build_result` 변경 없음). `Settings.motionphys_timeout_seconds`
   (`TRINITY_MOTIONPHYS_TIMEOUT_SECONDS`, 기본 300초 임시값). 상태 표와 세부는 `docs/motionphys-adapter.md`.
-- README §14.1 10번 상태, §15.3 "결정 3·8 보완 — 2026-11-16, Claude 제안, 사용자 승인", 환경 변수 목록을 갱신했다.
+- docs/DESIGN.md §14.1 10번 상태, §15.3 "결정 3·8 보완 — 2026-11-16, Claude 제안, 사용자 승인", 환경 변수 목록을 갱신했다.
 - 테스트: `pytest -q` **603 passed, 1 skipped**(2단계 스크립트 테스트 4개 제외)(LightGBM 없음), 기존 httpx 경고 1개. A·B·E 실제 미디어 테스트 3개가 이 기기에서 실행됐다.
   기존 기대값 2곳(`tests/test_queue_worker.py`, `tests/test_waverep_worker.py`의 "physics는 insufficient_input")은
   stub 전제여서 `error`/`model_unavailable`로 바꿨다. conftest가 테스트에서 실제 MotionPhys venv 실행을 막는다.
@@ -302,7 +318,7 @@ PR은 만들지 않았다(사용자 지시). main 병합 없음.
   "아래는 가상 데이터입니다…"를 유지하고, 실제 서버 모드는 "연구용 시제품 · 결과는 참고 정보"와
   "아래는 연구용 시제품의 계산 결과이며 참고 정보입니다…"를 보인다. 서버·API 변경 없음.
 - `app/README.md`를 현재 동작(실제 모델 연결, 취소 버튼, Chrome 예행)으로 고쳤다. `docs/design-system.md`의 띠 설명도 맞췄다.
-- README §15.3 SyncNet 보완 기록의 "Codex, GPT-6 Astra 제안, 사용자 승인" 표기는 main에 이미 있어(결정 2·8 보완 머리말) 바꾸지 않았다.
+- docs/DESIGN.md §15.3 SyncNet 보완 기록의 "Codex, GPT-6 Astra 제안, 사용자 승인" 표기는 main에 이미 있어(결정 2·8 보완 머리말) 바꾸지 않았다.
 - 검증: `flutter analyze` 문제 없음, `flutter test` 203개 통과(새 테스트 1개 포함). 실제 서버 모드 문구를 Chrome에서 눈으로 본 것은 아니다(**미검증**).
 
 ## Flutter 실제 서버 모드 A 예행 (2026-11-16)
@@ -462,7 +478,7 @@ python -m pytest -q -rs --junitxml=/private/tmp/syncnet-recovery-full.xml
   아래 과거 기록의 커밋·push 보류 문구는 당시 상태이며 지금은 두 기록 모두 원격에 있다.
 - 격리 worktree: `/Users/iyeonje/.codex/worktrees/3603/ai-`.
   main에서 #12를 fast-forward하고 #13을 `--no-commit --no-ff`로 통합했다.
-  README §15.3 승인 결정 추가와 HANDOFF의 앞부분 기록에 충돌이 있었다.
+  docs/DESIGN.md §15.3 승인 결정 추가와 HANDOFF의 앞부분 기록에 충돌이 있었다.
   두 승인 결정 및 두 PR의 기록을 모두 보존해 해결했다. API·동작 변경 판단은 필요 없었다.
   server/jobs/worker.py는 자동 병합됐다. 제품 코드의 수동 수정은 없다.
   원래 feat/syncnet 작업 공간과 별도 #12 작업 공간은 보존했다.
@@ -592,7 +608,7 @@ MPS 추론 취소·다른 영상·반복 안정성은 미검증이다. 코드 �
 ## 현재 작업: 백로그 14번 중 취소·삭제·Worker 복구·정리
 
 **결과:** 요청한 부분의 구현·테스트·실제 서버 취소 확인을 마쳤다. 백로그 14번 전체 완료는 아니다.
-도구·모델: **Codex, GPT-6 Astra**. README §9·§15.3에 날짜와 **“Codex, GPT-6 Astra 제안, 사용자 승인”**을 기록했다.
+도구·모델: **Codex, GPT-6 Astra**. docs/DESIGN.md §9·§15.3에 날짜와 **“Codex, GPT-6 Astra 제안, 사용자 승인”**을 기록했다.
 구현 커밋 `be08650`을 push했고 [PR #12](https://github.com/yeonje14/ai-/pull/12)를 생성했다.
 PR은 열림·미병합 상태이며 main에는 merge하지 않았다. 이 인계 기록은 후속 문서 커밋으로 반영한다.
 
@@ -794,7 +810,7 @@ research/syncnet/.venv/bin/python scripts/diagnose_syncnet_offset.py --registry 
   heartbeat lease 연장·취소·남은 작업 시간 제한 연결. 트랙별 LSE-C/LSE-D/오프셋 내부 계산 결과를 대역 프로세스로 확인.
   모든 구간에 유효 트랙이 있어야 completed. API 대표값은 null, fusion false, explanations에 대표값 집계 보류 표시.
   일부/전체 트랙 없음은 insufficient_input/tracking_failed, 실행 오류는 error/inference_error이며 다른 축 결과를 보존한다.
-  README §9·§10·§15.3에 승인된 의미를 기록하고 §14.1 11번 진행 상태를 갱신했다.
+  docs/DESIGN.md §9·§10·§15.3에 승인된 의미를 기록하고 §14.1 11번 진행 상태를 갱신했다.
   진단 도구 scripts/diagnose_syncnet_offset.py 작성·테스트, 실제 영상 실행 없음.
 - **검증:** 최종 전체 `pytest -q -rs`: **504 passed, 2 skipped**, 기존 httpx 경고 1개. 건너뜀은 LightGBM 없음과 자동 Gate 테스트의 speaking/*.mp4 샘플 없음. 독립 코드 리뷰에서 중요 수정 사항 없음.
 - **실행 방법:** conda trinity의 `python -m pytest -q -rs`. 진단 도구 사용법은 docs/syncnet-adapter.md.
@@ -803,13 +819,13 @@ research/syncnet/.venv/bin/python scripts/diagnose_syncnet_offset.py --registry 
   Worker 강제 종료 후 재시작 복구는 이번 조각에서 검증하지 않았다.
   가중치 상업 이용·재배포 및 S3FD 라이선스 범위는 확인 필요. trinity에 torch 설치 없음.
 - **커밋:** Worker 연결은 `802a7e0`에 기록했다.
-  실내 Gate·WaveRep 검증과 README 6·7번 갱신은 별도 문서 커밋으로 기록한다.
+  실내 Gate·WaveRep 검증과 docs/DESIGN.md §14.1 6·7번 갱신은 별도 문서 커밋으로 기록한다.
 - **기록:** docs/syncnet-spike.md, docs/syncnet-adapter.md. 조각 1 무발화 샘플은 실행 성공만 기록했다.
 
 ## 이전 작업: 백로그 7번 Gate → Worker 연결 (2026-11-15)
 
 **결과:** Gate 연결 구현과 요청한 검증을 마쳤다. 말하는 영상의 실제 통과 경로는 **미검증**이다.
-README §15.3에 날짜와 **“Codex, GPT-6 Astra 제안, 사용자 승인”**을 기록했다.
+docs/DESIGN.md §15.3에 날짜와 **“Codex, GPT-6 Astra 제안, 사용자 승인”**을 기록했다.
 PR 대상은 main이며 merge하지 않는다. 아래 과거 기록의 “Gate 미연결”·“PR #10 열림”은 당시 상태다.
 구현 커밋: `f39d203`. push 완료, [PR #11](https://github.com/yeonje14/ai-/pull/11) 생성(열림, 미병합).
 
@@ -820,7 +836,7 @@ PR 대상은 main이며 merge하지 않는다. 아래 과거 기록의 “Gate �
   같은 conda `trinity` Python의 별도 프로세스를 쓰고 모델 환경 분리를 유지한다.
   설치된 Gate 패키지와 torch가 없음을 확인했고, trinity에 패키지를 설치하지 않았다.
 - Gate가 고른 구간만 WaveRep에 전달한다. 구간이 없으면 모델 단계를 실행하지 않고
-  대표 원인·분석 상태·판정 상태를 README §15.3 승인 표대로 기록한다.
+  대표 원인·분석 상태·판정 상태를 docs/DESIGN.md §15.3 승인 표대로 기록한다.
   표의 12개 원인 코드 각각을 Worker 결과 테스트로 고정했다.
 - Gate 실패/타임아웃은 `gate_error`/`gate_timeout`, `analysis_unavailable`/`abstained`,
   모든 축 점수 `null`. heartbeat로 lease를 연장하고 취소·lease 상실·작업 전체 타임아웃에는
@@ -937,7 +953,7 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
 **아침에 확인할 것**:
 
 1. **PR #9의 동작 변화.** 등록 ID라도 `local_path`(미디어 파일)가 없으면 이제 `analysis_unavailable` / `video_access_unavailable`로 끝난다. 아무 설정 없이 `smoke_slice.py`를 돌리면 `TRINITYtest`가 접근 불가로 나온다.
-2. **PR #9의 README §15.3 변경 제안 4개.** `gate_bypassed`, `raw_metrics`, `video_access_unavailable`, 축 원인 코드에 관한 것이다. README §9·§10 본문은 바꾸지 않았다. 승인 여부를 정해야 한다.
+2. **PR #9의 docs/DESIGN.md §15.3 변경 제안 4개.** `gate_bypassed`, `raw_metrics`, `video_access_unavailable`, 축 원인 코드에 관한 것이다. docs/DESIGN.md §9·§10 본문은 바꾸지 않았다. 승인 여부를 정해야 한다.
 3. **샘플 영상의 오디오에 사람 목소리가 들어 있는지 들어 볼 것.** webrtcvad, Silero, YAMNet 세 방식이 모두 대부분을 음성으로 판정했다. 목소리가 있다면 VAD의 오판이 아니다.
 4. **말하는 영상으로 Gate 검증.** 찍은 영상을 `data/research/samples/speaking/`에 넣고 `pytest -q tests/test_gate_media.py`를 돌린다. 지금은 이 테스트를 건너뛴다.
 5. **두 PR을 합치는 순서.** 두 브랜치가 모두 `server/config.py`, `README.md`, `docs/HANDOFF.md`를 고쳐서 나중에 합치는 쪽에서 충돌이 난다. Gate를 Worker에 연결하는 일(수동 구간 대신 Gate 구간 사용, `gate_not_connected` 제거)은 두 PR이 모두 합쳐진 뒤에 한다.
@@ -959,7 +975,7 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
 
 - **브랜치**: `feat/gate-speech-segments`의 커밋 2개를 최신 main(`283c4d1`) 위로 옮겼다(새 커밋 `9f8fcb2`, `77df736`). 충돌은 세 군데에서 났다.
   - CLAUDE.md: main 쪽(`@AGENTS.md` 한 줄)을 남기고, Gate 의존성 줄은 AGENTS.md "명령"으로 옮겼다.
-  - README §14.1: main 쪽 표에 Gate의 6번 행만 넣었다.
+  - docs/DESIGN.md §14.1: main 쪽 표에 Gate의 6번 행만 넣었다.
   - HANDOFF: 두 쪽을 다 남겼다.
 - **새 파일과 바꾼 파일**:
   - `server/gate/mouth.py`: 입 벌림 측정(Face Landmarker).
@@ -1033,7 +1049,7 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
 - 큰 미디어 파일을 작업 폴더로 복사하는 동안에는 heartbeat가 없다(3.6MB 샘플에서는 문제없음).
 - Flutter 앱의 실제 서버 모드에서 새 필드가 있는 결과를 여는 것(앱 코드는 바꾸지 않았다).
 
-**§15.3 변경 제안 (README §9·§10은 바꾸지 않았다. 승인하면 문서에 반영)**:
+**§15.3 변경 제안 (docs/DESIGN.md §9·§10은 바꾸지 않았다. 승인하면 문서에 반영)**:
 
 1. §9 결과에 `gate_bypassed`(bool, 기본 `false`)를 적는다. `true`면 개발용 결과이며 항상 `partial` / `abstained` / `overall_score=null`.
 2. §9 `axes.signal`에 `raw_metrics.frame_logit` 요약을 적는다. `raw_score`는 집계 방법이 정해질 때까지 `null`.
@@ -1042,7 +1058,7 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
 
 **7번에서 남은 일**: Gate 연결(수동 구간 설정과 `gate_not_connected` 제거), 프레임 logit을 `raw_score`로 집계하는 방법 결정(백로그 8번 이후), physics·alignment stub 교체.
 
-**실행**: README 하단 "서버 실행 방법"의 "실제 WaveRep 실행(개발 전용)".
+**실행**: docs/DESIGN.md 하단 "서버 실행 방법"의 "실제 WaveRep 실행(개발 전용)".
 
 ## 앱 디자인 개정: 밝은 테마, 웹형·앱형 홈 (백로그 13번, 2026-11-14)
 
@@ -1066,7 +1082,7 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
 - `ryanthedev/design-for-ai` 저장소와 Claude Code 공식 설치 문서를 확인했다. 저장소는 `rtd` 마켓플레이스의 `design-for-ai` 설치와 research → plan → mock → build 흐름을 안내한다.
 - 사용자의 `/reload-plugins`가 성공했다. 프로젝트 루트에서 `claude plugin list --json`을 실행해 `design-for-ai@rtd` 4.2.0이 `local` 범위로 설치되고 활성화된 상태를 확인했다.
 - 다음 작업: Claude Code에서 `/design-for-ai:research`를 실행해 기존 웹·앱 시안을 디자인 브리프로 정리한다. research 명령 실행은 아직 확인하지 않았다.
-- 사용 시: 이미 정한 웹 검색형·앱 세로형 방향과 README의 판정/입력 규칙을 유지하도록 전달한다. 플러그인의 기본 build 흐름에 검토 에이전트와 단계별 커밋이 포함되므로 자동 커밋·푸시를 원하지 않는 경우 사용자 지시로 명확히 제한한다.
+- 사용 시: 이미 정한 웹 검색형·앱 세로형 방향과 docs/DESIGN.md의 판정/입력 규칙을 유지하도록 전달한다. 플러그인의 기본 build 흐름에 검토 에이전트와 단계별 커밋이 포함되므로 자동 커밋·푸시를 원하지 않는 경우 사용자 지시로 명확히 제한한다.
 
 ## 웹 앱 디자인 시안 (검토용 · 제품 미반영)
 
@@ -1082,7 +1098,7 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
 
 모델 미연결이다. 화면의 결과는 가상 데이터이며 모든 화면 상단에 "모델 미연결 · 가상 데이터" 띠가 있다. 자세한 내용은 `docs/design-system.md`, `app/README.md`.
 
-- **API 계약 변경(README §9, 결정 8)**: 결과에 `verdict_label`(`suspicious_signals` / `low_suspicion` / `null`)을 추가했다. 요약 화면이 숫자 없이 발견과 낮음을 구분하기 위한 필드다. `verdict_status=assessed`일 때만 값을 가질 수 있고(스키마가 거부), 검증된 결합 모델이 없어 **서버는 항상 `null`을 보낸다.**
+- **API 계약 변경(docs/DESIGN.md §9, 결정 8)**: 결과에 `verdict_label`(`suspicious_signals` / `low_suspicion` / `null`)을 추가했다. 요약 화면이 숫자 없이 발견과 낮음을 구분하기 위한 필드다. `verdict_status=assessed`일 때만 값을 가질 수 있고(스키마가 거부), 검증된 결합 모델이 없어 **서버는 항상 `null`을 보낸다.**
 - **서버 CORS**: `TRINITY_CORS_ORIGINS`(기본 `http://localhost:8080,http://127.0.0.1:8080`). localhost·127.0.0.1만 받고 `*`와 다른 호스트는 시작할 때 거부한다. 메서드는 GET·POST, 헤더는 `Content-Type`·`X-Client-Token`만 연다. 빈 값이면 끈다.
 - **만든 파일**: `app/`(Flutter 웹 프로젝트), `docs/design-system.md`, `tests/test_cors_and_label.py`. 바꾼 파일: `server/{config.py,api/__init__.py,schemas/__init__.py,jobs/worker.py}`, `tests/test_api.py`(계약 키 목록).
 - **디자인 시스템**: 색 토큰 8개(초록 없음, 강조색은 "의심 신호 발견"에만), Inter Tight + JetBrains Mono + Noto Sans KR, 모서리 반경 0, 8pt 그리드, 좌우 여백 20. 공통 위젯 8종. 본문 16, 보조 13, 줄간격 1.5, 글자 대비 5.2:1 이상, 터치 영역 48.
@@ -1135,7 +1151,7 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
 - **미검증·확인 필요**: 다른 기기·다른 FFmpeg/x264 버전에서의 출력 동일성, 가변 프레임률·회전 메타데이터·복사할 수 없는 오디오 코덱, 코드에 적용된 CC BY 4.0의 세부 해석, 원본 코드의 `h264` 인코더 이름이 다른 빌드에서 하드웨어 인코더로 풀리는지, YouTube Studio에서 받은 파일이 플랫폼 처리본인지.
 - **남은 일 (9번)**:
   - 최종 평가용 프로파일 고정(학습 시작 전), dev에 넣을 압축 조건 결정.
-  - 모델 점수의 압축 민감도(README §13.2 C1~C3), 원본과 압축본을 짝지은 점수 차이 지표. 데이터와 영상 단위 점수가 생긴 뒤.
+  - 모델 점수의 압축 민감도(docs/DESIGN.md §13.2 C1~C3), 원본과 압축본을 짝지은 점수 차이 지표. 데이터와 영상 단위 점수가 생긴 뒤.
   - 향후 경로: 저장소 소유자가 직접 찍은 영상을 본인 채널에 올려 YouTube Studio에서 받은 파일과 쌍으로 실제 파라미터를 추정(받은 파일이 처리본인지 확인 필요). **지금은 업로드하지 않는다.**
   - 오디오 재인코딩·프레임률·반복 인코딩·화질 지표.
 
@@ -1165,7 +1181,7 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
   환경과 모델 파일 준비는 `docs/motionphys-spec.md` §8. `--noconftest`는 motionphys 환경에 fastapi가 없어서 필요하다.
 - **검증**: `research/motionphys/.venv`에서 49개 통과. conda `trinity`에서 전체 265개 통과, 1개 건너뜀(LightGBM이 없어 `tests/test_motionphys_train.py`).
 - **미검증·확인 필요**: 논문에 없는 설정 전부(`docs/motionphys-spec.md` §9), 구간 길이에 따른 프레임 간격 차이의 영향, 짧은 구간·원본 해상도·다른 영상에서의 압축 민감도, 24프레임 스케일이 불안정한 원인, C의 불안정이 특징점 떨림 때문인지, MediaPipe 모델 파일의 이용 조건.
-- **남은 일 (10번)**: DeepSpeak v2 승인 뒤 특징 추출 → `train_lgbm.py`로 학습 → 평가 파이프라인으로 A·B·C 비교(유효 궤적 비율, AUC, TPR@5%FPR, 추론 시간) → 축 유지/제거 결정. A+C, B+C 결합. 원본과 압축본의 점수 차이 측정(README §13.2 C1~C5). 서버 어댑터와 Worker 연결.
+- **남은 일 (10번)**: DeepSpeak v2 승인 뒤 특징 추출 → `train_lgbm.py`로 학습 → 평가 파이프라인으로 A·B·C 비교(유효 궤적 비율, AUC, TPR@5%FPR, 추론 시간) → 축 유지/제거 결정. A+C, B+C 결합. 원본과 압축본의 점수 차이 측정(docs/DESIGN.md §13.2 C1~C5). 서버 어댑터와 Worker 연결.
 - **의존성 메모**: 10번은 6번(Gate)·8번·9번에 의존한다. Gate 브랜치는 main에 없어서 얼굴 검출은 `research/motionphys` 안에서 MediaPipe를 직접 부른다. 압축은 9번의 `social_emulator`가 아니라 FFmpeg CRF만 썼다.
 
 
@@ -1197,7 +1213,7 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
 - **남은 일**:
   - DeepSpeak v2 승인 뒤: 필드를 공통 manifest로 바꾸는 변환기, 그룹 분할, 누수 검사, WaveRep 단일축 평가 리포트.
   - 프레임 logit을 영상 점수로 집계하는 방법을 dev에서 정하기(지금 WaveRep 어댑터의 `raw_score`는 `null`).
-  - README §6.4의 나머지 점검(영상 유사도, 무음 편향, 코덱·해상도 shortcut), 압축 조건별 지표, 보정 지표.
+  - docs/DESIGN.md §6.4의 나머지 점검(영상 유사도, 무음 편향, 코덱·해상도 shortcut), 압축 조건별 지표, 보정 지표.
   - 백로그 7번의 남은 일(Gate·Worker 연결)은 아래 절에 그대로 있다.
 
 
@@ -1234,15 +1250,15 @@ Gate 제한시간은 `TRINITY_GATE_TIMEOUT_SECONDS`(기본 120초), 수동 우�
 
 - **DeepSpeak v2**: 심사 대기.
 - **Deepfake-Eval-2024**: 접근 요청이 **거절됐다.** 거절 사유·통보 날짜·재신청 가능 여부는 확인 필요.
-- `docs/dataset-access.md`, README §6.1 표, §14.1 백로그 3번 행에 반영했다.
+- `docs/dataset-access.md`, docs/DESIGN.md §6.1 표, §14.1 백로그 3번 행에 반영했다.
 - 대체 방안은 아래 "결정 6 변경"에서 정했다.
 
 ## 결정 6 변경: 최종 외부 평가 자료 (2026-11-13, 브랜치 `docs/decision-6-external-eval`)
 
-README 설계 문구와 접근 기록을 바꾸고, MAVOS-DD 표본 목록을 만드는 스크립트를 추가했다. 서버 코드는 바꾸지 않았다.
+설계 문서(지금 `docs/DESIGN.md`) 문구와 접근 기록을 바꾸고, MAVOS-DD 표본 목록을 만드는 스크립트를 추가했다. 서버 코드는 바꾸지 않았다.
 
 - **결정**: 최종 외부 평가를 MAVOS-DD open-set model 분할과 TalkingHeadBench로 대체한다. Deepfake-Eval-2024는 재신청을 검토하고 승인되면 실전 유통본 평가로 추가한다. 실제 SNS 유통본으로 평가하지 못하면 결과 보고에 한계를 명시한다.
-- **바꾼 곳**: README §6.1(역할 표, 우선 접근 원칙), §6.3, §6.5, §13.1, §14.1 3번 행, §15.3 결정 6, §16, `AGENTS.md`의 최종 평가 전용 줄, `docs/dataset-access.md`(MAVOS-DD 절 추가).
+- **바꾼 곳**: docs/DESIGN.md §6.1(역할 표, 우선 접근 원칙), §6.3, §6.5, §13.1, §14.1 3번 행, §15.3 결정 6, §16, `AGENTS.md`의 최종 평가 전용 줄, `docs/dataset-access.md`(MAVOS-DD 절 추가).
 - **MAVOS-DD 확인한 것**: CC BY-NC-SA 4.0, 자동 승인 방식 접근 제한, 전체 약 308.4 GB(mp4 87,038개), 폴더(언어·생성기) 단위로 일부만 받을 수 있는 구조. 폴더별 파일 수·용량 표를 `docs/dataset-access.md`에 넣었다(전체 기준, 분할 구분 없음).
 - **표본 추출 규칙**: 구조(층화, 고정 시드, 진짜·가짜 비율, 생성기당 상한, 교체 금지)를 `docs/dataset-access.md`에 먼저 고정했다. 숫자는 미정이다.
 - **MAVOS-DD 메타데이터 (2026-11-13)**: 접근이 승인돼 메타데이터만 받았다(`data/research/mavos-dd/`, 영상 없음). open-set model 분할은 43,959개, 155.3 GB(진짜 15,547, 가짜 28,412). 생성기별·언어별 표와 원본 영상 묶음 추정을 `docs/dataset-access.md`에 넣었다.
@@ -1261,14 +1277,14 @@ README 설계 문구와 접근 기록을 바꾸고, MAVOS-DD 표본 목록을 �
 - 입 움직임 확인 추가와 VAD 비교가 필요하다.
 - 발화가 있는 영상은 아직 없다.
 - Gate 수정은 미뤘다. 코드는 고치지 않았다. **이 브랜치(`feat/gate-speech-segments`)는 `main`에 합치지 않는다.**
-- 아래의 "원본 `null`(적합 구간 0~10.433초)"과 README §14.1 6번 행의 "단일 발화 ... 확인"은 이 문제의 영향을 받는다. 그대로 믿지 않는다.
+- 아래의 "원본 `null`(적합 구간 0~10.433초)"과 docs/DESIGN.md §14.1 6번 행의 "단일 발화 ... 확인"은 이 문제의 영향을 받는다. 그대로 믿지 않는다.
 - `docs/waverep-spike.md`의 입력 설명을 "본인 얼굴, 주변 소리, 발화 없음"으로 정정했다. `docs/media-access.md` §3의 "본인 얼굴과 본인 음성만"은 허가 미디어의 범위 규칙이라 고치지 않았다. 현재 샘플에 본인 음성(발화)이 없다는 점은 거기에 적혀 있지 않다.
 
 허가 미디어 파일 하나를 받아 적합 발화 구간과 원인 코드를 돌려주는 `server/gate` 모듈이다. 모델 추론은 하지 않는다. Worker에는 연결하지 않았다. 자세한 내용은 `docs/gate.md`.
 
 - **구성**: `probe.py`(ffprobe), `vad.py`(FFmpeg PCM 파이프 + `webrtcvad`), `faces.py`(MediaPipe Face Detector), `segments.py`(추적과 규칙, 순수 함수), `types.py`(자료형·원인 코드·임시 임계값). 진입점은 `server.gate.run_gate(media_path)`.
 - **규칙**: 음성 구간 동안 주된 얼굴이 정확히 하나일 때만 적합 구간이다. 둘 이상이면 `speaker_unconfirmed`.
-- **원인 코드**: `media_unreadable`, `audio_missing`, `no_speech_detected`, `no_face_detected`, `speaker_unconfirmed`, `low_resolution`, `face_too_small`, `too_blurry`, `segment_too_short`. README §10에 추가했다.
+- **원인 코드**: `media_unreadable`, `audio_missing`, `no_speech_detected`, `no_face_detected`, `speaker_unconfirmed`, `low_resolution`, `face_too_small`, `too_blurry`, `segment_too_short`. docs/DESIGN.md §10에 추가했다.
 - **coverage**: `video_duration_sec`와 `eligible_duration_sec`만 채운다. `analyzed_*`와 비율은 `null`(백로그 7번에서 채운다).
 - **의존성**: `requirements-gate.txt`(버전 고정)를 conda `trinity`에 설치했다. `mediapipe` 1.2.3, `webrtcvad-wheels` 2.0.14.post1, `opencv-contrib-python` 5.0.0.93, `numpy` 2.4.6 등. **torch는 없다**(설치 전 dry-run과 설치 후 모두 확인). 먼저 `research/gate/.venv`에서 스모크했고 lockfile은 `research/gate/requirements.lock.txt`.
 - **모델 파일**: `data/models/gate/blaze_face_short_range.tflite`(Git 제외). sha256은 `configs/gate_models.json`. 해시가 다르면 실행을 거부한다.
@@ -1293,9 +1309,9 @@ README 설계 문구와 접근 기록을 바꾸고, MAVOS-DD 표본 목록을 �
 
 문서만 만들었다. 코드는 바꾸지 않았다.
 
-- **`docs/media-access.md` (백로그 1번)**: 영상 ID·메타데이터 접근과 분석용 미디어 접근의 차이(README §3.1 기준), 임의 YouTube URL은 `analysis_unavailable`로 처리한다는 결정, 허가 미디어 범위(저장소 소유자가 직접 촬영한 본인 영상, 본인 얼굴·음성만, 제3자 없음), 압축 실험에는 휴대폰 원본을 쓴다는 메모.
+- **`docs/media-access.md` (백로그 1번)**: 영상 ID·메타데이터 접근과 분석용 미디어 접근의 차이(docs/DESIGN.md §3.1 기준), 임의 YouTube URL은 `analysis_unavailable`로 처리한다는 결정, 허가 미디어 범위(저장소 소유자가 직접 촬영한 본인 영상, 본인 얼굴·음성만, 제3자 없음), 압축 실험에는 휴대폰 원본을 쓴다는 메모.
 - **`docs/dataset-access.md` (백로그 3번)**: (2026-11-12 기준. 최신 상태는 위 "데이터셋 접근 상태 갱신") DeepSpeak v2와 Deepfake-Eval-2024는 접근 요청 후 승인 대기, TalkingHeadBench는 접근 방법 확인 필요. 데이터셋별 역할, 확인된 이용 조건, 확인 필요 항목을 나눠 적었다. Hugging Face 공개 API 메타데이터(접근 제한 여부, 라이선스 태그, Deepfake-Eval-2024 이용 조건 문구)를 2026-11-12에 조회해 근거로 썼다. 데이터셋 파일은 받지 않았다.
-- **README**: §14.1 백로그 1·3번 행에 상태를 적었다. §6.1 표의 DeepSpeak v2·Deepfake-Eval-2024 상태 칸을 "접근 요청함, 승인 대기"로 바꿨다.
+- **설계 문서(지금 `docs/DESIGN.md`)**: §14.1 백로그 1·3번 행에 상태를 적었다. §6.1 표의 DeepSpeak v2·Deepfake-Eval-2024 상태 칸을 "접근 요청함, 승인 대기"로 바꿨다.
 - **검증**: `pytest -q` 72개 통과(conda `trinity`). 문서 변경이라 새 테스트는 없다.
 - **확인 필요로 남긴 것**:
   - 두 데이터셋의 신청 날짜(저장소 소유자가 알려 주면 반영), 승인 결과.
@@ -1349,7 +1365,7 @@ README 설계 문구와 접근 기록을 바꾸고, MAVOS-DD 표본 목록을 �
 - **SQLite 큐** (`server/jobs/queue.py`): `BEGIN IMMEDIATE` 원자적 선점, 동시 1건, 대기 3건 초과 시 429, lease와 단계 경계 heartbeat, 만료 lease 복구, 재시도 상한(기본 2회), 취소, lease 소유자 불일치 쓰기 거부.
 - **Worker** (`server/jobs/worker.py`): 별도 프로세스. 단계명만 기록하고, 한 축이 예외를 내도 나머지 축을 계속한다. 타임아웃과 취소는 단계 경계에서 확인한다. 임시 작업 폴더는 끝나면 지운다.
 - **작업 소유권**: `X-Client-Token` 헤더의 해시를 작업에 저장한다. 토큰이 다르면 404, 없으면 401.
-- **그 외**: `requirements.txt`(버전 고정), `.gitignore`, `pytest.ini`, `scripts/smoke_slice.py`, README 하단 실행 방법, CLAUDE.md "명령" 절.
+- **그 외**: `requirements.txt`(버전 고정), `.gitignore`, `pytest.ini`, `scripts/smoke_slice.py`, 설계 문서(지금 `docs/DESIGN.md`) 하단 실행 방법, CLAUDE.md "명령" 절.
 
 ## 검증 결과
 
@@ -1383,10 +1399,10 @@ python scripts/smoke_slice.py         # 터미널 3
 
 ## 결정한 것 (2026-11-12)
 
-- **미완료 작업의 `/result`**: `queued`·`processing`이면 HTTP 202와 함께 `job_status`·`stage`만 돌려준다. 실패·취소 작업은 200으로 `job_status`와 `reason_code`만 채운다. README §9에 반영했다.
-- **작업 실패 원인 코드**: `timeout`, `worker_error`, `max_attempts_exceeded`를 README §10에 추가했다.
-- **백로그 7번 완료 조건**: "추론 중 주기적 heartbeat로 lease 연장"을 README §14.1에 추가했다.
-- **README §9 문구**: "미구현 명세"를 "백로그 4번 기준 stub으로 구현됨"으로 바꿨다.
+- **미완료 작업의 `/result`**: `queued`·`processing`이면 HTTP 202와 함께 `job_status`·`stage`만 돌려준다. 실패·취소 작업은 200으로 `job_status`와 `reason_code`만 채운다. docs/DESIGN.md §9에 반영했다.
+- **작업 실패 원인 코드**: `timeout`, `worker_error`, `max_attempts_exceeded`를 docs/DESIGN.md §10에 추가했다.
+- **백로그 7번 완료 조건**: "추론 중 주기적 heartbeat로 lease 연장"을 docs/DESIGN.md §14.1에 추가했다.
+- **docs/DESIGN.md §9 문구**: "미구현 명세"를 "백로그 4번 기준 stub으로 구현됨"으로 바꿨다.
 
 ## 막힌 점·확인이 필요한 것
 

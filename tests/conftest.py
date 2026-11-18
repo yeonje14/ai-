@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTERED_ID = "TRINITYtest"   # 가짜 ID. 실제 영상이 아니다.
 REGISTERED_MEDIA = "registered.mp4"
 REGISTERED_NO_MEDIA_ID = "TRINITYnone"  # 등록됐지만 미디어 파일이 연결되지 않은 가짜 ID
-UNREGISTERED_ID = "dQw4w9WgXcQ"  # README §9의 형식 설명용 예시 ID
+UNREGISTERED_ID = "dQw4w9WgXcQ"  # docs/DESIGN.md §9의 형식 설명용 예시 ID
 TOKEN = "test-client-token-0001"
 OTHER_TOKEN = "test-client-token-0002"
 

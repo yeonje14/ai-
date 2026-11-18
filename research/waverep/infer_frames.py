@@ -1,4 +1,4 @@
-"""WaveRep 프레임 추론 프로세스 (README §14.1 백로그 7번, 어댑터의 모델 쪽 절반).
+"""WaveRep 프레임 추론 프로세스 (docs/DESIGN.md §14.1 백로그 7번, 어댑터의 모델 쪽 절반).
 
 research/waverep/.venv의 Python으로 실행한다. server/axes/signal/waverep.py가
 인자 리스트로 띄우고, 요청·결과를 JSON 파일로 주고받는다.

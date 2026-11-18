@@ -1,4 +1,4 @@
-"""평가 지표 (README §6.3, §13.1). 표준 라이브러리만 쓴다.
+"""평가 지표 (docs/DESIGN.md §6.3, §13.1). 표준 라이브러리만 쓴다.
 
 점수는 클수록 "가짜"라는 방향의 원시 점수다. 판정 규칙은 `점수 >= 임계값 → 가짜`.
 계산할 수 없는 값은 None이다. 0으로 채우지 않는다.
@@ -118,7 +118,7 @@ def clopper_pearson_upper(k: float, n: int, confidence: float = 0.95) -> Optiona
 
 
 def fpr_exact_upper(items: Sequence["Item"], threshold: float, confidence: float = 0.95) -> dict:
-    """FPR 관문용 정확 상한(README §15.3 2026-11-18, 감사 A10).
+    """FPR 관문용 정확 상한(docs/DESIGN.md §15.3 2026-11-18, 감사 A10).
 
     그룹 안 영상은 서로 독립이 아니므로 표본 수 n은 진짜 그룹 수로 보수적으로 잡고, 비율은 영상 단위 FPR을 쓴다
     (k = n × 영상 단위 FPR). 오탐이 0건이면 k = 0이라 그룹이 36개 미만이면 상한이 10%를 넘는다.

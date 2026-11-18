@@ -1,6 +1,6 @@
 # 고정 평가 파이프라인 뼈대
 
-README §14.1 백로그 8번(P1-3)의 첫 단계. 작성일: 2026-11-13.
+docs/DESIGN.md §14.1 백로그 8번(P1-3)의 첫 단계. 작성일: 2026-11-13.
 
 > **뼈대다. 성능 결과가 아니다.**
 > 실제 학습 데이터(DeepSpeak v2)가 아직 없어서 합성 manifest와 합성 점수로만 동작을 확인했다.
@@ -11,11 +11,11 @@ README §14.1 백로그 8번(P1-3)의 첫 단계. 작성일: 2026-11-13.
 
 | 규칙 (출처) | 어디서 막는가 |
 |---|---|
-| 같은 인물·원본 계보 그룹이 여러 분할에 걸치면 평가하지 않는다 (AGENTS.md, README §6.4) | `training/hygiene.py`가 실패로 판정. `fit-threshold`와 `evaluate`는 실패한 manifest를 거부한다 |
-| 임계값은 dev 분할에서만 정한다 (README §13.3) | `thresholds.fit_threshold`가 dev가 아닌 영상이 섞이면 예외 |
+| 같은 인물·원본 계보 그룹이 여러 분할에 걸치면 평가하지 않는다 (AGENTS.md, docs/DESIGN.md §6.4) | `training/hygiene.py`가 실패로 판정. `fit-threshold`와 `evaluate`는 실패한 manifest를 거부한다 |
+| 임계값은 dev 분할에서만 정한다 (docs/DESIGN.md §13.3) | `thresholds.fit_threshold`가 dev가 아닌 영상이 섞이면 예외 |
 | 고정한 임계값은 바꿀 수 없다 | 파일을 새로만 만들 수 있고(덮어쓰기 거부, 읽기 전용), 내용 해시가 다르면 불러올 때 거부. `evaluate`는 임계값을 숫자로 받는 옵션이 없다 |
-| 외부 최종 평가 자료는 학습·임계값·분할 배정에 쓰지 않는다 (README §6.4, 결정 6) | `configs/external_eval_lock.json`에 등록. 내부 분할에 들어가면 누수 검사 실패 |
-| 외부 평가는 모델과 임계값을 고정한 뒤 한 번 한다 (README §6.3) | 잠금이 `locked`면 `evaluate --split external`을 거부. `unlocked`로 고쳐 커밋하고 `--final-external`을 줘야 실행 |
+| 외부 최종 평가 자료는 학습·임계값·분할 배정에 쓰지 않는다 (docs/DESIGN.md §6.4, 결정 6) | `configs/external_eval_lock.json`에 등록. 내부 분할에 들어가면 누수 검사 실패 |
+| 외부 평가는 모델과 임계값을 고정한 뒤 한 번 한다 (docs/DESIGN.md §6.3) | 잠금이 `locked`면 `evaluate --split external`을 거부. `unlocked`로 고쳐 커밋하고 `--final-external`을 줘야 실행 |
 | 실패하거나 실행하지 않은 점수는 `null`이다 | 점수가 빈칸인 영상과 점수 행이 없는 영상은 지표에서 빼지 않고 보류로 센다. 계산할 수 없는 지표는 `null` |
 
 ## 구성
@@ -35,7 +35,7 @@ README §14.1 백로그 8번(P1-3)의 첫 단계. 작성일: 2026-11-13.
 
 ## 공통 manifest
 
-CSV 한 줄이 영상 하나다. README §6.4의 공통 레코드에 경로와 라벨을 더했다.
+CSV 한 줄이 영상 하나다. docs/DESIGN.md §6.4의 공통 레코드에 경로와 라벨을 더했다.
 
 | 열 | 뜻 | 필수 |
 |---|---|---|
@@ -44,7 +44,7 @@ CSV 한 줄이 영상 하나다. README §6.4의 공통 레코드에 경로와 �
 | `label` | `real` 또는 `fake` | 예 |
 | `source_recording_id` | **원본 계보 ID.** 같은 원본 녹화에서 나온 영상은 같은 값 | 예 |
 | `identity_ids` | 인물 ID. 여럿이면 `\|`로 구분(얼굴 교체의 출처와 대상 모두) | 아니오 (없으면 경고) |
-| `manipulation_type` | A1~C2 (README §6.1). 진짜는 빈칸 | 아니오 |
+| `manipulation_type` | A1~C2 (docs/DESIGN.md §6.1). 진짜는 빈칸 | 아니오 |
 | `generator_id` | 생성기. 진짜는 빈칸 | 아니오 |
 | `parent_video_id`, `derivation_group_id` | 파생 관계(압축·crop·재인코딩 등) | 아니오 |
 | `split` | `train`, `dev`, `test`, `external` | 평가 전에는 예 |
@@ -52,7 +52,7 @@ CSV 한 줄이 영상 하나다. README §6.4의 공통 레코드에 경로와 �
 | `compression_profile_id` | 압축 조건(프로파일 ID). 빈칸은 다시 압축하지 않은 영상. 열 자체가 없어도 읽는다 (2026-11-14 추가, `docs/compression-emulator.md`) | 아니오 |
 
 - 모르는 값은 빈칸이다. 원본을 알 수 없으면 `source_recording_id`를 `unknown:<경로>`로 적어 "묶을 수 없는 영상"임을 드러낸다. 이런 영상은 `source_unverified` 경고로 센다.
-- `dev`가 README의 "개발 검증 분할"이다.
+- `dev`가 docs/DESIGN.md의 "개발 검증 분할"이다.
 
 ## 그룹과 누수 검사
 
@@ -80,7 +80,7 @@ CSV 한 줄이 영상 하나다. README §6.4의 공통 레코드에 경로와 �
 | `fake_generator_missing`, `fake_manipulation_type_missing` | 생성기·유형이 빈 가짜 영상 수 |
 | `file_hash_missing` | 파일 해시가 없는 영상 수 |
 
-하지 않은 것: 영상 유사도, 오디오 무음 편향, 코덱·해상도·FPS·길이 shortcut 진단(README §6.4의 나머지 항목). 실제 파일이 있어야 해서 이번 범위에서 뺐다.
+하지 않은 것: 영상 유사도, 오디오 무음 편향, 코덱·해상도·FPS·길이 shortcut 진단(docs/DESIGN.md §6.4의 나머지 항목). 실제 파일이 있어야 해서 이번 범위에서 뺐다.
 
 ## 지표
 
@@ -170,7 +170,7 @@ python -m training.hygiene data/research/mavos-dd/common-manifest.csv
 
 - 실제 데이터로 돌린 적이 없다. DeepSpeak v2가 들어오면 그 필드를 공통 manifest에 대응시키는 변환기를 만들고, 누수 검사와 단일축(WaveRep) 기초 평가 리포트를 낸다. 그때 백로그 8번의 완료 조건을 다시 본다.
 - 영상 단위 점수가 필요하다. WaveRep 어댑터는 프레임별 logit을 내고 `raw_score`는 `null`이다. 프레임 logit을 영상 점수로 집계하는 방법은 dev에서 정해야 하며 아직 정하지 않았다.
-- 보정 지표(Brier, ECE), latency·메모리 집계는 넣지 않았다(README §13.1의 나머지 지표). 압축 조건별 지표는 2026-11-14에 넣었다(합성 점수로만 확인).
+- 보정 지표(Brier, ECE), latency·메모리 집계는 넣지 않았다(docs/DESIGN.md §13.1의 나머지 지표). 압축 조건별 지표는 2026-11-14에 넣었다(합성 점수로만 확인).
 - 층화 표본에 대한 가중 추정은 넣지 않았다. MAVOS-DD 표본은 층별 추출 비율이 달라서 전체 값은 "표본의 값"으로만 읽고, 생성기별 값을 기본으로 본다.
 - 임계값 파일의 보호는 실수와 조용한 변경을 막는 수준이다. 파일을 지우고 다른 이름으로 다시 만드는 것까지 막지는 못한다. 리포트에 임계값 digest와 입력 해시를 남겨 추적할 수 있게 했다.
 - bootstrap은 순수 파이썬이다. 영상 수천 개에서는 몇 초에서 수십 초로 예상하지만 큰 데이터에서는 재지 않았다(**미검증**).

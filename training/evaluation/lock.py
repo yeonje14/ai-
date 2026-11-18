@@ -1,4 +1,4 @@
-"""외부 최종 평가 자료 잠금 (README §6.3, §6.4 "외부 평가 접근 제한", AGENTS.md).
+"""외부 최종 평가 자료 잠금 (docs/DESIGN.md §6.3, §6.4 "외부 평가 접근 제한", AGENTS.md).
 
 configs/external_eval_lock.json에 등록된 데이터셋은 최종 평가 전용이다.
 - 학습, OOF, 확률 보정, 임계값 결정, 내부 분할 배정에 쓸 수 없다.

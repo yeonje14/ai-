@@ -8,16 +8,16 @@
   (3) 실제 FPR이 WaveRep 단독보다 max_fpr_worsening 넘게 나쁘지 않고,
   (4) 판정 제공 비율이 max_coverage_drop 넘게 줄지 않으며,
   (5) 고정 임계값의 FPR 상한 ≤ max_test_fpr_ci_high. 상한은 그룹 bootstrap 상한과 Clopper–Pearson 정확 상한
-      (n = 진짜 그룹 수, k = n × 영상 단위 FPR) 중 큰 값이다(README §15.3 2026-11-18, 감사 A10).
-  (2)의 TPR 차이는 두 후보가 모두 점수를 낸 가짜에서만 계산한다(README §15.3 2026-11-18, 감사 A17).
+      (n = 진짜 그룹 수, k = n × 영상 단위 FPR) 중 큰 값이다(docs/DESIGN.md §15.3 2026-11-18, 감사 A10).
+  (2)의 TPR 차이는 두 후보가 모두 점수를 낸 가짜에서만 계산한다(docs/DESIGN.md §15.3 2026-11-18, 감사 A17).
 - "WaveRep 단독": 결합이 위를 못 넘고, WaveRep 단독이 (1)과 (5)를 넘는다.
 - 그 밖에는 "보류". 3축을 강제로 채택하지 않는다.
-- 서빙(README §15.3 2026-11-18, 감사 A9, 규칙은 training/serving.py): 채택 가능이면 dev에서 고른 결합이 선택 후보(primary),
+- 서빙(docs/DESIGN.md §15.3 2026-11-18, 감사 A9, 규칙은 training/serving.py): 채택 가능이면 dev에서 고른 결합이 선택 후보(primary),
   WaveRep 단독이면 W가 선택 후보다. 선택 후보보다 축이 적은 결합 후보와 W는 대체 후보(fallback) 후보이며,
   서버에서 실제로 쓰일 test 영상(축 성공 패턴이 정확히 같은 영상)에서 (1)·(5)와 최소 진짜·가짜 그룹 수
   (fallback_min_real_groups·fallback_min_fake_groups)를 넘은 것만 서빙한다. 대체 후보에는 TPR 이득 비교를 하지 않는다
   (그 영상에서는 선택 후보가 쓰이지 않고 대안은 보류뿐이다).
-README §13.3에는 숫자 기준이 없다. G3의 "단일 최강 모델 대비"를 따라 (2)는 WaveRep과 단일 최강 둘 다 본다.
+docs/DESIGN.md §13.3에는 숫자 기준이 없다. G3의 "단일 최강 모델 대비"를 따라 (2)는 WaveRep과 단일 최강 둘 다 본다.
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ def paired_difference(a: Sequence[Item], b: Sequence[Item], threshold_a: float, 
         sb = _stats([(label, y) for label, _, y in rows], threshold_b)
         out = {m: (sa[m] - sb[m] if sa[m] is not None and sb[m] is not None else None) for m in metrics}
         # TPR 차이는 두 후보가 모두 점수를 낸 가짜에서만 센다. 한쪽이 어려운 가짜에서 보류해 TPR이 오른 것처럼
-        # 보이지 않게 한다(README §15.3 2026-11-18, 감사 A17). FPR·AUC·판정 제공 비율은 그대로다
+        # 보이지 않게 한다(docs/DESIGN.md §15.3 2026-11-18, 감사 A17). FPR·AUC·판정 제공 비율은 그대로다
         both = [(x, y) for label, x, y in rows if label == "fake" and x is not None and y is not None]
         ta = rate_at([x for x, _ in both], threshold_a)
         tb = rate_at([y for _, y in both], threshold_b)
@@ -206,7 +206,7 @@ SHORTCUT_WARN_MARGIN = 0.1  # |AUC − 0.5|가 이보다 크면 경고. 채택 �
 
 
 def shortcut_diagnostic(labels: dict[str, str], media: dict[str, Optional[dict]]) -> dict:
-    """파일 메타데이터 하나만으로 라벨이 얼마나 갈리는지(README §6.4 shortcut 진단).
+    """파일 메타데이터 하나만으로 라벨이 얼마나 갈리는지(docs/DESIGN.md §6.4 shortcut 진단).
 
     labels: {uid: real/fake}(train·dev만 넘긴다), media: {uid: {width, height, fps, ...} 또는 None}.
     코덱은 수집하지 않는다(Gate가 읽는 정보에 없다). 메타데이터가 없으면 available=False.

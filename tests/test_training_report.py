@@ -77,7 +77,7 @@ def test_no_discrimination_means_hold_and_no_fusion_candidate_means_no_adoption(
     assert decide(own_w=own(auc_low=0.5), own_f=own(auc_low=0.5))["decision"] == "hold"
     out = rules.decide({"fusion": None, "best_single": "W"}, {"W": own()}, {})
     assert out["decision"] == "waverep_only"
-    # 대체 후보는 test 전체가 아니라 자기 서빙 집단의 관문으로 정한다(README §15.3 2026-11-18, 감사 A9)
+    # 대체 후보는 test 전체가 아니라 자기 서빙 집단의 관문으로 정한다(docs/DESIGN.md §15.3 2026-11-18, 감사 A9)
     only = decide(fallback_w=False)
     assert only["decision"] == "fusion_adoptable" and only["servable_candidates"] == ["W+M"]
     assert decide(own_w=own(fpr_high=0.2))["servable_candidates"] == ["W+M", "W"]

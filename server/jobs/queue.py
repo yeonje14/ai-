@@ -1,4 +1,4 @@
-"""SQLite 작업 큐 (README §8).
+"""SQLite 작업 큐 (docs/DESIGN.md §8).
 
 - queued → processing 선점은 BEGIN IMMEDIATE 트랜잭션 하나로 원자적으로 한다.
 - 동시 분석은 1건이다. lease가 살아 있는 processing 작업이 있으면 선점하지 않는다.

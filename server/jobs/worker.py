@@ -202,7 +202,7 @@ def build_result(
         # Gate를 건너뛴 결과는 축이 모두 끝났어도 partial이고 판정하지 않는다.
         "analysis_status": "completed" if all_completed and not gate_bypassed else "partial",
         "verdict_status": "abstained" if gate_bypassed else fused["verdict_status"],
-        # 검증된 결합 모델이 없으므로 라벨을 붙이지 않는다 (README §9)
+        # 검증된 결합 모델이 없으므로 라벨을 붙이지 않는다 (docs/DESIGN.md §9)
         "verdict_label": None,
         "overall_score": None if gate_bypassed else fused["overall_score"],
         "abstention_reason": fused["abstention_reason"],
@@ -351,7 +351,7 @@ def process(
                 raise interrupted[0]
             segments = tuple((s.start_sec, s.end_sec) for s in gate.eligible_segments)
             if gate.reason_code not in GATE_FAILURES:
-                # 작업 전체 제한을 적합 구간 길이로 다시 정한다(시작 시각 기준, README §15.3 2026-11-18)
+                # 작업 전체 제한을 적합 구간 길이로 다시 정한다(시작 시각 기준, docs/DESIGN.md §15.3 2026-11-18)
                 eligible_sec = sum(end - start for start, end in segments)
                 limit = settings.job_timeout_after_gate(eligible_sec)
                 deadline = started + limit
@@ -393,7 +393,7 @@ def process(
         # 축 설명은 종합 보류 설명 바로 뒤에 둔다. 기존 항목의 순서는 그대로다.
         result["explanations"][1:1] = ctx.explanations
         if fused["verdict_status"] == "assessed":
-            # 검증된 묶음으로 판정했다(README §15.3). 보류 설명을 판정 설명으로 바꾼다
+            # 검증된 묶음으로 판정했다(docs/DESIGN.md §15.3). 보류 설명을 판정 설명으로 바꾼다
             result["verdict_label"] = fused["verdict_label"]
             result["explanations"][0] = {
                 "template_id": "FUSION_ASSESSED", "reason_code": "assessed",

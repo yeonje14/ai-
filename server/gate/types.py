@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
-# 원인 코드 (README §10)
+# 원인 코드 (docs/DESIGN.md §10)
 MEDIA_UNREADABLE = "media_unreadable"
 AUDIO_MISSING = "audio_missing"
 NO_SPEECH_DETECTED = "no_speech_detected"
@@ -113,7 +113,7 @@ class Segment:
 
 @dataclass(frozen=True)
 class GateResult:
-    """README §9 coverage 형식에 맞춘 Gate 결과.
+    """docs/DESIGN.md §9 coverage 형식에 맞춘 Gate 결과.
 
     Gate는 추론하지 않는다. analyzed_* 와 coverage 비율은 실제 분석한 양이므로
     여기서는 None이다(백로그 7번에서 채운다). 0으로 채우지 않는다.

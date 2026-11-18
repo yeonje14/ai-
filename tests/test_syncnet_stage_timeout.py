@@ -1,4 +1,4 @@
-"""SyncNet 단계 제한(README §15.3 2026-11-18 보완).
+"""SyncNet 단계 제한(docs/DESIGN.md §15.3 2026-11-18 보완).
 
 규칙: min(60 + 16 × 적합 구간 초, 남은 작업 시간 − 마무리 여유).
 SyncNet이 느려져도 작업 전체는 finished로 끝나고 SyncNet 축만 error/timeout, 다른 축 결과는 남는다.

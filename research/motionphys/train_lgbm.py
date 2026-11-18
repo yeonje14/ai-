@@ -8,7 +8,7 @@ research/motionphys/.venv의 Python으로 실행한다.
     research/motionphys/.venv/bin/python research/motionphys/train_lgbm.py \
         --manifest <공통 manifest.csv> --features <features.csv> --variant full --out-dir <폴더>
 
-규칙 (README §6.4, §13, docs/evaluation-pipeline.md):
+규칙 (docs/DESIGN.md §6.4, §13, docs/evaluation-pipeline.md):
 - 누수 검사를 통과하지 못한 manifest로는 학습하지 않는다.
 - 학습에는 train 분할만 쓴다. 외부 최종 평가 자료(external)는 학습에도 점수 계산에도 쓰지 않는다.
 - 점수는 dev·test에 대해서만 낸다. train의 in-sample 점수는 내지 않는다.
