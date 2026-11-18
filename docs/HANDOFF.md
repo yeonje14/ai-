@@ -1,5 +1,14 @@
 # HANDOFF
 
+## README 첫 화면 분리 (2026-11-18, 브랜치 `docs/readme-front`)
+
+- 한 일: 기존 설계 README를 `docs/DESIGN.md`로 옮기고(내용 그대로, 머리말 "README v6.0"만 "설계 문서 v6.0"으로), 저장소 첫 화면용 `README.md`를 새로 썼다. `AGENTS.md`의 설계 기준·절 참조를 `docs/DESIGN.md`로 바꿨다.
+- 참조 정리: 저장소 전체의 `README §N`·`` `README.md` §N`` 225곳(87개 파일, 코드는 주석·docstring·생성 문서 문구만)과 "README 하단 서버 실행 방법" 등 몇 곳을 `docs/DESIGN.md`로 바꿨다. `app/README.md`·`training/README.md`·외부 저장소 README 참조는 그대로다.
+  - **그대로 둔 과거 기록:** 이 파일의 "바뀐 파일" 목록·git 명령·충돌 기록(PR #12·#13 통합 재현 명령, 취소·삭제, Gate→Worker 연결, PR #9·#10)과 `docs/superpowers/plans/`의 Files 목록에 나오는 `README.md`는 당시 파일 이름이라 고치지 않았다. **2026-11-18 이전 기록의 `README.md`는 지금의 `docs/DESIGN.md`다.**
+- 새 README의 사실을 저장소 문서와 대조해 고쳤다(SyncNet 실측을 11-18 재측정으로, 우연 채택률, 채택 기준, 견고성 측정 영상 수, 데이터셋 상태 등). 저장소에 근거가 없어 확인하지 못한 문구는 PR 설명에 남겼다.
+- 옮기는 일(`README.md => docs/DESIGN.md`, 내용 변경 없음)은 앞 세션에서 `audit/null-rerun` 커밋 `7cdbf6b`(PR #22)에 함께 들어갔다. 이 브랜치는 그 위에 있어 PR을 `audit/null-rerun` 기준으로 만들었다. #22를 먼저 merge해야 한다.
+- 남은 일: `docs/DESIGN.md` 하단 "서버 실행 방법" 첫 문단("물리·정합 축은 stub")이 현재 동작보다 오래됐다(이번에는 고치지 않음).
+
 ## 우연 채택률 재측정 (2026-11-18, 브랜치 `audit/null-rerun`)
 
 - main `f9cfcf4`(감사 결정 반영 후)에서 `scripts/audit_null_adoption.py --identities 120 --seeds 200`을 다시 돌려 `docs/audit-training-pipeline.md` 해당 절에 "결정 반영 후" 행을 추가했다. 코드 변경 없음.
