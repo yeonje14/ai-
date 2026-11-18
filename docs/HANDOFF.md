@@ -1,5 +1,31 @@
 # HANDOFF
 
+## 작업 제한 정책 구현 (2026-11-18, 브랜치 `research/worker-remeasure`)
+
+- 사용자 결정: `min(1800, 180 + 20 × 적합 구간 초)`. README §15.3 "결정 9·11 보완(작업 제한) — 2026-11-18, Claude 제안, 사용자 승인". 이유(CPU 대체·기기 2배 지연을 덮음, 제한은 상한일 뿐)는 `docs/syncnet-adapter.md` "작업 제한 정책 결정".
+- 구현: Worker가 Gate 직후 작업 전체 제한을 `시작 + 새 제한`으로 다시 정한다. 기존 600초는 Gate 전·Gate 실패(`gate_error`/`gate_timeout`/`media_unreadable`)·Gate 우회 때의 값. 설정 `TRINITY_JOB_TIMEOUT_BASE_SECONDS`(180)·`TRINITY_JOB_TIMEOUT_PER_ELIGIBLE_SECOND`(20)·`TRINITY_JOB_TIMEOUT_MAX_SECONDS`(1800). 초과는 `failed`/`timeout`. API 변경 없음.
+- 테스트: `tests/test_job_timeout_policy.py` 24개. `pytest -q` **766 passed, 1 skipped**(LightGBM 없음, SyncNet 단계 제한 포함).
+- 실제 미디어로 새 제한을 쓴 Worker 종단 실행은 하지 않았다(**미검증**). 가짜 Gate로 Worker 경로를 확인했다.
+- **SyncNet 단계 제한 보완(같은 날, 사용자 승인):** `min(60 + 16 × 적합 구간 초, 남은 작업 시간 − 마무리 여유 10초)`. 기존 `min(600, 남은 시간)` 대체. SyncNet이 느려져도 작업은 finished, SyncNet 축만 `error`/`timeout`, 다른 축 결과 보존.
+  여유 10초 근거: 실제 A로 SyncNet을 일부러 timeout시킨 4건의 반환 지연 0.03~0.07초 + fusion 단계 SQLite 잠금 대기 상한 5초 + fusion·마무리 0.002초(문서 "SyncNet 단계 제한 보완"). WaveRep·MotionPhys 300초는 그대로.
+  설정 `TRINITY_SYNCNET_TIMEOUT_BASE_SECONDS`(60)·`TRINITY_SYNCNET_TIMEOUT_PER_ELIGIBLE_SECOND`(16)·`TRINITY_JOB_FINALIZE_MARGIN_SECONDS`(10). 테스트 `tests/test_syncnet_stage_timeout.py` 15개.
+- 측정 실수: SyncNet 실행기가 `server.config`를 import한다. 측정 중 `server/config.py`를 고치면 실행기가 실패한다(이번에 2건 무효, 다시 잼).
+- **미검증:** 실제 Worker에서 SyncNet 단계 제한에 걸리는 종단 실행.
+- PR: 이 브랜치로 생성, merge는 사용자 지시 후.
+
+## A의 Worker 종단 재측정 (2026-11-18, 브랜치 `research/worker-remeasure`)
+
+- 한 일: `docs/syncnet-adapter.md` "A의 Worker 종단 재측정 방법"대로 1회 측정. 기본 설정(SyncNet MPS, 짧은 구간 규칙), `TRINITY_JOB_TIMEOUT_SECONDS=1800`만 측정용. 제품 코드·기본값 변경 없음.
+- 결과: finished / completed / abstained, 세 축 completed, `overall_score`·`verdict_label` null.
+  단계: Gate 13.1, WaveRep 19.8, MotionPhys 36.7, **SyncNet 139.0초**, 전체 **208.5초**(적합 구간 37.0초).
+- 같은 세션 A 단독 실행(MPS) 137.7초 → Worker 안 SyncNet과 **+1.3초(+0.9%)**. 이 세션에서는 Worker 안·단독 차이가 없었다.
+- SyncNet `device_used`는 API 결과·로그·DB에 남지 않아 **직접 확인 못 함**(간접 근거로 MPS 추정, 확인 필요).
+- 기기 상태: 열·성능 경고 기록 없음, 새 swapout 없음. **전원 미연결(배터리 100→96%)** — 방법 문서와 다른 점.
+- 세션 간 차이가 다시 큼: MPS 단독 A가 11-17 저녁 230~234초, 이번 137.7초. 원인 미확인.
+- 작업 제한 재계산(제안만): MPS 기준 `min(1800, 180 + 12 × 적합 구간 초)`(A 624초), 단 CPU 대체·느린 세션은 못 덮음 → 그 경우 계수 20 유지. 상세는 문서 "작업 제한 식 재계산".
+- 테스트: 문서만 바꿔 `pytest`는 다시 돌리지 않았다. 임시 레지스트리·DB·runtime·기기 상태 원본은 삭제. 단독 실행 기록은 `data/research/syncnet-perf/runs/A__original__standalone__3__guard-mps.json`(Git 밖)에 남음.
+- **다음 할 일:** ~~작업 제한 계수 결정~~(2026-11-18 계수 20으로 결정·구현, 위 절). Worker 안 SyncNet 장치를 확인하려면 측정용 부트스트랩으로 어댑터 반환값을 남겨 다시 잰다. PR은 사용자 지시 후.
+
 ## SyncNet 결정 반영 (2026-11-17, 브랜치 `feat/syncnet-perf`)
 
 - 사용자 승인: (가) 짧은 구간 규칙 1안, SyncNet 기본 장치 MPS, dev 압축 조건 2안. README §15.3에 "결정 2·8 보완 — 2026-11-17", "결정 9 보완 — 2026-11-17"(Claude 제안, 사용자 승인) 기록.
@@ -12,8 +38,8 @@
 - `pytest -q` **727 passed, 1 skipped**(LightGBM 없음).
 - 원인 미확인으로 남김: 저녁 CPU 실행 2배 지연(A 285 → 577초).
 - **다음 할 일:**
-  1. A를 Worker 종단으로 1회 재측정(MPS·새 규칙). 절차는 `docs/syncnet-adapter.md` "A의 Worker 종단 재측정 방법". 기기 상태(`pmset -g therm` 등)를 전후로 기록.
-  2. 작업 제한 정책 결정(권장 (a) `min(1800, 180 + 20 × 적합 구간 초)`, MPS 기본이면 계수 약 10으로 낮출 수 있음 — 재측정 뒤 다시 계산). 기본값 변경 없음.
+  1. ~~A를 Worker 종단으로 1회 재측정~~ — 2026-11-18 완료(위 절).
+  2. ~~작업 제한 정책 결정~~(2026-11-18 결정·구현) (권장 (a) `min(1800, 180 + 20 × 적합 구간 초)`, MPS 기본이면 계수 약 10으로 낮출 수 있음 — 재측정 뒤 다시 계산). 기본값 변경 없음.
   3. Worker 400초 대 단독 270~290초: 같은 세션 교차 측정 + Worker 안 단계 프로파일 + 앞 단계 가짜 Worker 비교(문서 "Worker 안 약 400초" 절).
   4. `feat/motionphys-axis`·`feat/training-pipeline`은 main에 병합됨. 이 브랜치와 `research/robustness-run`의 PR은 사용자 지시 후.
 

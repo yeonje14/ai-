@@ -24,8 +24,8 @@ from server import fusion
 from server.axes import AxisContext, alignment, physics, signal as signal_axis
 from server.config import Settings
 from server.gate import report as gate_report
-from server.gate.runner import run_gate_process
-from server.gate.types import GateResult
+from server.gate.runner import GATE_ERROR, GATE_TIMEOUT, run_gate_process
+from server.gate.types import MEDIA_UNREADABLE, GateResult
 from server.ingest.media_resolver import AuthorizedMediaRegistry
 from server.ingest.youtube_url import is_valid_video_id
 from server.jobs.queue import LEASE_CANCEL, LEASE_LOST, Job, JobQueue
@@ -234,6 +234,10 @@ def build_gate_rejection(job: Job, provenance: str, gate: GateResult) -> dict[st
     }
 
 
+# Gate가 적합 구간 길이를 정하지 못한 결과. 이때는 작업 제한을 다시 정하지 않는다.
+GATE_FAILURES = frozenset({GATE_ERROR, GATE_TIMEOUT, MEDIA_UNREADABLE})
+
+
 def run_axis(
     axis_name: str, fn: Callable[[AxisContext], dict[str, Any]], ctx: AxisContext
 ) -> dict[str, Any]:
@@ -252,7 +256,9 @@ def process(
     settings: Settings,
     worker_id: str,
 ) -> None:
-    deadline = time.monotonic() + settings.job_timeout_seconds
+    started = time.monotonic()
+    # 적합 구간 길이를 모르는 동안의 제한. Gate가 끝나면 아래에서 다시 정한다.
+    deadline = started + settings.job_timeout_seconds
     completed: list[str] = []
     terminal_status = None
     terminal_result = None
@@ -344,6 +350,12 @@ def process(
             if interrupted:
                 raise interrupted[0]
             segments = tuple((s.start_sec, s.end_sec) for s in gate.eligible_segments)
+            if gate.reason_code not in GATE_FAILURES:
+                # 작업 전체 제한을 적합 구간 길이로 다시 정한다(시작 시각 기준, README §15.3 2026-11-18)
+                eligible_sec = sum(end - start for start, end in segments)
+                limit = settings.job_timeout_after_gate(eligible_sec)
+                deadline = started + limit
+                log.info("job %s timeout set to %.0fs for %.1fs eligible", job.analysis_id, limit, eligible_sec)
         completed.append("preprocessing")
         if gate is not None and not segments:
             finalize(build_gate_rejection(job, media.provenance, gate))

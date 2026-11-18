@@ -74,7 +74,13 @@ class Settings:
     max_queued: int = 3
     lease_seconds: float = 30.0
     max_attempts: int = 2
+    # Gate 전 단계와 적합 구간 길이를 모를 때의 작업 전체 제한(초).
     job_timeout_seconds: float = 600.0
+    # Gate가 끝나면 작업 전체 제한을 min(상한, 기본항 + 계수 × 적합 구간 초)로 다시 정한다
+    # (README §15.3 2026-11-18). 계수 20은 MPS를 못 써 CPU로 대체되거나 기기가 2배 느려진 경우까지 덮는다.
+    job_timeout_base_seconds: float = 180.0
+    job_timeout_per_eligible_second: float = 20.0
+    job_timeout_max_seconds: float = 1800.0
     poll_interval_seconds: float = 0.5
     # stub 단계 사이 지연(초). 단계 전이를 눈으로 확인할 때만 쓴다.
     stub_stage_delay_seconds: float = 0.0
@@ -89,6 +95,12 @@ class Settings:
     waverep_timeout_seconds: float = 300.0
     # SyncNet 장치(cpu 또는 mps). 기본은 mps이고 쓸 수 없으면 cpu로 대체한다(README §15.3 2026-11-17).
     syncnet_device: str = "mps"
+    # SyncNet 단계 제한 = min(기본항 + 계수 × 적합 구간 초, 남은 작업 시간 − 마무리 여유) (README §15.3 2026-11-18).
+    # 계수 16은 가장 느린 CPU 실측(적합 구간 1초당 15.6초)을 덮는다.
+    syncnet_timeout_base_seconds: float = 60.0
+    syncnet_timeout_per_eligible_second: float = 16.0
+    # SyncNet 단계 제한이 끝난 뒤 작업을 finished로 마무리하는 데 남겨 두는 시간. 근거: docs/syncnet-adapter.md
+    job_finalize_margin_seconds: float = 10.0
     # MotionPhys 특징 추출(후보 A·B·C)의 단계 제한 시간. 임시값이며 실측 후 조정한다.
     motionphys_timeout_seconds: float = 300.0
     # 추론을 기다리는 동안 lease를 연장하는 간격. lease_seconds보다 짧아야 한다.
@@ -107,8 +119,22 @@ class Settings:
         parse_manual_segments(format_manual_segments(self.dev_manual_segments))
         if not math.isfinite(self.gate_timeout_seconds) or self.gate_timeout_seconds <= 0:
             raise ValueError("gate_timeout_seconds는 유한한 양수여야 한다")
+        for name in ("job_timeout_base_seconds", "job_timeout_max_seconds",
+                     "syncnet_timeout_base_seconds", "job_finalize_margin_seconds"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name}는 유한한 양수여야 한다")
+        if not math.isfinite(self.job_timeout_per_eligible_second) or self.job_timeout_per_eligible_second < 0:
+            raise ValueError("job_timeout_per_eligible_second는 0 이상의 유한한 수여야 한다")
+        if not math.isfinite(self.syncnet_timeout_per_eligible_second) or self.syncnet_timeout_per_eligible_second < 0:
+            raise ValueError("syncnet_timeout_per_eligible_second는 0 이상의 유한한 수여야 한다")
         if not 0 < self.heartbeat_interval_seconds < self.lease_seconds:
             raise ValueError("heartbeat_interval_seconds는 0보다 크고 lease_seconds보다 짧아야 한다")
+
+    def job_timeout_after_gate(self, eligible_sec: float) -> float:
+        """Gate가 끝난 뒤의 작업 전체 제한(초). 작업 시작 시각부터 잰다."""
+        limit = self.job_timeout_base_seconds + self.job_timeout_per_eligible_second * max(eligible_sec, 0.0)
+        return min(self.job_timeout_max_seconds, limit)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -131,6 +157,15 @@ class Settings:
             job_timeout_seconds=float(
                 env("TRINITY_JOB_TIMEOUT_SECONDS", d.job_timeout_seconds)
             ),
+            job_timeout_base_seconds=float(
+                env("TRINITY_JOB_TIMEOUT_BASE_SECONDS", d.job_timeout_base_seconds)
+            ),
+            job_timeout_per_eligible_second=float(
+                env("TRINITY_JOB_TIMEOUT_PER_ELIGIBLE_SECOND", d.job_timeout_per_eligible_second)
+            ),
+            job_timeout_max_seconds=float(
+                env("TRINITY_JOB_TIMEOUT_MAX_SECONDS", d.job_timeout_max_seconds)
+            ),
             poll_interval_seconds=float(
                 env("TRINITY_POLL_INTERVAL_SECONDS", d.poll_interval_seconds)
             ),
@@ -150,6 +185,15 @@ class Settings:
                 env("TRINITY_WAVEREP_TIMEOUT_SECONDS", d.waverep_timeout_seconds)
             ),
             syncnet_device=env("TRINITY_SYNCNET_DEVICE", d.syncnet_device),
+            syncnet_timeout_base_seconds=float(
+                env("TRINITY_SYNCNET_TIMEOUT_BASE_SECONDS", d.syncnet_timeout_base_seconds)
+            ),
+            syncnet_timeout_per_eligible_second=float(
+                env("TRINITY_SYNCNET_TIMEOUT_PER_ELIGIBLE_SECOND", d.syncnet_timeout_per_eligible_second)
+            ),
+            job_finalize_margin_seconds=float(
+                env("TRINITY_JOB_FINALIZE_MARGIN_SECONDS", d.job_finalize_margin_seconds)
+            ),
             motionphys_timeout_seconds=float(
                 env("TRINITY_MOTIONPHYS_TIMEOUT_SECONDS", d.motionphys_timeout_seconds)
             ),
