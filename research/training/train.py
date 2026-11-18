@@ -10,6 +10,8 @@
 - 학습에는 train 분할만 쓴다. 결합 모델의 입력은 train의 OOF 점수다(in-sample 점수 금지).
 - 보정(sigmoid)은 OOF 예측으로만 맞춘다. 임계값은 dev에서만 정해 잠근다. test 점수는 쓰기만 하고 읽지 않는다.
 - external 분할은 건드리지 않는다. 계산하지 못한 점수는 빈칸이다(0 아님).
+- 축 성공은 서버와 같은 함수(training/serving.py)로 정하고, 성공하지 않은 축의 값은 입력으로 쓰지 않는다.
+  영상별 축 성공을 availability.csv에 남긴다(감사 A9).
 - 판정이나 성능 주장은 하지 않는다. 채택 판단은 training/report가 한다.
 
 후보(사전 고정): W, M-full, M-face_roi, M-face_motion, W+M(dev AUC가 가장 높은 M), W+M+S.
@@ -27,7 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from training import config as training_config, hygiene  # noqa: E402
+from training import config as training_config, hygiene, serving  # noqa: E402
 from training.datasets import groups  # noqa: E402
 from training.datasets.manifest import ManifestError, read_manifest, sha256_file  # noqa: E402
 from training.emulator import profiles as emulator_profiles  # noqa: E402
@@ -39,6 +41,7 @@ SCHEMA_VERSION = 1
 MOTION_VARIANTS = ("full", "face_roi", "face_motion")
 SYNC_INPUTS = ("lse_c_median", "lse_d_median", "abs_offset_median")
 AXIS_OF = {"W": "signal", "M": "physics", "S": "alignment"}
+AVAILABILITY_AXES = ("signal", "physics", "alignment")
 LGB_FIXED = {"objective": "binary", "deterministic": True, "force_row_wise": True, "num_threads": 1, "verbosity": -1}
 
 
@@ -158,11 +161,19 @@ def train(manifest: Path, features_dir: Path, config: dict, out: Path, lock_path
     def axis(uid: str, name: str) -> dict:
         return ((feats.get(uid) or {}).get("axes") or {}).get(name) or {}
 
+    # 축 성공은 서버와 같은 함수로 정한다(MotionPhys는 full 변형 기준). 성공하지 않은 축의 값은 입력으로 쓰지 않는다.
+    # 그래야 학습·검증한 영상과 서버가 그 후보를 쓰는 영상이 같은 기준으로 갈린다(README §15.3 2026-11-18, 감사 A9)
+    ok_axes = {r.uid: serving.successful_axes(serving.feature_statuses((feats.get(r.uid) or {}).get("axes") or {}))
+               for r in internal}
+
+    def if_ok(uid: str, server_axis: str, value):
+        return value if server_axis in ok_axes[uid] else None
+
     # column[이름][uid] = 값 또는 None. train의 값은 OOF다(그 영상을 보지 않은 모델의 출력)
     column: dict[str, dict[str, float | None]] = {}
-    column["W"] = {r.uid: axis(r.uid, "waverep").get(config["waverep_score"]) for r in internal}
+    column["W"] = {r.uid: if_ok(r.uid, "signal", axis(r.uid, "waverep").get(config["waverep_score"])) for r in internal}
     for name in SYNC_INPUTS:
-        column[f"S.{name}"] = {r.uid: axis(r.uid, "syncnet").get(name) for r in internal}
+        column[f"S.{name}"] = {r.uid: if_ok(r.uid, "alignment", axis(r.uid, "syncnet").get(name)) for r in internal}
 
     out.mkdir(parents=True, exist_ok=False)
     (out / "models").mkdir()
@@ -170,7 +181,8 @@ def train(manifest: Path, features_dir: Path, config: dict, out: Path, lock_path
     rounds = config["lightgbm"]["num_boost_round"]
     motion_meta = {}
     for variant in MOTION_VARIANTS:
-        x_of = {r.uid: ((axis(r.uid, "motionphys").get("variants") or {}).get(variant) or {}).get("features")
+        x_of = {r.uid: if_ok(r.uid, "physics",
+                             ((axis(r.uid, "motionphys").get("variants") or {}).get(variant) or {}).get("features"))
                 for r in internal}
         usable = [r for r in train_rows if x_of[r.uid] is not None]
         col: dict[str, float | None] = {r.uid: None for r in internal}
@@ -221,6 +233,12 @@ def train(manifest: Path, features_dir: Path, config: dict, out: Path, lock_path
     (out / "oof").mkdir()
     (out / "thresholds").mkdir()
     manifest_sha = sha256_file(manifest)
+    # 영상별 축 성공. 리포트가 대체 후보를 "서버에서 실제로 쓰일 test 영상"에서 검증할 때 쓴다(감사 A9)
+    with (out / "availability.csv").open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(["dataset_id", "video_id", *AVAILABILITY_AXES])
+        for r in internal:
+            w.writerow([r.dataset_id, r.video_id, *(int(a in ok_axes[r.uid]) for a in AVAILABILITY_AXES)])
     candidates = []
     for cand, inputs, letters in specs:
         def vector(uid, inputs=inputs):
@@ -310,6 +328,7 @@ def train(manifest: Path, features_dir: Path, config: dict, out: Path, lock_path
     meta = {
         "schema_version": SCHEMA_VERSION, "config": config,
         "manifest_sha256": manifest_sha, "features_sha256": feat_meta["features_sha256"],
+        "availability_sha256": sha256_file(out / "availability.csv"), "serving_rule": serving.RULE,
         "feature_version": feat_meta["feature_version"], "synthetic": bool(feat_meta.get("synthetic")),
         "dev_compression_conditions": dev_conditions, "dev_conditions_present": present,
         "train_compression_conditions": sorted({r.compression_profile_id or training_config.ORIGINAL for r in train_rows}),

@@ -26,6 +26,7 @@ README §14.1 백로그 8번·12번. 작성일: 2026-11-16. 브랜치 `feat/trai
 | 규칙 | 어디서 막는가 |
 |---|---|
 | 그룹(인물·원본 계보)이 분할에 걸치면 안 된다 | `training/hygiene.py`. 어댑터는 manifest를 쓰지 않고, 추출·학습·리포트는 실행을 거부한다 |
+| 인물 ID와 확인된 원본 계보가 둘 다 없는 내부 분할 영상은 받지 않는다 | `hygiene`의 `ungroupable_video` 오류(2026-11-18 결정, 감사 A11). 어디에도 묶이지 않아 누수를 잡을 수 없기 때문이다. external 행은 대상이 아니다 |
 | 공식 분할이 그룹을 쪼개면 조용히 다시 나누지 않는다 | 어댑터가 공식 `test`를 그대로 두고 공식 `train`만 train/dev로 나눈 뒤 누수 검사에 맡긴다 |
 | 압축 파생본은 부모의 분할과 라벨을 물려받는다 | `derived_not_inheriting_parent` 오류 |
 | 같은 바이트의 영상이 여러 분할에 있으면 안 된다 | `hygiene`(manifest의 `file_hash`)과 `train.py`(추출기가 계산해 `features.jsonl`에 남긴 `input_sha256`). 어댑터는 영상을 열지 않아 원본 행의 `file_hash`가 비어 있으므로 추출기의 해시로도 본다(감사 A8) |
@@ -72,7 +73,7 @@ README §14.1 백로그 8번·12번. 작성일: 2026-11-16. 브랜치 `feat/trai
 | 역할 | 조건 | 설정 |
 |---|---|---|
 | dev(임계값·후보 선택) | `original`, `x264-crf28-720p` | `configs/training.json`의 `dev_compression_conditions` |
-| **최종 평가 전용**(학습·압축 증강·모델 선택·임계값·dev에 쓰지 않는다) | `x264-crf34-source`, `x264-crf34-720p`, `x264-crf20-source` | `held_out_compression_profiles`. train·dev에 이 프로파일의 행이 있으면 학습이 거부된다. 원본 짧은 변이 1080px(또는 모름)이라 같은 바이트가 될 수 있는 1080p 파생본(`x264-crf34-1080p`, `x264-crf20-1080p`)이 train·dev에 있어도 거부된다(감사 A3, Gate가 읽은 부모 영상 크기로 판단). dev 조건에 넣으면 설정 검사가 거부한다. test 관문에 넣을지는 결정 대기(감사 A15) — 지금은 넣고, 리포트 `test_gate_compression_conditions`에 적는다 |
+| **최종 평가 전용**(학습·압축 증강·모델 선택·임계값·dev에 쓰지 않는다) | `x264-crf34-source`, `x264-crf34-720p`, `x264-crf20-source` | `held_out_compression_profiles`. train·dev에 이 프로파일의 행이 있으면 학습이 거부된다. 원본 짧은 변이 1080px(또는 모름)이라 같은 바이트가 될 수 있는 1080p 파생본(`x264-crf34-1080p`, `x264-crf20-1080p`)이 train·dev에 있어도 거부된다(감사 A3, Gate가 읽은 부모 영상 크기로 판단). dev 조건에 넣으면 설정 검사가 거부한다. **test 관문에 넣지 않는다**(2026-11-18 결정, 감사 A15). 리포트의 후보별 `test_held_out`에 탐지 지표(AUC·TPR·FPR와 CI)와 판정 제공 비율을 관문 뒤 1회 보고하고, 표에 "관문 뒤 1회 보고, 채택 판단에 사용하지 않음"을 적는다 |
 | 운영 범위 밖(따로 보고) | 480p 세 개(`x264-crf20-480p`, `x264-crf28-480p`, `x264-crf34-480p`) | `out_of_range_compression_profiles`. 짧은 변 480px는 WaveRep의 최소 504px보다 작아 `unsupported_input`이다. WaveRep이 들어간 후보는 이 조건에서 전부 보류가 되므로 dev·test 관문의 탐지 지표에 섞지 않고, 리포트의 `test_out_of_range`에 판정 제공 비율·보류 사유만 따로 적는다(감사 A6에서 코드로 옮김). dev 조건·최종 평가용 목록과 겹치면 설정 검사가 거부한다 |
 
 - 남은 프로파일(`x264-crf20-720p`, `x264-crf28-source`, `x264-crf28-720p`, `1080p` 세 개)은 train의 압축 증강에 쓸 수 있다. `1080p` 프로파일은 짧은 변이 1080px인 원본에서 `source`와 같은 출력을 낸다(`docs/compression-emulator.md` §5). 그런 원본에서 `x264-crf34-1080p`·`x264-crf20-1080p`는 최종 평가 전용과 같은 파일이 되므로 **train 증강에도 쓰지 않는다**(최종 평가와 같은 바이트를 학습에 넣지 않기 위해서다).
@@ -85,19 +86,25 @@ README §14.1 백로그 8번·12번. 작성일: 2026-11-16. 브랜치 `feat/trai
 
 | 판단 | 조건 (test, 그룹 bootstrap 95% CI) |
 |---|---|
-| **채택 가능** | 결합 후보의 AUC CI 하한 > 0.5, 고정 임계값의 FPR CI 상한 ≤ 10%, **WaveRep과 단일 최강 후보 각각**에 대한 TPR 차이(짝지은 bootstrap)의 CI 하한 > 0, 실제 FPR이 WaveRep보다 2%p 넘게 나쁘지 않음, 판정 제공 비율이 5%p 넘게 줄지 않음 |
-| **WaveRep 단독** | 위를 못 넘고, WaveRep의 AUC CI 하한 > 0.5이며 FPR CI 상한 ≤ 10% |
+| **채택 가능** | 결합 후보의 AUC CI 하한 > 0.5, 고정 임계값의 FPR 상한 ≤ 10%, **WaveRep과 단일 최강 후보 각각**에 대한 TPR 차이(짝지은 bootstrap, 두 후보가 모두 점수를 낸 가짜에서)의 CI 하한 > 0, 실제 FPR이 WaveRep보다 2%p 넘게 나쁘지 않음, 판정 제공 비율이 5%p 넘게 줄지 않음 |
+| **WaveRep 단독** | 위를 못 넘고, WaveRep의 AUC CI 하한 > 0.5이며 FPR 상한 ≤ 10% |
 | **보류** | 그 밖 |
 
 - README §13.3에는 숫자 기준이 없다. G3이 "단일 최강 모델 대비"라서 결합은 WaveRep뿐 아니라 단일 최강도 이겨야 한다.
 - TPR·FPR은 점수가 나온 영상만으로 계산한다. 점수가 없는 영상은 판정 제공 비율로 따로 본다.
-- **FPR CI 상한 관문은 test의 진짜 영상 수에 민감하다.** 합성 데이터에서 진짜 약 128개면 신호가 있어도 보류였고 약 480개에서 통과했다. 실제 데이터의 test 진짜 영상 수를 먼저 확인한다.
+- **FPR 상한 = 그룹 bootstrap 상한과 Clopper–Pearson 정확 상한 중 큰 값**(2026-11-18 결정, 감사 A10). 정확 상한은 n = test 진짜 그룹 수, k = n × 영상 단위 FPR이다. 리포트에 둘 다 적는다.
+  오탐이 0건이어도 진짜 그룹이 36개 미만이면 10%를 넘는다. 영상 FPR이 5%면 진짜 그룹이 약 150개, 2%면 약 70개 있어야 10% 이하가 된다. **실제 데이터의 test 진짜 *그룹* 수를 먼저 확인한다.**
+- **TPR 차이는 두 후보가 모두 점수를 낸 가짜에서만 센다**(감사 A17). 한쪽이 어려운 가짜에서 보류해 이득처럼 보이는 것을 막는다. FPR·AUC·판정 제공 비율 차이는 각 후보의 값 그대로다.
+- **서빙 후보**(2026-11-18 결정, 감사 A9): 채택 가능이면 dev에서 고른 결합이 선택 후보(primary), WaveRep 단독이면 W다. 선택 후보보다 축이 적은 결합 후보와 W는 대체 후보(fallback)로 검토하며, 서버에서 실제로 쓰일 test 영상(축 성공 패턴이 정확히 그 후보의 축인 영상)에서 AUC CI 하한·FPR 상한과 최소 진짜·가짜 그룹 수(`fallback_min_real_groups`·`fallback_min_fake_groups`, 각 36)를 넘어야 서빙한다. TPR 이득 비교는 하지 않는다.
+  판정 제공 비율 관문(결합이 WaveRep보다 5%p 넘게 줄지 않음) 때문에 대체 후보가 쓰일 영상은 많아야 test의 5% 안팎이다. test가 아주 크지 않으면 대체 후보는 최소 그룹 수를 넘지 못해 서빙되지 않는 것이 보통이다.
 - shortcut 진단(해상도·fps·길이·오디오 유무만으로 계산한 라벨 AUC)은 경고만 낸다. 코덱은 수집하지 않는다.
 
 ## 묶음과 서버 관문 (README §15.3 결정 5·8 보완)
 
 - 묶음: 서버가 쓸 수 있는 후보(`servable_candidates`)의 계수·표준화·보정, 잠근 임계값, MotionPhys 모델, 특징 버전, 데이터 해시, 검증 리포트. `bundle.json`의 digest로 고정한다. 판단이 보류면 만들지 않는다.
-- 서버는 digest, 파일 해시, 리포트 판단, 합성 여부, 특징 버전을 확인하고, **성공한 축의 집합과 정확히 일치하는 후보**가 있을 때만 `overall_score`·`verdict_label`을 낸다. 어긋나면 `null` / `abstained` / `no_valid_fusion_model`이다.
+- 서버는 digest, 파일 해시, 리포트 판단, 합성 여부, 특징 버전을 확인하고, `training/serving.py`의 규칙으로 고른 후보가 있을 때만 `overall_score`·`verdict_label`을 낸다(2026-11-18 결정, 감사 A9): **선택 후보는 그 축이 모두 성공하고 입력이 모두 있으면 쓴다(다른 축이 더 성공해도)**. 아니면 성공한 축 집합과 정확히 같은 대체 후보를 쓴다. 어긋나면 `null` / `abstained` / `no_valid_fusion_model`이다.
+- 축 성공은 서버와 학습이 같은 함수(`serving.successful_axes`)로 정한다. MotionPhys는 서버 축 상태처럼 `full` 변형 기준이라, `full`이 실패한 영상의 다른 변형 특징은 학습·점수에 쓰지 않는다. 학습은 영상별 축 성공을 `availability.csv`에 남긴다.
+- **재현 검증**(감사 A16): `python -m training.bundle --run … --report … --manifest … --features … --out …`. 묶음을 만들기 전에 같은 manifest·특징·커밋된 설정으로 새 임시 폴더에서 학습·리포트를 다시 돌려 학습 결과 폴더의 모든 파일과 리포트(`shortcut_diagnostic`·`training_config_matches_committed` 제외)가 같은지 확인한다. 다르면 `not_reproducible`. **한계: `features.jsonl` 자체를 고친 경우는 잡지 못한다**(같은 특징으로 다시 돌리기 때문이다). 그것은 추출을 다시 돌려야 확인된다. 학습 venv가 있어야 묶음을 만들 수 있다.
 - 감사(2026-11-18)로 더한 확인(묶음 형식 2): 서버가 읽는 파일(리포트·모델·임계값·MotionPhys 모델)은 모두 digest가 덮는 `files`에 있어야 한다. 판단·서빙 후보는 리포트의 지표를 커밋된 채택 기준으로 다시 계산한 결과와 같아야 한다. 학습 설정이 커밋된 `configs/training.json`과 같아야 한다. 지표 숫자까지 앞뒤가 맞게 고친 위조는 막지 못한다(재현 검증 제안, `docs/audit-training-pipeline.md` A16).
 - 새 API 필드와 상태 값은 없다. 판정할 때 채워지는 기존 필드는 §15.3에 적혀 있다.
 - 앱은 실제 서버 모드에서 라벨을 숨기는 현재 동작 그대로다.
@@ -120,7 +127,7 @@ README §14.1 백로그 8번·12번. 작성일: 2026-11-16. 브랜치 `feat/trai
 1. [ ] 라이선스(`deepspeak-v2-0-license`) 조항을 읽고 `docs/dataset-access.md`에 요약한다(재배포·파생물·삭제 의무).
 2. [ ] 한 행을 열어 `configs/datasets/deepspeak_v2.json`의 `unconfirmed` 필드를 확인·수정하고 `status`를 `verified`로 바꾼다.
 3. [ ] 메타데이터를 JSON Lines로 내보낸다(공식 분할 이름을 `split` 열로 붙인다). 영상 바이트는 넣지 않는다.
-4. [ ] 어댑터를 실행한다. 누수 검사 통과, 가장 큰 그룹 비중 ≤ 25%, **test의 진짜 영상 수**를 확인한다. 실패하면 멈추고 결정한다(재분할하지 않는다).
+4. [ ] 어댑터를 실행한다. 누수 검사 통과(인물 ID·원본 계보가 둘 다 없는 행이 있으면 `ungroupable_video`로 멈춘다), 가장 큰 그룹 비중 ≤ 25%, **test의 진짜 그룹 수**(FPR 정확 상한의 n, 위 표)를 확인한다. 실패하면 멈추고 결정한다(재분할하지 않는다).
 5. [ ] dev 압축 조건을 정한다(사용자 결정). 필요하면 압축 파생본을 만든다. 최종 평가용 프로파일은 학습 전에 고정한다(`docs/compression-emulator.md`).
 6. [ ] 영상 20개 정도로 추출 시간을 재고 전체 소요를 계산한 뒤 전체 추출을 돌린다(끊기면 같은 명령으로 재개).
 7. [ ] `configs/training.json`의 `dev_compression_conditions`를 적어 커밋한다.

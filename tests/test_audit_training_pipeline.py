@@ -2,8 +2,8 @@
 
 테스트 이름의 A<번호>는 감사 문서의 발견 번호, OK<번호>는 "시도했지만 문제없던 공격" 번호다.
 - 고친 발견: 보통 테스트다. 고치기 전의 코드에서는 실패했다(재현 테스트).
-- 설계 결정이 필요해 고치지 않은 발견: xfail(strict=True). 지켜야 할 성질을 적어 두었으므로,
-  설계를 바꿔 고치면 XPASS로 실패한다. 그때 표시를 지운다.
+- 감사 때 설계 결정이 필요해 xfail(strict=True)로 남겼던 A9·A10·A11·A16·A17과 지금 동작을 고정했던 A15는
+  2026-11-18 사용자 결정(README §15.3)대로 고쳐 보통 테스트로 바꿨다. 지금 xfail은 없다.
 - 합성 데이터만 쓴다. 수치는 어떤 모델의 성능도 아니다.
 """
 import json
@@ -21,7 +21,7 @@ from server.axes import AxisContext, alignment, signal as signal_axis
 from server.axes.alignment import report as syncnet_report, syncnet
 from server.axes.signal import waverep
 from server.config import Settings
-from training import bundle as bundles, config as training_config, hygiene, synth
+from training import bundle as bundles, config as training_config, hygiene, serving, synth
 from training.datasets import adapters, groups
 from training.datasets.manifest import Record, read_manifest, sha256_file, write_manifest
 from training.emulator import profiles
@@ -165,14 +165,21 @@ def test_A12_numeric_identity_written_as_float_still_links_real_and_fake():
     assert nan.identity_ids == ()
 
 
-@pytest.mark.xfail(strict=True, reason="A11 제안: 인물 ID도 확인된 원본 계보도 없는 영상은 혼자 그룹이 되고 경고만 남는다")
-def test_A11_video_without_identity_or_verified_source_is_not_silently_ungrouped():
+def test_A11_video_without_identity_or_verified_source_is_an_error_before_training():
+    """2026-11-18 결정: 인물 ID와 확인된 원본 계보가 둘 다 없는 내부 분할 행은 학습 전 오류다."""
     rows = [{"video-file": "r0.mp4", "type": "real", "split": "train"},  # 인물 ID 빠짐
             {"video-file": "f0.mp4", "type": "fake", "split": "train", "kind": "lip-sync", "engine": "x",
              "identity-source": 0, "identity-target": 0, "recording-target": 1}]
     records = adapters.convert(rows, {**DEEPSPEAK, "split": {**DEEPSPEAK["split"], "train_fractions": {"train": 1.0}}})
     assert records[0].source_unverified and not records[0].identity_ids
-    assert not hygiene.check(records, LOCK).ok  # 지금은 identity_missing·source_unverified 경고뿐이다
+    report = hygiene.check(records, LOCK)
+    assert not report.ok
+    assert [e["code"] for e in report.errors] == ["ungroupable_video"] and report.errors[0]["examples"] == [records[0].uid]
+    # 둘 중 하나라도 있으면 묶을 수 있다. 외부 평가 자료(MAVOS-DD는 원래 인물 ID가 없다)는 이 규칙의 대상이 아니다
+    ok = [Record("d", "a", "a.mp4", "real", "unknown:a.mp4", identity_ids=("p",), split="train"),
+          Record("d", "b", "b.mp4", "real", "rec-b", split="train"),
+          Record("mavos-dd", "c", "c.mp4", "fake", "unknown:c.mp4", split="external")]
+    assert hygiene.check(ok, LOCK).ok
 
 
 # ================= 시나리오 2. 임계값·선택 오염 =================
@@ -205,26 +212,37 @@ def _repin(folder: Path, pin: Path, body: dict) -> None:
 
 @needs_venv
 def test_A1_report_listing_an_ungated_candidate_as_servable_is_rejected(pinned, queue, registry, monkeypatch, made):  # noqa: F811
-    """관문을 넘지 않은 W+M+S를 리포트의 서빙 목록에 끼워 넣고 해시·digest를 모두 다시 맞춘다."""
+    """서빙하지 않는 단일 MotionPhys 후보(M-full)를 리포트의 서빙 목록에 대체 후보로 끼워 넣고 해시·digest를 모두 다시 맞춘다."""
     settings, _, folder = pinned
     run = made[0] / "run"
     report = json.loads((folder / "report.json").read_text())
-    assert "W+M+S" in report["candidates"] and "W+M+S" not in report["decision"]["servable_candidates"]
-    report["decision"]["servable_candidates"].insert(0, "W+M+S")
+    assert "M-full" in report["candidates"] and "M-full" not in report["decision"]["servable_candidates"]
+    report["decision"]["servable_candidates"].append("M-full")
     (folder / "report.json").write_text(json.dumps(report))
-    for rel in ("models/W+M+S.json", "thresholds/W+M+S.json"):
+    for rel in ("models/M-full.json", "thresholds/M-full.json"):
         shutil.copyfile(run / rel, folder / rel)
     body = json.loads((folder / "bundle.json").read_text())
     body["files"].update({rel: bundles._sha256(folder / rel)
-                          for rel in ("report.json", "models/W+M+S.json", "thresholds/W+M+S.json")})
-    body["candidates"].insert(0, {"candidate": "W+M+S", "axes": ["signal", "physics", "alignment"],
-                                  "motion_variant": "full"})
+                          for rel in ("report.json", "models/M-full.json", "thresholds/M-full.json")})
+    body["candidates"].append({"candidate": "M-full", "axes": ["physics"], "motion_variant": "full", "role": "fallback"})
     _repin(folder, settings.fusion_bundle_config_path, body)
     assert fusion.load_active(settings) is None
     assert rejection_code(settings) == "report_inconsistent"
     fake_axes(monkeypatch, signal=4.0, physics=6.0, alignment=True)
     _, job = run_job(queue, registry, settings)
     assert_abstained(job.result)
+
+
+@needs_venv
+def test_A9_bundle_roles_must_match_the_report(pinned):  # noqa: F811
+    """선택 후보와 대체 후보의 역할을 바꾼 묶음(digest까지 다시 맞춤)은 쓰지 않는다."""
+    settings, _, folder = pinned
+    body = json.loads((folder / "bundle.json").read_text())
+    for c in body["candidates"]:
+        c["role"] = "fallback" if c["role"] == "primary" else "primary"
+    _repin(folder, settings.fusion_bundle_config_path, body)
+    assert fusion.load_active(settings) is None
+    assert rejection_code(settings) == "candidate_roles_mismatch"
 
 
 @pytest.fixture(scope="module")
@@ -238,32 +256,50 @@ def hold_run(tmp_path_factory):
     assert train_on(data, folder / "run", c).returncode == 0
     report = build.build(data / "manifest.csv", folder / "run", committed_config=c)
     assert report["decision"]["decision"] == "hold"
-    return folder / "run", c, report
+    return folder / "run", c, report, {"manifest": data / "manifest.csv", "features": data}
 
 
 def test_A1_hold_report_forged_to_waverep_only_cannot_become_a_bundle(tmp_path, hold_run):
     """신호 없는 데이터의 보류 리포트를 판단 문자열만 'WaveRep 단독'으로 고쳐 묶음을 만들려 한다."""
-    run, c, report = hold_run
+    run, c, report, data = hold_run
     report = json.loads(json.dumps(report))
-    report["decision"].update(decision="waverep_only", decision_ko="WaveRep 단독", servable_candidates=["W"])
+    report["decision"].update(decision="waverep_only", decision_ko="WaveRep 단독", primary="W", servable_candidates=["W"])
     (tmp_path / "forged.json").write_text(json.dumps(report))
     with pytest.raises(bundles.BundleError) as e:
-        bundles.create(run, tmp_path / "forged.json", tmp_path / "fusion/b1", expected_config=c)
+        bundles.create(run, tmp_path / "forged.json", tmp_path / "fusion/b1", expected_config=c, **data)
     assert e.value.code == "report_inconsistent"
 
 
-@pytest.mark.xfail(strict=True, reason="A16 제안: 지표 숫자까지 앞뒤가 맞게 고친 리포트는 다시 계산해도 걸러지지 않는다(재현 검증 필요)")
 def test_A16_report_with_consistently_forged_metrics_cannot_become_a_bundle(tmp_path, hold_run):
-    run, c, report = hold_run
+    """2026-11-18 결정: 묶음을 만들기 전에 같은 입력으로 학습·리포트를 다시 돌려 비교한다."""
+    run, c, report, data = hold_run
     report = json.loads(json.dumps(report))
     w = report["candidates"]["W"]["test"]["overall"]
     w["roc_auc"].update(value=0.8, ci_low=0.7)
     w["fpr"].update(value=0.03, ci_high=0.05)
+    w["fpr_exact_upper"]["value"] = 0.05
     report["decision"] = rules.rederive(report, c["adoption"])  # 고친 숫자에 맞는 판단(WaveRep 단독)
     assert report["decision"]["decision"] == "waverep_only"
     (tmp_path / "forged.json").write_text(json.dumps(report))
-    with pytest.raises(bundles.BundleError):
-        bundles.create(run, tmp_path / "forged.json", tmp_path / "fusion/b1", expected_config=c)
+    with pytest.raises(bundles.BundleError) as e:
+        bundles.create(run, tmp_path / "forged.json", tmp_path / "fusion/b1", expected_config=c, **data)
+    assert e.value.code == "not_reproducible" and "리포트" in str(e.value)
+    assert not (tmp_path / "fusion/b1").exists()
+
+
+@needs_venv
+def test_A16_tampered_run_folder_is_not_reproducible(tmp_path, made):  # noqa: F811
+    """리포트는 그대로 두고 학습 결과 폴더의 점수 파일을 고치면, 다시 학습한 결과와 달라 묶음을 만들지 않는다."""
+    folder, _ = made
+    shutil.copytree(folder / "run", tmp_path / "run")
+    (tmp_path / "run/oof/W.csv").chmod(0o644)
+    with (tmp_path / "run/oof/W.csv").open("a") as f:
+        f.write("\n")
+    with pytest.raises(bundles.BundleError) as e:
+        bundles.create(tmp_path / "run", folder / "rep/report.json", tmp_path / "b",
+                       expected_config=json.loads((folder / "training.json").read_text()),
+                       manifest=folder / "run-data/manifest.csv", features=folder / "run-data")
+    assert e.value.code == "not_reproducible" and "oof/W.csv" in str(e.value)
 
 
 @needs_venv
@@ -280,7 +316,8 @@ def test_A2_run_trained_with_uncommitted_config_cannot_become_a_bundle(tmp_path)
     assert "커밋된 configs/training.json과 다르다" in build.to_markdown(report)
     (tmp_path / "rep.json").write_text(json.dumps(report))
     with pytest.raises(bundles.BundleError) as e:
-        bundles.create(tmp_path / "run", tmp_path / "rep.json", tmp_path / "fusion/b1", expected_config=committed)
+        bundles.create(tmp_path / "run", tmp_path / "rep.json", tmp_path / "fusion/b1", expected_config=committed,
+                       manifest=data / "manifest.csv", features=data)
     assert e.value.code == "config_not_committed"
 
 
@@ -460,21 +497,49 @@ def test_OK5_paired_difference_uses_the_same_resample_for_both_candidates():
         assert out[m]["ci_low"] == out[m]["ci_high"] == 0.0
 
 
-@pytest.mark.xfail(strict=True, reason="A10 제안: 오탐 0건이면 백분위 bootstrap의 FPR 상한이 0이 되어 표본이 적어도 통과한다")
 def test_A10_fpr_upper_bound_gate_does_not_pass_on_too_few_real_videos():
+    """2026-11-18 결정: FPR 관문은 그룹 bootstrap 상한과 Clopper–Pearson 정확 상한 중 큰 값으로 본다.
+    정확 상한은 n = 진짜 그룹 수, k = n × 영상 단위 FPR이다(오탐 0건이면 k = 0)."""
     items = [Item(f"r{i}", "real", f"r{i}", score=0.0) for i in range(20)] + \
             [Item(f"f{i}", "fake", f"f{i}", score=1.0) for i in range(20)]
     ev = metrics.evaluate(items, threshold=0.5, n_boot=1000, seed=1)
-    exact_upper = 1 - 0.025 ** (1 / 20)  # 0/20의 Clopper-Pearson 95% 상한 ≈ 16.8%
-    assert exact_upper > ADOPTION["max_test_fpr_ci_high"]
-    assert ev["overall"]["fpr"]["ci_high"] == 0.0  # 지금 값
+    assert ev["overall"]["fpr"]["ci_high"] == 0.0  # bootstrap 상한은 오탐 0건에서 0으로 무너진다
+    exact = ev["overall"]["fpr_exact_upper"]
+    assert (exact["n_real_groups"], exact["k_effective"]) == (20, 0.0)
+    assert exact["value"] == pytest.approx(0.16843347098308528, rel=1e-9)  # scipy beta.ppf(0.975, 1, 20)
     fpr_gate = rules.own_gates(ev, ADOPTION)[1]
-    assert not fpr_gate["passed"], "진짜 20개, 오탐 0건으로 FPR ≤ 10%를 입증했다고 본다"
+    assert fpr_gate["value"] == exact["value"] and not fpr_gate["passed"], "진짜 20개, 오탐 0건으로 FPR ≤ 10%를 입증했다고 본다"
+    # 독립 진짜 그룹이 36개면 오탐 0건으로 10% 이하를 보일 수 있다
+    many = [Item(f"r{i}", "real", f"r{i}", score=0.0) for i in range(36)] + items[20:]
+    assert rules.own_gates(metrics.evaluate(many, 0.5, n_boot=200, seed=1), ADOPTION)[1]["passed"]
 
 
-@pytest.mark.xfail(strict=True, reason="A17 제안: 결합 − 단일 최강의 TPR 차이는 서로 다른 영상 집합에서 계산된다")
+def test_A10_exact_upper_uses_real_groups_and_video_level_fpr():
+    # 진짜 그룹 80개(그룹마다 영상 4개), 영상 단위 FPR 5%(오탐 16/320) → k = 80 × 0.05 = 4
+    items = [Item(f"r{g}-{i}", "real", f"g{g}", score=1.0 if g < 16 and i == 0 else 0.0)
+             for g in range(80) for i in range(4)]
+    ev = metrics.evaluate(items + [Item("f", "fake", "h", score=1.0)], threshold=0.5, n_boot=50, seed=1)
+    exact = ev["overall"]["fpr_exact_upper"]
+    assert (exact["n_real_groups"], exact["k_effective"]) == (80, pytest.approx(4.0))
+    assert exact["value"] == pytest.approx(0.12309873644315293, rel=1e-9)
+    # 그룹 안 오탐 수가 아니라 영상 단위 FPR을 쓴다: "오탐이 있는 그룹 수"(16)로 세지 않는다
+    assert ev["overall"]["fpr"]["value"] == pytest.approx(0.05)
+
+
+@pytest.mark.parametrize("k, n, expected", [
+    (0, 20, 0.16843347098308528), (0, 36, 0.09739375591449193), (4, 80, 0.12309873644315293),
+    (7.5, 150, 0.09810235167941703), (1.6, 80, 0.07973684236213112), (19, 20, 0.9987349105020502),
+    (0.5, 3, 0.8232639028687426), (10, 1000, 0.01831324305511245),
+])
+def test_A10_clopper_pearson_upper_matches_scipy(k, n, expected):
+    """값은 scipy.stats.beta.ppf(0.975, k + 1, n - k)로 미리 계산했다(trinity에는 scipy가 없다)."""
+    assert metrics.clopper_pearson_upper(k, n, 0.95) == pytest.approx(expected, rel=1e-9, abs=1e-12)
+    assert metrics.clopper_pearson_upper(n, n, 0.95) == 1.0
+
+
 def test_A17_tpr_gain_is_not_produced_by_abstaining_on_hard_fakes():
-    """결합이 어려운 가짜에서 보류하면, 함께 점수를 낸 영상에서 똑같아도 TPR 이득으로 보인다."""
+    """2026-11-18 결정: TPR 차이는 두 후보가 모두 점수를 낸 영상에서 계산한다.
+    결합이 어려운 가짜에서 보류해도, 함께 점수를 낸 영상에서 똑같으면 TPR 이득이 아니다."""
     real = [Item(f"r{i}", "real", f"r{i}", score=0.0) for i in range(40)]
     easy = [Item(f"e{i}", "fake", f"e{i}", score=1.0) for i in range(30)]
     hard = [Item(f"h{i}", "fake", f"h{i}", score=0.0) for i in range(10)]
@@ -483,6 +548,12 @@ def test_A17_tpr_gain_is_not_produced_by_abstaining_on_hard_fakes():
     out = rules.paired_difference(fused, single, 0.5, 0.5, n_boot=300, seed=3)
     assert out["coverage"]["value"] == pytest.approx(-0.125)
     assert not out["tpr"]["ci_low"] > 0, "판정 제공 비율을 줄인 만큼 TPR이 오른 것으로 셌다"
+    assert out["tpr"]["value"] == out["tpr"]["ci_low"] == out["tpr"]["ci_high"] == 0.0
+    assert out["tpr"]["basis"] == "both_scored"
+    # 함께 점수를 낸 영상에서 실제로 더 잘 잡으면 이득으로 센다
+    better = real + easy + [replace(it, score=1.0) for it in hard]
+    gain = rules.paired_difference(better, single, 0.5, 0.5, n_boot=300, seed=3)["tpr"]
+    assert gain["value"] == pytest.approx(0.25) and gain["ci_low"] > 0
 
 
 # ================= 시나리오 6. 정직성 · 480p · 서빙 모집단 =================
@@ -517,7 +588,8 @@ def test_A6_out_of_range_480p_is_excluded_from_test_gates_and_reported_separatel
     assert low
     for name, c in report["candidates"].items():
         assert "x264-crf28-480p" not in c["test"]["by_compression"], name
-        assert c["test"]["counts"]["videos"] == len(test) - len(low), name
+        held = [r for r in test if r.compression_profile_id == "x264-crf34-source"]  # A15로 관문에서도 빠진다
+        assert c["test"]["counts"]["videos"] == len(test) - len(low) - len(held), name
         side = c["test_out_of_range"]
         assert side["videos"] == len(low) and "roc_auc" not in json.dumps(side) and "tpr" not in side
     # WaveRep이 들어간 후보는 480p에서 전부 보류다. 그 사실은 따로 보고된다
@@ -527,19 +599,100 @@ def test_A6_out_of_range_480p_is_excluded_from_test_gates_and_reported_separatel
     assert "운영 범위 밖" in build.to_markdown(report)
 
 
-def test_A15_current_behavior_held_out_profiles_enter_the_test_gate(run_out_of_range):
-    """결정 대기(제안만): 최종 평가 전용 프로파일을 test 관문에 넣을지. 지금은 넣고, 리포트에 그 사실을 적는다."""
-    _, _, report = run_out_of_range
-    assert "x264-crf34-source" in report["test_gate_compression_conditions"]
-    assert "x264-crf34-source" in report["candidates"]["W"]["test"]["by_compression"]
-
-
-@pytest.mark.xfail(strict=True, reason="A9 제안: 서버는 성공한 축 집합과 정확히 같은 후보만 쓰지만, 리포트는 후보를 그 모집단에서 검증하지 않는다")
-def test_A9_each_servable_candidate_is_validated_on_the_videos_it_would_serve(run_out_of_range):
-    _, _, report = run_out_of_range
+def test_A15_held_out_profiles_are_reported_once_after_the_gate_not_used_for_adoption(run_out_of_range):
+    """2026-11-18 결정: 최종 평가 전용 프로파일은 test 관문에서 빼고, 관문 뒤 따로 한 번 보고한다(탐지 지표 포함)."""
+    data, _, report = run_out_of_range
+    held = [r for r in read_manifest(data / "manifest.csv")
+            if r.split == "test" and r.compression_profile_id == "x264-crf34-source"]
+    assert held
+    assert "x264-crf34-source" not in report["test_gate_compression_conditions"]
+    assert report["held_out_compression_profiles"] == ["x264-crf20-source", "x264-crf34-720p", "x264-crf34-source"]
     for name, c in report["candidates"].items():
-        # 예: W 후보는 physics·alignment가 모두 실패한 영상에서만 쓰인다. 그 영상들만의 test 지표가 있어야 한다
-        assert "serving_population" in c["test"], name
+        assert "x264-crf34-source" not in c["test"]["by_compression"], name
+        side = c["test_held_out"]
+        assert side["counts"]["videos"] == len(held), name
+        for m in ("roc_auc", "tpr", "fpr"):  # 480p와 달리 탐지 지표와 CI까지 싣는다
+            assert {"value", "ci_low", "ci_high"} <= set(side["overall"][m]), name
+        assert side["used_for_adoption"] is False
+    # 관문 계산은 이 절을 보지 않는다: 리포트에서 지워도 판단이 같다
+    stripped = json.loads(json.dumps(report))
+    for c in stripped["candidates"].values():
+        del c["test_held_out"]
+    assert rules.same_decision(rules.rederive(stripped, fast_config()["adoption"]), report["decision"])
+    md = build.to_markdown(report)
+    assert "관문 뒤 1회 보고, 채택 판단에 사용하지 않음" in md
+
+
+def _csv_rows(path: Path) -> dict[str, dict]:
+    import csv
+    with path.open(newline="", encoding="utf-8") as f:
+        return {f"{r['dataset_id']}:{r['video_id']}": r for r in csv.DictReader(f)}
+
+
+@needs_venv
+def test_A9_each_servable_candidate_is_validated_on_the_videos_it_would_serve(made):  # noqa: F811
+    """2026-11-18 결정: 리포트의 서빙 집단은 서버의 후보 고르기(training/serving.choose)를 test 영상마다 적용한 결과와 같다."""
+    folder, _ = made
+    report = json.loads((folder / "rep/report.json").read_text())
+    d = report["decision"]
+    assert (d["decision"], d["primary"], d["servable_candidates"], d["fallbacks_considered"]) == \
+        ("fusion_adoptable", "W+M", ["W+M", "W"], ["W"])
+    avail = _csv_rows(folder / "run/availability.csv")
+    scores = {n: _csv_rows(folder / f"run/scores/{n}.csv") for n in ("W+M", "W")}
+    axes = {n: frozenset(report["candidates"][n]["axes"]) for n in ("W+M", "W")}
+    test = [r for r in read_manifest(folder / "run-data/manifest.csv") if r.split == "test"]
+    chosen, pattern_w = {"W+M": [], "W": [], None: []}, []
+    for r in test:
+        ok = frozenset(a for a in ("signal", "physics", "alignment") if avail[r.uid][a] == "1")
+        name = serving.choose(("W+M", axes["W+M"]), [("W", axes["W"])], ok, lambda n: bool(scores[n][r.uid]["score"]))
+        chosen[name].append(r)
+        if ok == axes["W"]:
+            pattern_w.append(r)
+    fallback = report["candidates"]["W"]["serving"]
+    assert fallback["role"] == "fallback"
+    counts = fallback["evaluation"]["counts"]
+    assert counts["videos"] == len(pattern_w) > 0          # 축 성공 패턴이 정확히 {signal}인 test 영상
+    assert counts["real_scored"] + counts["fake_scored"] == len(chosen["W"])  # 그중 서버가 실제로 W를 쓰는 영상
+    assert report["candidates"]["W+M"]["serving"]["role"] == "primary"
+    primary = report["candidates"]["W+M"]["test"]["counts"]
+    assert primary["real_scored"] + primary["fake_scored"] == len(chosen["W+M"])
+    # 대체 후보의 관문은 자기 관문과 최소 그룹 수이며 TPR 이득 비교는 없다
+    checks = [g["check"] for g in fallback["gates"]]
+    assert any("진짜 그룹 수" in c for c in checks) and any("가짜 그룹 수" in c for c in checks)
+    assert not any("TPR" in c for c in checks)
+    assert all(g["passed"] for g in fallback["gates"])
+    assert "서빙 규칙과 대체 후보" in (folder / "rep/report.md").read_text()
+
+
+def test_A9_serving_rule_unit():
+    wm, w = ("W+M", frozenset({"signal", "physics"})), [("W", frozenset({"signal"}))]
+    yes = lambda name: True  # noqa: E731
+    assert serving.choose(wm, w, frozenset({"signal", "physics", "alignment"}), yes) == "W+M"  # 다른 축이 더 성공해도
+    assert serving.choose(wm, w, frozenset({"signal"}), yes) == "W"
+    assert serving.choose(wm, w, frozenset({"signal", "alignment"}), yes) is None  # 정확히 같은 대체 후보가 없다
+    assert serving.choose(wm, w, frozenset({"signal", "physics"}), lambda n: n != "W+M") is None  # 입력 결측
+    assert serving.choose(None, [], frozenset({"signal"}), yes) is None
+    # 서버와 학습이 같은 함수로 축 성공을 읽는다. MotionPhys 축 상태는 full 변형(후보 A) 기준이다
+    row = {"waverep": {"status": "completed"}, "syncnet": {"status": "insufficient_input"},
+           "motionphys": {"status": "insufficient_input",
+                          "variants": {"face_roi": {"status": "completed", "features": [1.0]}}}}
+    assert serving.successful_axes(serving.feature_statuses(row)) == frozenset({"signal"})
+    api = {"signal": {"status": "completed"}, "physics": {"status": "insufficient_input"}, "alignment": {"status": "error"}}
+    assert serving.successful_axes({k: v["status"] for k, v in api.items()}) == frozenset({"signal"})
+
+
+@needs_venv
+def test_A9_training_uses_motion_features_only_when_physics_axis_succeeds(tmp_path):
+    """full 변형이 실패한(physics 축 실패) 영상의 face_roi 특징은 서버에서 쓰이지 않으므로 학습·점수에도 쓰지 않는다."""
+    data = make_data(tmp_path / "d", replace(SMALL, missing={"full": 0.3}))
+    assert train_on(data, tmp_path / "run", fast_config()).returncode == 0
+    feats = {json.loads(line)["uid"]: json.loads(line) for line in (data / "features.jsonl").read_text().splitlines()}
+    avail = _csv_rows(tmp_path / "run/availability.csv")
+    scores = _csv_rows(tmp_path / "run/scores/M-face_roi.csv")
+    failed = [u for u, row in feats.items() if row["axes"]["motionphys"]["status"] != "completed" and u in scores]
+    assert failed and all(row["axes"]["motionphys"]["variants"]["face_roi"]["features"] for u, row in feats.items()
+                          if u in failed)
+    assert all(avail[u]["physics"] == "0" and scores[u]["score"] == "" for u in failed)
 
 
 def test_OK6_failures_are_null_not_zero_in_scores_and_server_inputs():

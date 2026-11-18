@@ -64,6 +64,74 @@ def threshold_at_fpr(real_scores: Sequence[float], target_fpr: float) -> float:
     return math.nextafter(desc[k], math.inf)
 
 
+def _beta_continued_fraction(a: float, b: float, x: float) -> float:
+    """정규화 불완전 베타 함수의 연분수 부분(Lentz 방법)."""
+    tiny, eps = 1e-300, 1e-16
+    c, d = 1.0, 1.0 - (a + b) * x / (a + 1.0)
+    d = 1.0 / (d if abs(d) > tiny else tiny)
+    h = d
+    for m in range(1, 1000):
+        for aa in (m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m)),
+                   -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1))):
+            d = 1.0 + aa * d
+            d = 1.0 / (d if abs(d) > tiny else tiny)
+            c = 1.0 + aa / c
+            c = c if abs(c) > tiny else tiny
+            h *= d * c
+        if abs(d * c - 1.0) < eps:
+            break
+    return h
+
+
+def _regularized_beta(a: float, b: float, x: float) -> float:
+    """I_x(a, b). Beta(a, b) 분포의 누적 확률."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log1p(-x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _beta_continued_fraction(a, b, x) / a
+    return 1.0 - front * _beta_continued_fraction(b, a, 1.0 - x) / b
+
+
+def clopper_pearson_upper(k: float, n: int, confidence: float = 0.95) -> Optional[float]:
+    """이항 비율의 정확(Clopper–Pearson) 양측 신뢰구간 상한 = Beta(k + 1, n − k)의 (1 − α/2) 분위수.
+
+    k는 정수가 아니어도 된다(FPR 관문은 k = 진짜 그룹 수 × 영상 단위 FPR을 쓴다). n이 0이면 None.
+    """
+    if n <= 0:
+        return None
+    if k >= n:
+        return 1.0
+    q = 1.0 - (1.0 - confidence) / 2.0
+    lo, hi = 0.0, 1.0
+    for _ in range(200):  # 이분법. 분위수를 부동소수점 정밀도까지 좁힌다
+        mid = (lo + hi) / 2.0
+        if _regularized_beta(k + 1.0, n - k, mid) < q:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < 1e-17:
+            break
+    return (lo + hi) / 2.0
+
+
+def fpr_exact_upper(items: Sequence["Item"], threshold: float, confidence: float = 0.95) -> dict:
+    """FPR 관문용 정확 상한(README §15.3 2026-11-18, 감사 A10).
+
+    그룹 안 영상은 서로 독립이 아니므로 표본 수 n은 진짜 그룹 수로 보수적으로 잡고, 비율은 영상 단위 FPR을 쓴다
+    (k = n × 영상 단위 FPR). 오탐이 0건이면 k = 0이라 그룹이 36개 미만이면 상한이 10%를 넘는다.
+    """
+    real = [it for it in items if it.label == "real" and it.score is not None]
+    n = len({it.group for it in real})
+    fpr = rate_at([it.score for it in real], threshold)
+    k = n * fpr if fpr is not None else None
+    return {"value": clopper_pearson_upper(k, n, confidence) if k is not None else None,
+            "n_real_groups": n, "video_fpr": fpr, "k_effective": k, "confidence": confidence,
+            "method": "clopper_pearson(n=진짜 그룹 수, k=n×영상 단위 FPR)"}
+
+
 def rate_at(scores: Sequence[float], threshold: float) -> Optional[float]:
     """점수 >= 임계값인 비율. 점수가 없으면 None."""
     if not scores:
@@ -220,6 +288,9 @@ def evaluate(
             "fake": sum(1 for it in items if it.label == "fake"),
             "real_scored": len(_scored(items, "real")),
             "fake_scored": len(_scored(items, "fake")),
+            # 점수가 있는 영상의 그룹 수. 대체 후보의 최소 그룹 수 관문에 쓴다(감사 A9)
+            "real_groups_scored": len({it.group for it in items if it.label == "real" and it.score is not None}),
+            "fake_groups_scored": len({it.group for it in items if it.label == "fake" and it.score is not None}),
         },
         # 판정을 낸 영상의 비율. 정확도나 신뢰도가 아니다
         "selective": {
@@ -228,7 +299,9 @@ def evaluate(
             "abstained": total - len(scored),
             "abstained_by_reason": dict(sorted(reasons.items())),
         },
-        "overall": {name: with_ci(name) for name in ("roc_auc", "tpr", "fpr")},
+        "overall": {**{name: with_ci(name) for name in ("roc_auc", "tpr", "fpr")},
+                    # FPR 관문은 bootstrap 상한(fpr.ci_high)과 이 정확 상한 중 큰 값으로 본다(감사 A10)
+                    "fpr_exact_upper": fpr_exact_upper(items, threshold, confidence)},
         "by_generator": breakdown("generator", lambda it: it.generator),
         "by_manipulation_type": breakdown("manipulation_type", lambda it: it.manipulation_type),
         # 압축 조건별. 그 조건의 진짜와 가짜만으로 계산한다. 임계값은 dev에서 고정한 값 그대로다

@@ -15,13 +15,17 @@ from tests.test_training_train import PYTHON, config, run_train
 
 needs_venv = pytest.mark.skipif(not PYTHON.is_file(), reason="research/training/.venv 없음")
 ADOPTION = {"g2_min_auc_ci_low": 0.5, "min_tpr_gain_ci_low": 0.0, "max_fpr_worsening": 0.02,
-            "max_coverage_drop": 0.05, "max_test_fpr_ci_high": 0.10, "n_boot": 200, "bootstrap_seed": 1, "confidence": 0.95}
+            "max_coverage_drop": 0.05, "max_test_fpr_ci_high": 0.10, "n_boot": 200, "bootstrap_seed": 1, "confidence": 0.95,
+            "fallback_min_real_groups": 36, "fallback_min_fake_groups": 36}
 
 
 # ---------- 판단 규칙 (항상 실행) ----------
 
-def own(auc_low=0.7, fpr_high=0.08):
-    return rules.own_gates({"overall": {"roc_auc": {"ci_low": auc_low}, "fpr": {"ci_high": fpr_high}}}, ADOPTION)
+def own(auc_low=0.7, fpr_high=0.08, fpr_exact=None):
+    # FPR 관문은 bootstrap 상한과 정확 상한 중 큰 값이다(감사 A10). 따로 주지 않으면 둘을 같게 둔다
+    exact = fpr_high if fpr_exact is None else fpr_exact
+    return rules.own_gates({"overall": {"roc_auc": {"ci_low": auc_low}, "fpr": {"ci_high": fpr_high},
+                                        "fpr_exact_upper": {"value": exact}}}, ADOPTION)
 
 
 def diff(tpr_low=0.05, fpr=0.0, coverage=0.0):
@@ -31,14 +35,21 @@ def diff(tpr_low=0.05, fpr=0.0, coverage=0.0):
 SELECTION = {"fusion": "W+M", "best_single": "W"}
 
 
-def decide(own_w=None, own_f=None, fusion=None, selection=SELECTION):
+def fallback(passed=True):
+    """대체 후보 W가 자기 서빙 집단(physics·alignment가 실패한 test 영상)에서 넘은 관문(감사 A9)."""
+    return [{"check": "서빙 집단 관문", "value": 1.0, "rule": "", "passed": passed}]
+
+
+def decide(own_w=None, own_f=None, fusion=None, selection=SELECTION, fallback_w=True):
     return rules.decide(selection, {"W": own_w or own(), "W+M": own_f or own()},
-                        {"W+M": fusion or rules.fusion_gates(diff(), None, ADOPTION)})
+                        {"W+M": fusion or rules.fusion_gates(diff(), None, ADOPTION)},
+                        {"W": fallback(fallback_w)})
 
 
 def test_fusion_is_adoptable_only_when_every_gate_passes():
     ok = decide()
     assert ok["decision"] == "fusion_adoptable" and ok["decision_ko"] == "채택 가능"
+    assert ok["primary"] == "W+M" and ok["fallbacks_considered"] == ["W"]
     assert ok["servable_candidates"] == ["W+M", "W"] and ok["three_axis_forced"] is False
     for bad in (diff(tpr_low=0.0), diff(tpr_low=-0.01), diff(fpr=0.021), diff(coverage=-0.051), diff(tpr_low=None)):
         out = decide(fusion=rules.fusion_gates(bad, None, ADOPTION))
@@ -66,9 +77,13 @@ def test_no_discrimination_means_hold_and_no_fusion_candidate_means_no_adoption(
     assert decide(own_w=own(auc_low=0.5), own_f=own(auc_low=0.5))["decision"] == "hold"
     out = rules.decide({"fusion": None, "best_single": "W"}, {"W": own()}, {})
     assert out["decision"] == "waverep_only"
-    # 결합이 통과해도 WaveRep 단독이 자기 관문을 못 넘으면 대체 후보에 넣지 않는다
-    only = decide(own_w=own(fpr_high=0.2))
+    # 대체 후보는 test 전체가 아니라 자기 서빙 집단의 관문으로 정한다(README §15.3 2026-11-18, 감사 A9)
+    only = decide(fallback_w=False)
     assert only["decision"] == "fusion_adoptable" and only["servable_candidates"] == ["W+M"]
+    assert decide(own_w=own(fpr_high=0.2))["servable_candidates"] == ["W+M", "W"]
+    # WaveRep 단독이면 W가 선택 후보이고 대체 후보는 없다
+    alone = decide(fusion=rules.fusion_gates(diff(tpr_low=0.0), None, ADOPTION), fallback_w=False)
+    assert (alone["primary"], alone["servable_candidates"], alone["fallbacks_considered"]) == ("W", ["W"], [])
 
 
 def test_selection_uses_dev_auc_only_and_prefers_fewer_inputs_on_ties():
@@ -134,9 +149,14 @@ def test_no_signal_never_yields_adoption(tmp_path, seed):
     assert r["decision"]["servable_candidates"] == []
 
 
+# FPR 관문은 정확 상한(n = 진짜 그룹 수)도 본다(감사 A10). "채택에 도달할 수 있는지" 보는 시나리오는
+# test 진짜 그룹을 100개 이상 두고(인물 1000명 = 짝 500그룹의 20%), 목표 FPR을 2%로 둔다(정확 상한 약 7%).
+REACHABLE = {"target_fpr": 0.02}
+
+
 @needs_venv
 def test_signal_only_in_waverep_means_waverep_alone(tmp_path):
-    r = scenario(tmp_path, synth.SynthConfig(identities=600, signal={"waverep": 2.0}, seed=5))
+    r = scenario(tmp_path, synth.SynthConfig(identities=1000, signal={"waverep": 2.0}, seed=5), **REACHABLE)
     assert r["decision"]["best_single"] == "W"
     assert r["decision"]["decision"] == "waverep_only" and r["decision"]["servable_candidates"] == ["W"]
 
@@ -154,9 +174,9 @@ def test_signal_only_in_one_motion_candidate_makes_that_single_axis_win(tmp_path
 
 @needs_venv
 def test_complementary_signals_can_reach_adoption_and_report_is_complete(tmp_path):
-    cfg = synth.SynthConfig(identities=400, signal={"waverep": 1.3, "full": 1.6}, missing={"syncnet": 0.3},
+    cfg = synth.SynthConfig(identities=1000, signal={"waverep": 1.6, "full": 1.6}, missing={"syncnet": 0.3},
                             profiles=("x264-crf28-720p",), seed=7)
-    r = scenario(tmp_path, cfg)
+    r = scenario(tmp_path, cfg, **REACHABLE)
     d = r["decision"]
     assert d["decision"] == "fusion_adoptable" and d["selected_fusion"] == "W+M"
     assert d["servable_candidates"][0] == "W+M" and "W+M+S" not in d["servable_candidates"][:1]

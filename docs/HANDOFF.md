@@ -1,5 +1,18 @@
 # HANDOFF
 
+## 감사 결정 반영 (2026-11-18, 브랜치 `audit/decisions`)
+
+- 사용자 결정(감사 제안 A9·A10·A11·A15·A16·A17)을 구현. README §15.3 "결정 5·6·7·8·12 보완(독립 감사 결정) — 2026-11-18"에 서버 조건 (6)~(9)와 A9·A10·A11·A15를 적었다. 세부는 `docs/audit-training-pipeline.md` "결정 반영", `docs/training-pipeline.md`.
+  - A9: 공용 서빙 규칙 `training/serving.py`. 선택 후보는 축이 모두 성공하고 입력이 있으면 사용, 대체 후보는 서버에서 쓰일 test 영상(축 성공 패턴이 정확히 같은 영상)에서 자기 관문 + 최소 그룹 수(진짜·가짜 각 36)를 넘어야 서빙. 학습의 축 성공은 서버와 같은 함수(MotionPhys `full` 기준), `availability.csv`. 묶음 형식 3(후보 역할).
+  - A10: FPR 관문 = max(그룹 bootstrap 상한, Clopper–Pearson 상한(n = 진짜 그룹 수, k = n × 영상 FPR)). 처음 지시 공식(k = 오탐 있는 그룹 수)은 관문을 통과 불가능하게 만들어 계획 단계에서 (b)로 바꿔 승인받음.
+  - A11 `ungroupable_video` 오류, A15 최종 평가 전용 압축은 관문 뒤 `test_held_out`에 1회 보고(탐지 지표 포함, 채택 판단에 사용하지 않음), A16 묶음 생성 전 재현 검증(`--manifest`·`--features` 필수, `features.jsonl` 위조는 못 잡음), A17 TPR 차이는 두 후보가 모두 점수를 낸 가짜에서.
+  - A7 남은 부분(MAVOS-DD 파일 해시)은 보류.
+- 바뀐 테스트 기대: "세 축이 다 성공하면 2축 모델로 보류"는 이제 W+M 판정. 합성 "채택 도달" 시나리오는 인물 1,000명·테스트 설정 목표 FPR 2%로 키웠다(커밋된 설정은 5%). 묶음 fixture는 대체 후보 경로를 시험하려고 테스트 설정에서만 `max_coverage_drop` 0.6.
+- **알아 둘 것:** FPR 관문은 test 진짜 *그룹*이 충분해야 넘는다(영상 FPR 5%면 약 150그룹). 결합 채택의 판정 제공 비율 관문(5%p) 때문에 대체 후보가 쓰일 영상은 원래 적어, 실제로는 대체 후보가 서빙되지 않는 경우가 많을 것이다.
+- `pytest -q`: 반영 전(main `7933fdc`) 797 passed, 1 skipped, 5 xfailed → **815 passed, 1 skipped**(xfail 0, 건너뜀은 같은 LightGBM 없음). 감사 xfail 5개는 모두 보통 테스트로 바꿨다.
+- 우연 채택 시뮬레이션은 결정 반영 뒤 다시 재지 않았다(미측정).
+- PR: 이 브랜치로 생성. merge는 사용자 지시 후.
+
 ## 학습 파이프라인 독립 감사 (2026-11-18, 브랜치 `audit/training-pipeline`)
 
 - 한 일: 학습·평가·묶음·서버 관문을 공격 시나리오 6종(누수, 임계값·선택 오염, 관문 우회, 서버·학습 불일치, 통계 함정, 정직성)으로 감사. 결과는 `docs/audit-training-pipeline.md`.
