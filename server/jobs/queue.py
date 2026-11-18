@@ -103,8 +103,8 @@ class JobQueue:
             conn.close()
 
     @contextmanager
-    def _tx(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path, timeout=5, isolation_level=None)
+    def _tx(self, timeout: float = 5) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(self.db_path, timeout=timeout, isolation_level=None)
         conn.row_factory = sqlite3.Row
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -294,8 +294,9 @@ class JobQueue:
         """이 시도의 축별 실행 기록을 저장한다. 다른 시도의 기록은 그대로 둔다(내부 기록, API는 읽지 않는다).
 
         lease를 가진 Worker가 처리 중일 때만 쓴다. 기존 값을 읽을 수 없으면 새 목록으로 시작한다.
+        진단용 기록이라 DB 잠금은 1초만 기다린다(SyncNet 마무리 여유 10초 안, docs/syncnet-adapter.md).
         """
-        with self._tx() as conn:
+        with self._tx(timeout=1.0) as conn:
             row = conn.execute(
                 "SELECT run_info_json FROM jobs WHERE analysis_id = ? AND lease_owner = ?"
                 " AND job_status = 'processing'",

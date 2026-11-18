@@ -28,8 +28,11 @@ _PROBE = (
 )
 
 
-def thermal_state(timeout: float = 2.0) -> Optional[str]:
-    """지금의 thermalState 이름. 읽지 못하면 None."""
+def thermal_state(timeout: float = 1.0) -> Optional[str]:
+    """지금의 thermalState 이름. 읽지 못하면 None.
+
+    기본 제한 1초: 축 끝 프로브와 기록 저장이 SyncNet 마무리 여유(10초) 안에 들어가게 한다(실측 20~90ms).
+    """
     if sys.platform != "darwin":
         return None
     try:

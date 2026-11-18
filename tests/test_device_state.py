@@ -62,3 +62,11 @@ def test_probe_runs_isolated_with_arg_list(monkeypatch, darwin):
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS 전용")
 def test_real_probe_returns_a_name():
     assert device_state.thermal_state() in device_state.THERMAL_NAMES
+
+
+def test_default_probe_timeout_fits_the_finalize_margin(monkeypatch, darwin):
+    # 축 끝 프로브 + 기록 저장이 SyncNet 마무리 여유(10초) 안에 들어가도록 기본 제한은 1초다
+    calls = []
+    monkeypatch.setattr(device_state.subprocess, "run", _fake_run(calls=calls))
+    device_state.thermal_state()
+    assert calls[0][1]["timeout"] == 1.0

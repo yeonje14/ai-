@@ -386,9 +386,10 @@ def process(
         run_info: dict[str, dict[str, Optional[str]]] = {}
         for stage, axis_name, module in AXES:
             enter(stage)
-            ctx.timeout_seconds = max(deadline - time.monotonic(), 0.0)
             ctx.device_used = None
             thermal_start = _thermal()
+            # 남은 시간은 시작 프로브 뒤에 잰다. 프로브 시간이 SyncNet 마무리 여유를 잠식하지 않게 한다
+            ctx.timeout_seconds = max(deadline - time.monotonic(), 0.0)
             axes[axis_name] = run_axis(axis_name, module.run, ctx)
             entry = {"device_used": clean_device(ctx.device_used), "thermal_state_start": thermal_start,
                      "thermal_state_end": _thermal()}

@@ -164,3 +164,31 @@ def test_log_line_has_no_url_or_token(queue, registry, settings, axes, monkeypat
     for line in lines:
         for secret in (TOKEN, "youtu", REGISTERED_ID, str(settings.authorized_media_root), str(settings.runtime_dir)):
             assert secret not in line
+
+
+def test_axis_time_budget_is_taken_after_the_start_probe(queue, registry, settings, monkeypatch):
+    # 축이 받는 남은 시간(ctx.timeout_seconds)이 시작 프로브 시간만큼 부풀면 SyncNet 단계 제한이 작업 deadline의
+    # 마무리 여유(10초)를 잠식한다. 축이 본 deadline(호출 시각 + 남은 시간)은 실제 deadline을 넘으면 안 된다.
+    import time
+    seen = []
+
+    def axis(ctx):
+        seen.append(time.monotonic() + ctx.timeout_seconds)
+        return {"status": "insufficient_input", "reason_code": "no_segments", "raw_score": None}
+
+    def slow_probe():
+        time.sleep(0.3)
+        return "nominal"
+
+    monkeypatch.setattr(signal_axis, "run", axis)
+    monkeypatch.setattr(physics, "run", axis)
+    monkeypatch.setattr(alignment, "run", lambda ctx: axis(ctx) and {
+        "status": "insufficient_input", "reason_code": "no_segments", "lse_c": None, "lse_d": None,
+        "included_in_fusion": False})
+    monkeypatch.setattr(worker, "thermal_state", slow_probe)
+    limit = 600.0
+    before = time.monotonic()
+    aid = queue.enqueue(REGISTERED_ID, OWNER, 3)
+    worker.run_once(queue, registry, replace(settings, dev_manual_segments=((0, 2),), job_timeout_seconds=limit), "w1")
+    assert len(seen) == 3
+    assert all(d <= before + limit + 0.05 for d in seen), [round(d - before - limit, 3) for d in seen]

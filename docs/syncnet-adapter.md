@@ -635,6 +635,8 @@ SyncNet 단계 제한이 끝난 뒤 작업 deadline을 마지막으로 확인하
 | (3) fusion·finalizing | 2026-11-18 A Worker 실측 로그(syncnet 끝 → finalizing 진입) | 0.002초 |
 | 합 | | 약 5.1초 → **10초**(약 2배 여유) |
 
+(2026-11-19 "Worker 장치·열 상태 기록"이 이 구간에 축 끝 thermalState 프로브(제한 1초)와 실행 기록 저장(DB 잠금 대기 1초)을 더한다. 합 약 7.1초로 여전히 10초 안이다.)
+
 | 장치 | 단계 제한 | 결과 | 걸린 시간 | 초과분 |
 |---|---|---|---|---|
 | MPS | 20초 | error / timeout | 20.043초 | 0.043초 |
@@ -808,7 +810,8 @@ python scripts/verify_real_worker_lifecycle.py --report   # 요약
 **무엇을 남기나.** WaveRep·MotionPhys·SyncNet 실행기마다 실제로 쓴 장치(`device_used`)와 실행 시작·끝의 macOS `ProcessInfo.thermalState`.
 
 - 장치: WaveRep·SyncNet은 실행기가 보고하는 실제 장치(MPS를 못 쓰면 `cpu`). MotionPhys는 실행기가 `cpu`를 보고한다. 근거는 `research/motionphys/faces.py`의 MediaPipe `BaseOptions`가 delegate를 지정하지 않고, mediapipe 1.2.3 `base_options.py`가 delegate가 없으면 CPU를 쓰는 것이다. 광학 흐름(OpenCV)·LightGBM도 CPU다. delegate를 지정하면 `tests/test_axis_device_used.py`가 실패한다. 값은 `cpu`·`mps`·`gpu`만 받고 그 밖은 `null`이다(로그·기록에 원문을 남기지 않는다). 실행기를 부르지 않은 축(구간 없음, 개발용 수동 구간의 SyncNet 등)은 `null`.
-- 열 상태: `nominal`·`fair`·`serious`·`critical`(ProcessInfo 0~3). Worker 프로세스 안에서 Objective-C 런타임을 부르지 않고, 같은 Python의 짧은 격리 프로세스(`python -I -c`, 표준 라이브러리 ctypes)에서 읽는다(`server/jobs/device_state.py`). 잘못돼도 Worker가 죽지 않게 하려는 것이다. 한 번에 약 20~90ms, 작업당 6회. macOS가 아니거나 실패·2초 초과면 `null`(로그에는 `unknown`). 작업에는 영향이 없다.
+- 열 상태: `nominal`·`fair`·`serious`·`critical`(ProcessInfo 0~3). Worker 프로세스 안에서 Objective-C 런타임을 부르지 않고, 같은 Python의 짧은 격리 프로세스(`python -I -c`, 표준 라이브러리 ctypes)에서 읽는다(`server/jobs/device_state.py`). 잘못돼도 Worker가 죽지 않게 하려는 것이다. 한 번에 약 20~90ms, 작업당 6회. macOS가 아니거나 실패·1초 초과면 `null`(로그에는 `unknown`). 작업에는 영향이 없다.
+- 마무리 여유: 축이 받는 남은 시간은 시작 프로브 **뒤에** 잰다. SyncNet이 끝난 뒤 `enter("fusion")` 전에 끼는 끝 프로브(제한 1초)와 기록 저장(DB 잠금 대기 1초)을 더해도, 위 "SyncNet 단계 제한 보완"의 근거 약 5.1초 + 2초 = 약 7.1초로 마무리 여유 10초 안이다(`tests/test_worker_device_log.py::test_axis_time_budget_is_taken_after_the_start_probe`, `tests/test_run_info_record.py::test_save_gives_up_on_a_locked_db_quickly`).
 
 **Worker 로그** (logger `trinity.worker`, INFO, 축이 끝날 때마다 한 줄. 취소·timeout으로 멈춘 축도 남는다):
 
@@ -840,4 +843,4 @@ job <analysis_id> axis <signal|physics|alignment> device=<cpu|mps|gpu|unknown> t
 - 이 시각 내내 기기는 `fair`였다(앞선 측정으로 데워진 상태, 전원 연결·충전 완료 100%). 같은 시각 Swift로 직접 읽은 `ProcessInfo.thermalState`도 1(`fair`)로 프로브와 같았다. 상태가 바뀌는 경우는 실제로 보지 못했고 가짜 프로브 테스트로만 확인했다.
 - 시도별 누적(재선점 뒤 2차 기록)은 실제 SIGKILL로 확인하지 않았다. 테스트(`tests/test_run_info_record.py`)로 확인했다.
 
-**테스트:** `tests/test_device_state.py`(5, 실제 프로브 1 포함), `tests/test_axis_device_used.py`(8), `tests/test_run_info_record.py`(6), `tests/test_worker_device_log.py`(7). 실제 영상 MotionPhys 테스트에 `device_used == "cpu"` 단언을 더했다. `tests/conftest.py`가 Worker 테스트에서 프로브 자식 프로세스를 띄우지 않게 바꾼다.
+**테스트:** `tests/test_device_state.py`(6, 실제 프로브 1 포함), `tests/test_axis_device_used.py`(8), `tests/test_run_info_record.py`(7), `tests/test_worker_device_log.py`(8). 실제 영상 MotionPhys 테스트에 `device_used == "cpu"` 단언을 더했다. `tests/conftest.py`가 Worker 테스트에서 프로브 자식 프로세스를 띄우지 않게 바꾼다.

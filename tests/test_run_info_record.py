@@ -108,3 +108,23 @@ def test_api_responses_never_include_run_info(client, queue):
         assert set(a.json()) == set(b.json())
         for word in ("run_info", "thermal", "device_used"):
             assert word not in a.text
+
+
+def test_save_gives_up_on_a_locked_db_quickly(queue):
+    # 기록은 진단용이다. 다른 연결이 쓰기 잠금을 쥐고 있으면 오래(기본 5초) 기다리지 않고 포기한다
+    # (Worker는 예외를 삼키고 계속한다). 마무리 여유 10초 안에 들어가야 한다.
+    import time
+    aid = queue.enqueue(REGISTERED_ID, OWNER, 3)
+    job = queue.claim("w1", 30, 2)
+    holder = sqlite3.connect(queue.db_path, isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        t = time.monotonic()
+        try:
+            queue.save_run_info(aid, "w1", job.attempts, AXES_1)
+        except sqlite3.OperationalError:
+            pass
+        assert time.monotonic() - t < 2.0
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
