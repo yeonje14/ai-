@@ -1,5 +1,12 @@
 # HANDOFF
 
+## 우연 채택률 재측정 (2026-11-18, 브랜치 `audit/null-rerun`)
+
+- main `f9cfcf4`(감사 결정 반영 후)에서 `scripts/audit_null_adoption.py --identities 120 --seeds 200`을 다시 돌려 `docs/audit-training-pipeline.md` 해당 절에 "결정 반영 후" 행을 추가했다. 코드 변경 없음.
+- 결과: 결합 채택 0/200, WaveRep 단독 0/200(반영 전 3/197). 단 120명 데이터는 test 진짜 그룹이 12개라 A10 정확 상한 때문에 FPR 관문을 구조적으로 넘을 수 없어, 이 0은 우연 채택이 줄었다는 증거가 아니다.
+- **남은 일:** 관문이 통과 가능한 크기(진짜 그룹 약 100개 이상, 인물 800~1,000명)에서 다시 재야 의미 있는 비율이 나온다(시드당 약 1분). `pytest`는 문서만 바꿔 다시 돌리지 않았다.
+- PR: 이 브랜치로 생성. merge는 사용자 지시 후.
+
 ## 감사 결정 반영 (2026-11-18, 브랜치 `audit/decisions`)
 
 - 사용자 결정(감사 제안 A9·A10·A11·A15·A16·A17)을 구현. README §15.3 "결정 5·6·7·8·12 보완(독립 감사 결정) — 2026-11-18"에 서버 조건 (6)~(9)와 A9·A10·A11·A15를 적었다. 세부는 `docs/audit-training-pipeline.md` "결정 반영", `docs/training-pipeline.md`.
