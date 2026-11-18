@@ -85,6 +85,8 @@ docs/DESIGN.md §14.1 백로그 10번의 서버 연결 부분. 작성일: 2026-1
 
 - 분류기 학습, AUC·TPR 비교, 축 유지/제거 결정(백로그 10번의 완료 조건). 임계값 결정.
 - B·E의 Worker 종단 실행, 실제 모델 실행 중의 취소와 Worker SIGKILL(대역 프로세스로만 확인했다), 실제 YouTube ID.
+  (2026-11-19: 같은 Worker 경로의 SyncNet 실행 중 SIGKILL·취소와 WaveRep MPS 실행 중 취소는 실제 모델로 확인했다 —
+  `docs/syncnet-adapter.md` "실제 Worker 수명주기 확인". **MotionPhys 실행 중의 취소·SIGKILL은 여전히 대역 프로세스로만 확인했다.**)
 - 앱의 판단 근거 화면이 새 설명 항목을 어떻게 보여 주는지는 확인하지 않았다(앱 코드 변경 없음).
 - MediaPipe 모델 파일의 이용 조건은 여전히 **확인 필요**다(`docs/motionphys-spec.md` §7).
 
