@@ -839,6 +839,7 @@ job <analysis_id> axis <signal|physics|alignment> device=<cpu|mps|gpu|unknown> t
 | `TRINITY_SYNCNET_DEVICE=cpu` | finished / completed / abstained, 시도 1 | mps / cpu / **cpu** | 모두 fair | 같음 |
 | 기본(재실행) | 같음 | mps / cpu / mps | 모두 fair | 같음 |
 
+- 위 세 실행 뒤 최종 리뷰에서 마무리 여유 수정(축 제한을 시작 프로브 뒤에 계산, 프로브·기록 저장 제한 1초)을 넣고, 고친 코드로 기본 설정을 한 번 더 돌렸다: finished / completed / abstained, `mps / cpu / mps`, 모두 `fair`, API 키 그대로, 남은 것 없음.
 - 세 실행 모두 로그 세 줄과 `run_info_json`의 값이 같았다. 작업 폴더·모델 프로세스는 남지 않았다. 첫 실행은 출력 앞부분(작업 상태·로그 줄)을 잘라 저장하지 못해 같은 설정으로 다시 돌렸다(기록 값은 첫 실행도 같다).
 - 이 시각 내내 기기는 `fair`였다(앞선 측정으로 데워진 상태, 전원 연결·충전 완료 100%). 같은 시각 Swift로 직접 읽은 `ProcessInfo.thermalState`도 1(`fair`)로 프로브와 같았다. 상태가 바뀌는 경우는 실제로 보지 못했고 가짜 프로브 테스트로만 확인했다.
 - 시도별 누적(재선점 뒤 2차 기록)은 실제 SIGKILL로 확인하지 않았다. 테스트(`tests/test_run_info_record.py`)로 확인했다.
