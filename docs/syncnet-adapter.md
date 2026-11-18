@@ -610,4 +610,43 @@ Worker 프로세스 트리 최대 RSS 1.55 GiB(`/usr/bin/time -l`, 후손 중 �
 
 **테스트** `tests/test_job_timeout_policy.py`(24개): 식(0초 180, 짧음 2.5초 230, A 37초 920, 상한과 같음 81초, 상한 초과 120초 → 1800, 음수는 0), 환경 변수, 잘못된 설정 거부, Worker에서 Gate 뒤 축에 넘긴 남은 시간(짧음·길음·상한 초과), 새 제한 초과 시 `failed`/`timeout`, 적합 구간 0초는 기존 제한이 지났어도 새 제한으로 보류 결과까지 끝남, Gate 실패 세 원인은 기존 제한 유지(기존 제한이 지나면 timeout), Gate 우회는 기존 600초. Worker의 제한 재설정 줄을 빼면 Worker 테스트 5개가 실패하는 것을 확인했다.
 
-**남은 것(이번 결정 범위 밖, 바꾸지 않음):** 축별 단계 제한은 그대로다. SyncNet은 `min(600, 남은 시간)`(`server/axes/alignment/__init__.py`), WaveRep·MotionPhys는 300초다. 작업 제한이 600초를 넘어도 SyncNet 단계는 600초에서 멈추고 그 축만 `error` / `timeout`이 된다(작업은 계속). CPU 대체·느린 세션(1초당 15.6초)이면 적합 구간 약 38초부터 SyncNet 단계 제한에 걸릴 수 있다. 단계 제한도 적합 구간 길이에 맞출지는 따로 결정이 필요하다.
+**축별 단계 제한:** WaveRep·MotionPhys는 300초 그대로다. SyncNet은 아래 보완으로 바뀌었다.
+
+## SyncNet 단계 제한 보완 (2026-11-18, 사용자 승인, 구현)
+
+**규칙:** SyncNet 단계 제한 = `min(60 + 16 × 적합 구간 초, 남은 작업 시간 − 마무리 여유)`. 기존 `min(600, 남은 시간)`을 대신한다. README §15.3 "결정 9·11 보완(작업 제한)"의 보완 문단.
+
+- 계수 16은 가장 느린 CPU 실측(A 느린 세션, 적합 구간 1초당 15.6초)을 덮는다. 기본항 60초는 모델 로드·프로세스 시작 같은 고정 비용이다.
+- 목적: SyncNet이 느려져도 작업 전체가 `failed` / `timeout`이 되지 않고, SyncNet 축만 `error` / `timeout`으로 끝나 WaveRep·MotionPhys 결과를 남긴다. 그래서 SyncNet 단계 제한은 작업 deadline보다 마무리 여유만큼 먼저 끝나야 한다.
+- 남은 시간이 마무리 여유보다 짧으면 SyncNet을 시작하지 않고 축만 `error` / `timeout`이다.
+- 작업 제한 식(`180 + 20x`)이 SyncNet 길이 규칙 + 여유(`70 + 16x`)보다 항상 110 + 4x초 크다. 그래서 앞 단계(Gate·WaveRep·MotionPhys)가 그 이상 걸리지 않으면 SyncNet은 길이 규칙만큼 쓸 수 있다. 예: A(37.0초) 652초(이전 고정값 600초보다 길다), B(33.5초) 596초, E(24.9초) 458초.
+
+**마무리 여유 10초의 근거 (실측, 2026-11-18)**
+
+SyncNet 단계 제한이 끝난 뒤 작업 deadline을 마지막으로 확인하는 곳은 `enter("finalizing")`이다. 그 사이에 걸리는 시간은 (1) SyncNet 프로세스 정리와 어댑터 반환, (2) `enter("fusion")`의 DB 기록, (3) fusion 계산·결과 조립이다.
+
+| 항목 | 근거 | 값 |
+|---|---|---|
+| (1) 단계 제한 시각 → 어댑터 반환 | 실제 A로 SyncNet을 일부러 timeout시킨 4건(아래 표). 프로세스 그룹 SIGKILL·임시 폴더 삭제 포함, 작업 폴더에 남은 파일 없음 | 0.031~0.068초 |
+| (2) fusion 단계 기록 | SQLite 연결의 잠금 대기 상한(`server/jobs/queue.py`, `timeout=5`). 평소에는 ms 단위 | 최대 5초 |
+| (3) fusion·finalizing | 2026-11-18 A Worker 실측 로그(syncnet 끝 → finalizing 진입) | 0.002초 |
+| 합 | | 약 5.1초 → **10초**(약 2배 여유) |
+
+| 장치 | 단계 제한 | 결과 | 걸린 시간 | 초과분 |
+|---|---|---|---|---|
+| MPS | 20초 | error / timeout | 20.043초 | 0.043초 |
+| MPS | 60초 | error / timeout | 60.037초 | 0.037초 |
+| MPS | 120초 | error / timeout | 120.068초 | 0.068초 |
+| CPU | 120초 | error / timeout | 120.031초 | 0.031초 |
+| MPS | 180초 | completed(제한 전에 끝남) | 138.968초 | – |
+
+- 측정: 어댑터 `run_syncnet`을 직접 불렀다(Worker 없이). 입력은 A 원본과 로버스트니스 실측의 Gate 적합 구간 5개. heartbeat 대역은 10초마다 True.
+- 기기 상태: 측정 전후 열·성능 경고 기록 없음, 새 swapout 없음. **배터리 전원**(71% → 63%).
+- 처음 측정 중 MPS 120초·CPU 120초 두 건은 0.1초 만에 `inference_error`로 끝났다. 측정 도중 `server/config.py`에 자리표시자를 넣어 SyncNet 실행기(서버의 `report`를 import한다)가 import에 실패했기 때문이다. 자리표시자를 고친 뒤 다시 잰 값만 표에 넣었다.
+- SQLite 잠금 대기 5초는 측정값이 아니라 설정 상한이다. 다른 프로세스(API 서버)가 DB를 오래 잡지 않는 한 실제로는 ms 단위다.
+
+**구현:** `server/axes/alignment/__init__.py`의 `stage_timeout(ctx)`. 설정 `syncnet_timeout_base_seconds`(60), `syncnet_timeout_per_eligible_second`(16), `job_finalize_margin_seconds`(10), 환경 변수 `TRINITY_SYNCNET_TIMEOUT_BASE_SECONDS`, `TRINITY_SYNCNET_TIMEOUT_PER_ELIGIBLE_SECOND`, `TRINITY_JOB_FINALIZE_MARGIN_SECONDS`.
+
+**테스트** `tests/test_syncnet_stage_timeout.py`(15개): 길이 규칙(짧음 2.5초 → 100초, 길음 37초 → 652초, 150초 → 2,460초), 남은 시간 − 여유가 더 짧을 때, 기본 작업 제한 식이 SyncNet 규칙 + 여유보다 항상 큼, 환경 변수, 잘못된 설정 거부, 남은 시간이 여유보다 짧으면 SyncNet 미실행. Worker에서는 실제 별도 프로세스로 도는 느린 가짜 SyncNet으로 (a) 남은 시간 부족, (b) 길이 규칙, (c) 진입 때 시간 없음의 세 경우 모두 작업 `finished`, SyncNet 축만 `error` / `timeout`, WaveRep·MotionPhys 결과 유지, `analysis_status=partial`을 확인했다. 여유를 빼면 이 중 5개가 실패한다(작업이 `failed`가 됨).
+
+**미검증:** 실제 Worker에서 SyncNet 단계 제한에 걸리는 종단 실행은 하지 않았다(가짜 SyncNet 프로세스로만 확인).

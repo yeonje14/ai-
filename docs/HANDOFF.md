@@ -4,9 +4,13 @@
 
 - 사용자 결정: `min(1800, 180 + 20 × 적합 구간 초)`. README §15.3 "결정 9·11 보완(작업 제한) — 2026-11-18, Claude 제안, 사용자 승인". 이유(CPU 대체·기기 2배 지연을 덮음, 제한은 상한일 뿐)는 `docs/syncnet-adapter.md` "작업 제한 정책 결정".
 - 구현: Worker가 Gate 직후 작업 전체 제한을 `시작 + 새 제한`으로 다시 정한다. 기존 600초는 Gate 전·Gate 실패(`gate_error`/`gate_timeout`/`media_unreadable`)·Gate 우회 때의 값. 설정 `TRINITY_JOB_TIMEOUT_BASE_SECONDS`(180)·`TRINITY_JOB_TIMEOUT_PER_ELIGIBLE_SECOND`(20)·`TRINITY_JOB_TIMEOUT_MAX_SECONDS`(1800). 초과는 `failed`/`timeout`. API 변경 없음.
-- 테스트: `tests/test_job_timeout_policy.py` 24개. `pytest -q` **751 passed, 1 skipped**(LightGBM 없음).
+- 테스트: `tests/test_job_timeout_policy.py` 24개. `pytest -q` **766 passed, 1 skipped**(LightGBM 없음, SyncNet 단계 제한 포함).
 - 실제 미디어로 새 제한을 쓴 Worker 종단 실행은 하지 않았다(**미검증**). 가짜 Gate로 Worker 경로를 확인했다.
-- **남은 결정:** 축별 단계 제한(SyncNet `min(600, 남은 시간)`, WaveRep·MotionPhys 300초)은 그대로다. CPU 대체·느린 세션이면 적합 구간 약 38초부터 SyncNet 축이 단계 제한에 걸릴 수 있다(작업은 계속, 그 축만 `error`/`timeout`). 단계 제한도 길이에 맞출지 결정 필요.
+- **SyncNet 단계 제한 보완(같은 날, 사용자 승인):** `min(60 + 16 × 적합 구간 초, 남은 작업 시간 − 마무리 여유 10초)`. 기존 `min(600, 남은 시간)` 대체. SyncNet이 느려져도 작업은 finished, SyncNet 축만 `error`/`timeout`, 다른 축 결과 보존.
+  여유 10초 근거: 실제 A로 SyncNet을 일부러 timeout시킨 4건의 반환 지연 0.03~0.07초 + fusion 단계 SQLite 잠금 대기 상한 5초 + fusion·마무리 0.002초(문서 "SyncNet 단계 제한 보완"). WaveRep·MotionPhys 300초는 그대로.
+  설정 `TRINITY_SYNCNET_TIMEOUT_BASE_SECONDS`(60)·`TRINITY_SYNCNET_TIMEOUT_PER_ELIGIBLE_SECOND`(16)·`TRINITY_JOB_FINALIZE_MARGIN_SECONDS`(10). 테스트 `tests/test_syncnet_stage_timeout.py` 15개.
+- 측정 실수: SyncNet 실행기가 `server.config`를 import한다. 측정 중 `server/config.py`를 고치면 실행기가 실패한다(이번에 2건 무효, 다시 잼).
+- **미검증:** 실제 Worker에서 SyncNet 단계 제한에 걸리는 종단 실행.
 - PR: 이 브랜치로 생성, merge는 사용자 지시 후.
 
 ## A의 Worker 종단 재측정 (2026-11-18, 브랜치 `research/worker-remeasure`)
