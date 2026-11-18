@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from server.axes import AxisContext
+from server.axes.device import clean_device
 from server.axes.signal import waverep
 from server.axes.signal.waverep import WaveRepConfig, run_waverep
 
@@ -57,6 +58,7 @@ def run(ctx: AxisContext) -> dict[str, Any]:
         on_tick=ctx.heartbeat,
         tick_sec=ctx.settings.heartbeat_interval_seconds,
     )
+    ctx.device_used = clean_device((out.get("model") or {}).get("device_used"))
     if isinstance(out.get("video"), dict):
         ctx.media_info.update(out["video"])
 

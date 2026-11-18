@@ -258,6 +258,7 @@ def test_real_sample_extracts_three_candidates(tmp_path, name):
     os.link(source, video) if os.stat(source).st_dev == os.stat(work).st_dev else video.write_bytes(source.read_bytes())
     out = run_motionphys(video, [(2.0, 6.0)], work, REAL)
     assert out['status'] in ('completed', 'insufficient_input')
+    assert out['device_used'] == 'cpu'  # MediaPipe 기본 delegate(CPU), 실행기가 보고한다
     assert out['raw_score'] is None
     for v in out['variants'].values():
         assert v['status'] in ('completed', 'insufficient_input')
