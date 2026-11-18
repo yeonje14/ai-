@@ -42,6 +42,8 @@ SCENARIOS = {
 def test_server_and_training_use_the_same_syncnet_rule(name, tmp_path, monkeypatch, settings):
     kinds, status, reason = SCENARIOS[name]
     raw = parse_result({"schema_version": 1, "segments": [row(s, k) for s, k in zip(SEGS, kinds)]}, SEGS)
+    # 실제 어댑터는 늘 쓴 장치를 적는다. 설정과 다르면 서버가 결합 입력을 넘기지 않는다(감사 A4)
+    raw["device_used"] = settings.syncnet_device
     monkeypatch.setattr(syncnet, "run_syncnet", lambda *a, **k: raw)
     ctx = AxisContext(job_dir=tmp_path, settings=settings, media_path=tmp_path / "m.mp4",
                       segments=tuple(tuple(s) for s in SEGS), bundle=SimpleNamespace())

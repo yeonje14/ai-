@@ -1,7 +1,8 @@
 """축별 점수 결합. 검증된 모델 묶음이 있을 때만 판정하고, 그 밖에는 항상 보류한다.
 
 3축 결합을 강제로 채택하지 않는다(README §5.4, 백로그 12번). 규칙은 README §15.3 결정 5·8 보완(2026-11-16):
-묶음의 digest가 저장소에 커밋된 값과 같고, 검증 리포트가 채택 조건을 통과했고, 특징 버전이 서버와 같고,
+묶음의 digest가 저장소에 커밋된 값과 같고, 검증 리포트가 채택 조건을 통과했고(판단을 리포트 지표로 다시 계산해
+확인하고, 학습 설정이 커밋된 configs/training.json과 같아야 한다), 특징 버전이 서버와 같고,
 이번에 성공한 축의 집합과 정확히 일치하는 후보가 있을 때만 overall_score와 verdict_label을 낸다.
 하나라도 어긋나면 null / abstained / no_valid_fusion_model이다. 결측을 0이나 평균으로 채우지 않는다.
 """
@@ -30,12 +31,15 @@ def load_active(settings: Settings) -> Optional[Any]:
     if not bundle_id or not digest:
         return None  # 묶음을 고정하지 않았다(기본 상태)
     try:
-        from training import bundle as bundles
+        from training import bundle as bundles, config as training_config
         from training.features.extract import default_settings, feature_version
 
         if not isinstance(bundle_id, str) or "/" in bundle_id or bundle_id.startswith("."):
             raise bundles.BundleError("bundle_id_invalid")
-        loaded = bundles.load(settings.fusion_bundle_dir / bundle_id, digest, settings.allow_synthetic_bundle)
+        # 묶음의 학습 설정·채택 기준이 커밋된 설정과 같아야 한다(감사 A2)
+        committed = training_config.load(settings.training_config_path)
+        loaded = bundles.load(settings.fusion_bundle_dir / bundle_id, digest, settings.allow_synthetic_bundle,
+                              expected_config=committed)
         if loaded.feature_version != feature_version(default_settings(settings)):
             # 학습 때의 추출 설정·모델 버전과 서버가 다르다. 그 점수에 그 임계값을 적용할 수 없다
             raise bundles.BundleError("feature_version_mismatch")

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from collections import Counter
 from pathlib import Path
@@ -71,6 +72,17 @@ def _text(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _id_text(value: Any) -> str:
+    """인물·녹화 ID. 결측이 섞인 정수 열은 JSON Lines로 내보낼 때 12.0이 되므로 12로 맞추고,
+    NaN·무한대는 값이 아닌 것으로 본다(같은 인물이 다른 그룹이 되거나 결측끼리 한 그룹이 되지 않게, 감사 A12)."""
+    if isinstance(value, float) and not isinstance(value, bool):
+        if not math.isfinite(value):
+            return ""
+        if value.is_integer():
+            return str(int(value))
+    return _text(value)
+
+
 def to_record(row: dict, config: dict, line: int) -> tuple[Record, str]:
     """(분할이 빈 레코드, 공식 분할 이름). 필수 값이 없으면 AdapterError."""
     f = config["fields"]
@@ -84,10 +96,10 @@ def to_record(row: dict, config: dict, line: int) -> tuple[Record, str]:
     official = _text(_get(row, f.get("official_split")))
 
     def ident(value: Any) -> str:
-        return f"{ns}:id:{_text(value)}" if _text(value) else ""
+        return f"{ns}:id:{_id_text(value)}" if _id_text(value) else ""
 
     def recording(value: Any) -> str:
-        return f"{ns}:rec:{_text(value)}" if _text(value) else ""
+        return f"{ns}:rec:{_id_text(value)}" if _id_text(value) else ""
 
     if label == "real":
         ids = [ident(_get(row, f.get("real_identity")))]

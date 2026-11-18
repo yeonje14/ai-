@@ -5,6 +5,8 @@
 
 - 입력은 공통 manifest와 training/features/extract.py가 쓴 features.jsonl뿐이다. 영상을 열지 않는다.
 - 누수 검사 실패, 최대 그룹 비중 초과, dev 압축 조건 미지정이면 학습하지 않는다.
+  최종 평가용 압축 프로파일(또는 그와 같은 출력일 수 있는 1080p 파생본)이 train·dev에 있거나,
+  같은 바이트의 영상이 여러 분할에 있어도 학습하지 않는다(감사 A3·A8).
 - 학습에는 train 분할만 쓴다. 결합 모델의 입력은 train의 OOF 점수다(in-sample 점수 금지).
 - 보정(sigmoid)은 OOF 예측으로만 맞춘다. 임계값은 dev에서만 정해 잠근다. test 점수는 쓰기만 하고 읽지 않는다.
 - external 분할은 건드리지 않는다. 계산하지 못한 점수는 빈칸이다(0 아님).
@@ -28,6 +30,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from training import config as training_config, hygiene  # noqa: E402
 from training.datasets import groups  # noqa: E402
 from training.datasets.manifest import ManifestError, read_manifest, sha256_file  # noqa: E402
+from training.emulator import profiles as emulator_profiles  # noqa: E402
 from training.evaluation import thresholds  # noqa: E402
 from training.evaluation.lock import DEFAULT_LOCK_PATH, load_lock  # noqa: E402
 from training.evaluation.metrics import Item, roc_auc  # noqa: E402
@@ -53,6 +56,37 @@ def read_features(folder: Path) -> tuple[dict[str, dict], dict]:
             row = json.loads(line)
             rows[row["uid"]] = row
     return rows, meta
+
+
+def _source_short_side(rec, feats: dict) -> int | None:
+    """파생본이면 부모, 아니면 자기 영상의 짧은 변(px). Gate가 읽은 크기가 없으면 None."""
+    uid = f"{rec.dataset_id}:{rec.parent_video_id}" if rec.parent_video_id else rec.uid
+    media = (feats.get(uid) or {}).get("media") or {}
+    w, h = media.get("width"), media.get("height")
+    ok = all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in (w, h))
+    return min(w, h) if ok else None
+
+
+def _held_out_twins(internal, held_out: set[str], feats: dict) -> list[tuple[str, str]]:
+    """train·dev에서 최종 평가용 프로파일과 같은 출력일 수 있는 (파생 프로파일, 최종 평가용 프로파일)."""
+    out = set()
+    for r in internal:
+        p = r.compression_profile_id
+        if r.split not in ("train", "dev") or not p or p in held_out or p not in emulator_profiles.PROFILES:
+            continue
+        for h in held_out:
+            if h in emulator_profiles.PROFILES and emulator_profiles.may_equal_output(p, h, _source_short_side(r, feats)):
+                out.add((p, h))
+    return sorted(out)
+
+
+def _same_bytes_across_splits(internal, feats: dict) -> list[str]:
+    """manifest의 file_hash와 추출기가 계산한 input_sha256을 함께 보고, 여러 분할에 걸친 해시."""
+    splits_of: dict[str, set[str]] = {}
+    for r in internal:
+        for h in {r.file_hash, (feats.get(r.uid) or {}).get("input_sha256")} - {None, ""}:
+            splits_of.setdefault(h, set()).add(r.split)
+    return sorted(h for h, s in splits_of.items() if len(s) > 1)
 
 
 def fold_of(group: str, seed: int, k: int) -> int:
@@ -95,6 +129,15 @@ def train(manifest: Path, features_dir: Path, config: dict, out: Path, lock_path
     if leaked:
         # 최종 평가용으로 남긴 압축 조건은 학습·증강·선택·임계값에 쓰지 않는다(docs/compression-emulator.md §2)
         raise TrainError(f"최종 평가용 압축 프로파일이 train·dev에 있다: {leaked}")
+    twins = _held_out_twins(internal, held_out, feats)
+    if twins:
+        # 짧은 변 1080px 원본의 x264-crf34-1080p는 최종 평가 전용 x264-crf34-source와 같은 바이트다(감사 A3)
+        raise TrainError("최종 평가용 압축 프로파일과 같은 출력일 수 있는 파생본이 train·dev에 있다(원본 크기를 모르면 "
+                         "같을 수 있다고 본다): " + ", ".join(f"{p} = {h}" for p, h in twins))
+    dup = _same_bytes_across_splits(internal, feats)
+    if dup:
+        # 어댑터는 영상을 열지 않아 원본 행의 file_hash가 비어 있다. 추출기가 계산한 해시로도 본다(감사 A8)
+        raise TrainError(f"같은 바이트의 영상이 여러 분할에 있다: {len(dup)}개 해시, 예 {dup[:3]}")
     present = sorted({r.compression_profile_id or training_config.ORIGINAL for r in internal if r.split == "dev"})
     absent = sorted(set(dev_conditions) - set(present))
     if absent:

@@ -22,7 +22,6 @@ import hashlib
 import json
 import os
 import shutil
-import statistics
 import sys
 import tempfile
 import time
@@ -66,7 +65,8 @@ def default_settings(s: Optional[Settings] = None) -> dict:
                     "sample_fps": s.waverep_sample_fps, "batch_size": s.waverep_batch_size,
                     "timeout_sec": s.waverep_timeout_seconds},
         "motionphys": {"version": motionphys.MODEL_VERSION, "timeout_sec": s.motionphys_timeout_seconds},
-        "syncnet": {"version": syncnet_report.MODEL_VERSION, "device": s.syncnet_device, "timeout_sec": 600.0},
+        "syncnet": {"version": syncnet_report.MODEL_VERSION, "device": s.syncnet_device,
+                    "status_rule": syncnet_report.STATUS_RULE, "timeout_sec": 600.0},
     }
 
 
@@ -104,9 +104,14 @@ def run_waverep_axis(media: Path, work: Path, segments, settings: dict) -> dict:
     out = run_waverep(media, segments, work, WaveRepConfig(
         device=c["device"], sample_fps=c["sample_fps"], batch_size=c["batch_size"],
         pretrained=False, timeout_sec=c["timeout_sec"]))
+    used = (out.get("model") or {}).get("device_used")
+    if out["status"] == "completed" and used != c["device"]:
+        # 설정한 장치(특징 버전)와 다른 장치로 대체된 결과를 그 버전의 특징으로 쓰지 않는다(감사 A4).
+        # error는 캐시하지 않으므로 장치를 쓸 수 있을 때 다시 돈다
+        return {"status": "error", "reason_code": "device_mismatch", "frame_logits": None, "device_used": used}
     logits = [f["logit"] for f in out["frames"]] if out["status"] == "completed" else None
     return {"status": out["status"], "reason_code": out["reason_code"], "frame_logits": logits,
-            "device_used": (out.get("model") or {}).get("device_used")}
+            "device_used": used}
 
 
 def run_motionphys_axis(media: Path, work: Path, segments, settings: dict) -> dict:
@@ -118,7 +123,12 @@ def run_motionphys_axis(media: Path, work: Path, segments, settings: dict) -> di
 def run_syncnet_axis(media: Path, work: Path, segments, settings: dict) -> dict:
     out = run_syncnet(media, segments, work, SyncNetConfig(timeout_sec=settings["syncnet"]["timeout_sec"],
                                                            device=settings["syncnet"]["device"]))
-    return {"status": out["status"], "reason_code": out["reason_code"], "segments": out["segments"]}
+    used = out.get("device_used")
+    if out["status"] == "completed" and used != settings["syncnet"]["device"]:
+        # 서버와 같은 기준: 장치가 대체된 지표는 결합·학습 특징으로 쓰지 않는다(감사 A4)
+        return {"status": "error", "reason_code": "device_mismatch", "segments": out["segments"], "device_used": used}
+    return {"status": out["status"], "reason_code": out["reason_code"], "segments": out["segments"],
+            "device_used": used}
 
 
 RUNNERS: dict[str, Callable] = {"gate": run_gate, "waverep": run_waverep_axis,
@@ -156,8 +166,18 @@ def _progress(out: Path, **entry) -> None:
         f.write(json.dumps({"t": int(time.time()), **entry}, ensure_ascii=False) + "\n")
 
 
-def extract_video(rec: Record, media_root: Path, out: Path, settings: dict, axes=MODEL_AXES) -> dict:
-    """한 영상의 축별 결과 {axis: result}. 예외를 던지지 않는다."""
+def _device_mismatch(axis: str, result: dict, settings: dict) -> bool:
+    """장치를 고르는 축(WaveRep·SyncNet)의 completed 결과가 설정한 장치에서 나온 것이 아닌가."""
+    device = (settings.get(axis) or {}).get("device")
+    return device is not None and result.get("status") == "completed" and result.get("device_used") != device
+
+
+def extract_video(rec: Record, media_root: Path, out: Path, settings: dict, axes=MODEL_AXES,
+                  info: Optional[dict] = None) -> dict:
+    """한 영상의 축별 결과 {axis: result}. 예외를 던지지 않는다.
+
+    info를 넘기면 입력 파일의 sha256을 info["input_sha256"]에 적는다(분할 간 같은 바이트 검사용, 감사 A8).
+    """
     src = (media_root / rec.video_path).resolve()
     results: dict[str, dict] = {}
 
@@ -168,6 +188,8 @@ def extract_video(rec: Record, media_root: Path, out: Path, settings: dict, axes
         _progress(out, video=rec.uid, axis="*", status="error", reason_code="media_unreadable")
         return fail_all("media_unreadable")
     file_hash = sha256_file(src)
+    if info is not None:
+        info["input_sha256"] = file_hash
     if rec.file_hash and rec.file_hash != file_hash:
         # manifest가 가리키는 파일이 아니다. 다른 영상의 특징을 이 행에 붙이지 않는다
         _progress(out, video=rec.uid, axis="*", status="error", reason_code="file_hash_mismatch")
@@ -186,6 +208,8 @@ def extract_video(rec: Record, media_root: Path, out: Path, settings: dict, axes
                 continue
             path = out / "cache" / axis / f"{cache_key(file_hash, axis, settings, segments)}.json"
             cached = _read(path)
+            if cached is not None and _device_mismatch(axis, cached.get("result") or {}, settings):
+                cached = None  # 장치 확인 전에 쓴 캐시이거나 대체된 장치의 결과다. 다시 계산한다(감사 A4)
             if cached is None:
                 media = media or _stage(src, work)
                 t0 = time.monotonic()
@@ -211,14 +235,12 @@ def extract_video(rec: Record, media_root: Path, out: Path, settings: dict, axes
 
 # ---------- 영상 단위 요약 ----------
 
-def _median(values: list[float]) -> Optional[float]:
-    return statistics.median(values) if values else None
-
-
-def summarize_video(rec: Record, results: dict[str, dict]) -> dict:
+def summarize_video(rec: Record, results: dict[str, dict], input_sha256: Optional[str] = None) -> dict:
     """학습이 읽는 한 줄. 계산하지 못한 값은 null이고 이유를 함께 적는다."""
     gate = results.get("gate") or {}
     row = {"uid": rec.uid, "dataset_id": rec.dataset_id, "video_id": rec.video_id,
+           # 입력 파일의 sha256. 학습이 같은 바이트의 영상이 여러 분할에 있는지 본다(감사 A8)
+           "input_sha256": input_sha256,
            "video_duration_sec": gate.get("video_duration_sec"),
            "eligible_duration_sec": gate.get("eligible_duration_sec"),
            "gate_reason": gate.get("reason_code"),
@@ -231,11 +253,9 @@ def summarize_video(rec: Record, results: dict[str, dict]) -> dict:
         logits = w.get("frame_logits")
         axes["waverep"] = {"status": w["status"], "reason_code": w.get("reason_code"),
                            "frames": len(logits) if logits else 0,
-                           # 주 지표는 중앙값이다(사전 고정). 평균과 q75는 dev에서만 견주는 보조다
-                           "logit_median": _median(logits or []),
-                           "logit_mean": statistics.fmean(logits) if logits else None,
-                           "logit_q75": (statistics.quantiles(logits, n=4, method="inclusive")[2]
-                                         if logits and len(logits) > 1 else (logits[0] if logits else None))}
+                           # 주 지표는 중앙값이다(사전 고정). 평균과 q75는 dev에서만 견주는 보조다.
+                           # 서버의 결합 입력과 같은 함수다(감사 A13)
+                           **{name: waverep.aggregate_logits(logits or [], name) for name in waverep.FUSION_AGGREGATES}}
     m = results.get("motionphys")
     if m is not None:
         variants = m.get("variants") or {}
@@ -269,8 +289,9 @@ def run(manifest: Path, media_root: Path, out: Path, axes=MODEL_AXES, lock_path:
         todo = todo[:limit]
     rows, counts = [], {}
     for rec in todo:
-        results = extract_video(rec, media_root, out, settings, axes)
-        rows.append(summarize_video(rec, results))
+        info: dict = {}
+        results = extract_video(rec, media_root, out, settings, axes, info)
+        rows.append(summarize_video(rec, results, info.get("input_sha256")))
         for axis, r in results.items():
             counts.setdefault(axis, {}).setdefault(r["status"], 0)
             counts[axis][r["status"]] += 1

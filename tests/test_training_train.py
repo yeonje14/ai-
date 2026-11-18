@@ -172,7 +172,8 @@ def test_training_refuses_unsafe_inputs(tmp_path, case, message):
     if case == "nodev":
         conf["dev_compression_conditions"] = None
     if case == "absent":
-        conf["dev_compression_conditions"] = ["original", "x264-crf34-480p"]
+        # 480p는 운영 범위 밖이라 설정 검사가 먼저 거부한다(감사 A6). dev에 없는 일반 조건으로 확인한다
+        conf["dev_compression_conditions"] = ["original", "x264-crf28-1080p"]
     if case == "mismatch":
         synth.write(cfg, tmp_path / "run-data")
         meta = tmp_path / "run-data/features.meta.json"

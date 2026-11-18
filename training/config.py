@@ -3,6 +3,8 @@
 모르는 키는 거부한다. 임계값을 정하는 분할을 바꾸는 키(threshold_split 등)는 존재하지 않으며,
 넣으면 여기서 실패한다. 임계값은 dev에서만 정한다(training/evaluation/thresholds.py가 다시 확인한다).
 dev 압축 조건은 기본값이 없다. 적지 않으면 학습을 시작하지 않는다.
+운영 범위 밖 압축 조건(out_of_range_compression_profiles, 지금은 480p 세 개)은 test 관문 지표에 넣지 않고
+판정 제공 비율·실패만 따로 보고한다(docs/training-pipeline.md "압축 조건", 감사 A6).
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from pathlib import Path
 
 DEFAULT_PATH = Path(__file__).resolve().parents[1] / "configs" / "training.json"
 KEYS = {"schema_version", "_comment", "dev_compression_conditions", "held_out_compression_profiles",
-        "max_group_share", "n_folds", "fold_seed",
+        "out_of_range_compression_profiles", "max_group_share", "n_folds", "fold_seed",
         "target_fpr", "waverep_score", "lightgbm", "logistic", "adoption"}
 ADOPTION_KEYS = {"g2_min_auc_ci_low", "min_tpr_gain_ci_low", "max_fpr_worsening", "max_coverage_drop",
                  "max_test_fpr_ci_high", "n_boot", "bootstrap_seed", "confidence"}
@@ -43,6 +45,12 @@ def validate(config: dict) -> dict:
         raise ConfigError("held_out_compression_profiles는 압축 프로파일 ID 목록이다(원본은 넣지 않는다)")
     if set(held) & set(dev):
         raise ConfigError(f"최종 평가용 프로파일을 dev 조건에 쓸 수 없다: {sorted(set(held) & set(dev))}")
+    out = config["out_of_range_compression_profiles"]
+    if not isinstance(out, list) or not all(isinstance(c, str) and c and c != ORIGINAL for c in out):
+        raise ConfigError("out_of_range_compression_profiles는 압축 프로파일 ID 목록이다(원본은 넣지 않는다)")
+    if set(out) & (set(dev) | set(held)):
+        raise ConfigError(f"운영 범위 밖 프로파일을 dev 조건이나 최종 평가용 목록에 함께 둘 수 없다: "
+                          f"{sorted(set(out) & (set(dev) | set(held)))}")
     if not 0 < config["max_group_share"] <= 1:
         raise ConfigError("max_group_share는 0 초과 1 이하")
     if not isinstance(config["n_folds"], int) or config["n_folds"] < 2:
@@ -59,3 +67,8 @@ def validate(config: dict) -> dict:
 
 def load(path: Path = DEFAULT_PATH) -> dict:
     return validate(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+def without_comment(config: dict) -> dict:
+    """설정 비교용. 설명(_comment)만 뺀다."""
+    return {k: v for k, v in config.items() if k != "_comment"}

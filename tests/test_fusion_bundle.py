@@ -44,7 +44,9 @@ def made(tmp_path_factory):
         synth.FEATURE_VERSION = original
     assert build.main(["--manifest", str(folder / "run-data/manifest.csv"), "--run", str(folder / "run"),
                        "--out", str(folder / "rep")]) == 0
-    manifest = bundles.create(folder / "run", folder / "rep/report.json", folder / "fusion/b1")
+    # 테스트의 학습 설정(n_boot 200, dev 원본만)을 "커밋된 설정"으로 본다. 실제로는 configs/training.json과 견준다
+    (folder / "training.json").write_text(json.dumps(c), encoding="utf-8")
+    manifest = bundles.create(folder / "run", folder / "rep/report.json", folder / "fusion/b1", expected_config=c)
     assert manifest["decision"] == "fusion_adoptable" and manifest["synthetic"] is True
     return folder, manifest
 
@@ -54,9 +56,11 @@ def pinned(made, settings, tmp_path):
     """묶음을 복사해 고정한 Settings. 테스트가 묶음을 망가뜨려도 원본은 남는다."""
     folder, manifest = made
     shutil.copytree(folder / "fusion", tmp_path / "fusion")
+    shutil.copyfile(folder / "training.json", tmp_path / "training.json")
     pin = tmp_path / "fusion_bundle.json"
     pin.write_text(json.dumps({"bundle_id": "b1", "digest": manifest["digest"]}))
     return replace(settings, fusion_bundle_dir=tmp_path / "fusion", fusion_bundle_config_path=pin,
+                   training_config_path=tmp_path / "training.json",
                    allow_synthetic_bundle=True), manifest, tmp_path / "fusion/b1"
 
 
@@ -252,7 +256,8 @@ def test_bundle_is_not_created_from_hold_or_mismatched_report(made, tmp_path):
     with pytest.raises(bundles.BundleError, match="report_mismatch"):
         bundles.create(folder / "run", tmp_path / "other.json", tmp_path / "b2")
     with pytest.raises(FileExistsError):
-        bundles.create(folder / "run", folder / "rep/report.json", folder / "fusion/b1")
+        bundles.create(folder / "run", folder / "rep/report.json", folder / "fusion/b1",
+                       expected_config=json.loads((folder / "training.json").read_text()))
 
 
 def test_candidate_score_matches_training_formula_and_threshold_side(pinned):

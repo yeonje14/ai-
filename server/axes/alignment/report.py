@@ -8,6 +8,9 @@ from typing import Any
 MODEL_VERSION = 'syncnet-python-0.2.3-ab819ba'
 # upstream min_track보다 프레임이 적어 SyncNet에서 제외한 구간의 원인 코드(README §10, §15.3 2026-11-17)
 SEGMENT_TOO_SHORT = 'segment_too_short'
+# 구간 결과 → 축 상태 규칙(aggregate_status)과 결합 값(fusion_features)의 판. 둘 중 하나라도 바꾸면 올린다.
+# 학습 특징 버전·캐시 키에 들어가 옛 규칙의 특징과 묶음을 쓰지 않게 한다(감사 A14, README §15.3 2026-11-17)
+STATUS_RULE = 'short-segments-excluded-2026-11-17'
 OFFSET_FPS = 25  # 고정 upstream PipelineConfig.frame_rate
 
 
