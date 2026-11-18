@@ -502,7 +502,7 @@ TRINITY_SYNCNET_DEVICE=mps python -m server.jobs.worker   # 서버에서 MPS를 
 - **실제 확인(B, 1회):** 기본 설정(MPS, 새 규칙)의 실제 어댑터로 B 원본 Gate 구간 9개를 돌렸다. 축 `completed`, 짧은 구간 4개가 `segment_too_short`로 제외됐고, 남은 5구간의 오프셋은 기준선과 같다(+4, +4, +4, +4, +3). `device_used=mps`, 135.5초. 결합용 값(내부)은 LSE-C 중앙값 5.18, LSE-D 7.92, |오프셋| 4. 진위 판정이 아니다. E는 이번에 다시 돌리지 않았다(짧은 구간 1개, 같은 경로).
 - **저녁 CPU 실행이 2배 느렸던 것(A 285 → 577초)은 원인 미확인으로 남긴다.** 장치와 무관한 FFmpeg 단계도 같이 느려졌다는 것까지만 측정했다.
 
-### A의 Worker 종단 재측정 방법 (다음 측정, 1회)
+### A의 Worker 종단 재측정 방법 (2026-11-18 실행, 결과는 아래 절)
 
 목적은 새 규칙·MPS 기본값으로 Worker 안 전체 시간과 단계 시간을 다시 보는 것이다. 원인 추정은 하지 않는다.
 
@@ -511,3 +511,80 @@ TRINITY_SYNCNET_DEVICE=mps python -m server.jobs.worker   # 서버에서 MPS를 
 3. 테스트 클라이언트로 테스트 ID를 한 번 요청하고, 0.5초마다 DB의 `stage`와 lease 만료 시각을 기록한다(2026-11-16의 `real_a.py`와 같은 방식). Worker 로그의 단계 진입 시각으로 단계별 시간을 구한다.
 4. 바로 이어서 같은 세션에서 `python scripts/profile_syncnet_baseline.py`의 A 단독 실행(MPS) 1건을 돌려 SyncNet 단계와 견준다. 측정 뒤에 1번의 상태를 다시 남긴다.
 5. 기록할 것: 작업 상태 세 개, 축 상태, 단계별 시간, SyncNet `device_used`, 단독 실행과의 차이, 측정 전후 기기 상태. 끝나면 임시 레지스트리·DB·로그·runtime을 지운다.
+
+## A의 Worker 종단 재측정 결과 (2026-11-18, 1회, 브랜치 `research/worker-remeasure`)
+
+위 방법대로 1회 쟀다. 기준 커밋은 `6c6ac57`(main). 제품 코드 변경 없음. 원인 추정은 하지 않는다.
+
+**조건**
+
+- 기본 설정 그대로: SyncNet 기본 장치 MPS, 짧은 구간 규칙 적용, WaveRep MPS. 측정용으로 `TRINITY_JOB_TIMEOUT_SECONDS=1800`만 바꿨다.
+- 임시 레지스트리(`TRINITYtest` → `data/research/samples/A.MOV`)·DB·runtime을 `data/runtime/worker-remeasure/`(Git 밖)에 만들고, `TestClient`로 한 번 요청한 뒤 `python -m server.jobs.worker --drain`만 띄웠다(API 서버는 띄우지 않았다). DB를 0.5초마다 읽어 `stage`와 lease 만료 시각을 기록했다(415회, 최대 간격 0.51초).
+- **방법과 다른 점: 전원을 연결하지 못했다.** 측정 내내 배터리 전원이었다(100% → 96%). 다른 무거운 작업은 띄우지 않았다.
+
+**작업 결과**
+
+| 항목 | 값 |
+|---|---|
+| `job_status` / `analysis_status` / `verdict_status` | finished / completed / abstained |
+| `overall_score` / `verdict_label` | null / null |
+| 축 상태 | signal completed, physics completed, alignment completed(`included_in_fusion=false`, LSE 값 null) |
+| 분석량 | 적합 구간 5개, 37.021초 / 영상 41.002초 |
+| 시도 횟수, 실패 원인 | 1회, 없음 |
+| lease 남은 시간(처리 중) | 20.0~30.0초(heartbeat 10초 간격대로) |
+
+**단계별 시간 (Worker 로그의 단계 진입 시각 차이, 초)**
+
+| 단계 | 시간 |
+|---|---|
+| validating + access_check + preprocessing(Gate) | 13.1 |
+| waverep | 19.8 |
+| motionphys | 36.7 |
+| syncnet | **139.0** |
+| fusion + finalizing | 0.002 |
+| **전체**(DB `finished_at − started_at`) | **208.5** |
+
+Worker 프로세스 트리 최대 RSS 1.55 GiB(`/usr/bin/time -l`, 후손 중 하나의 최대값).
+
+**SyncNet `device_used`: 기록되지 않아 직접 확인하지 못했다.** 어댑터가 `device_used`를 내부 결과에만 두고 API 결과·Worker 로그·DB에 남기지 않으며, 작업 폴더는 끝나면 지워진다. 간접 근거만 있다: 요청 장치는 기본값 `mps`, SyncNet venv에서 `torch.backends.mps.is_available()=True`(torch 2.15.0), 단계 시간이 바로 뒤 MPS 단독 실행과 1% 차이. 그래서 MPS였을 것으로 보지만 **확인 필요**다. 다음에 Worker 안 장치를 확인하려면 측정 스크립트에서 어댑터 반환값을 남기는 부트스트랩이 필요하다(제품 코드 변경 없이).
+
+**같은 세션의 A 단독 실행(MPS) 1건과 비교** — `profile_syncnet_baseline.py --one A original standalone 3 guard-mps`, Worker 종료 15초 뒤 시작.
+
+| | Worker 안 SyncNet 단계 | 단독 실행(바깥 시간) | 단독 실행(프로세스 안) |
+|---|---|---|---|
+| 시간(초) | 139.0 | 137.7 | 137.4 |
+| 차이 | – | **+1.3초(+0.9%)** | +1.6초 |
+
+- 단독 실행 단계: S3FD 76.1, 구간 절단 20.6, AVI 변환 12.5, 평가 합계 9.8, 프레임 추출 5.6초. 5구간 모두 트랙 1개, 오프셋 +4. 최대 RSS 1.57 GiB.
+- 이 세션에서는 **Worker 안과 단독 실행의 SyncNet 시간이 같았다.** 2026-11-16의 "Worker 안 약 400초 대 단독 274~294초"는 CPU였고 이번은 MPS라 같은 조건의 재현이 아니다. 그 차이의 원인은 여전히 확인하지 못했다.
+- **세션 사이 차이는 다시 컸다.** 같은 MPS 단독 실행이 2026-11-17 저녁 229.96·234.3초, 이번 137.7초다(S3FD 117.7~118.7 → 76.1, 장치와 무관한 구간 절단 44.1~44.4 → 20.6). 다른 세션의 숫자끼리 견주지 않는다.
+
+**기기 상태** (원본은 지웠다. 요약만 남긴다. `vm_stat` 페이지 16 KiB)
+
+| 시점 | 시각(AEST) | `pmset -g therm` | 전원 | free / compressor 페이지 | swapouts | load average(1·5·15분) |
+|---|---|---|---|---|---|---|
+| 측정 전 | 17:38:20 | 열·성능 경고 기록 없음 | 배터리 100% | 16,978 / 264,484 | 1,424,685 | 2.50 3.23 3.23 |
+| Worker 뒤·단독 전 | 17:42:09 | 경고 기록 없음 | 배터리 98% | 243,039 / 316,209 | 1,424,685 | 4.20 4.69 3.94 |
+| 단독 뒤 | 17:44:27 | 경고 기록 없음 | 배터리 96% | 252,765 / 316,348 | 1,424,685 | 4.25 4.71 4.06 |
+
+- 측정 중 새 swapout은 없었다. 가동 14일 22시간.
+
+### 작업 제한 식 재계산 — 제안만 (기본값 600초 유지)
+
+1초당(적합 구간 1초당) 시간:
+
+| 근거 | 1초당 |
+|---|---|
+| 이번 Worker 전체(MPS) | 208.5 / 37.0 = **5.6초** |
+| 이번 SyncNet 단계(MPS) | 139.0 / 37.0 = 3.8초 |
+| 이번 SyncNet 앞 단계(Gate·WaveRep·MotionPhys) | 69.5 / 37.0 = 1.9초 |
+| MPS SyncNet 관측 최대(2026-11-17 저녁, A·B·E) | 6.0~6.6초 |
+| 앞 단계 이전 관측 상한(위 표의 Gate·WaveRep·MotionPhys 합) | 약 3.2초 |
+| CPU SyncNet(MPS를 못 써서 CPU로 대체될 때) | 7.5~10.5초, 느린 세션 15.6초 |
+
+- **제안(MPS 기준): `min(1800, 180 + 12 × 적합 구간 초)`.** 계수 12 = MPS SyncNet 관측 최대 6.6 + 앞 단계 이전 상한 3.2(합 9.8) + 약 20% 여유. 상수 180초는 모델 로드·프로세스 시작 같은 고정 비용과 짧은 입력의 여유다.
+  - E(24.9초) 479초, B(33.5초) 582초, A(37.0초) 624초. 이번 A 실측 208.5초의 3.0배다. 2026-11-17 저녁 MPS 단독 A 231.8초에 앞 단계 이전 상한(약 118초)을 더한 약 350초도 덮는다.
+  - 상한 1,800초는 적합 구간 135초까지다(이전 식은 81초).
+- **덮지 못하는 것:** (1) MPS를 못 써서 CPU로 대체되면 계수 20이 필요하다(Worker는 Gate 뒤 제한을 정할 때 실제 장치를 아직 모른다). CPU 대체까지 덮으려면 지금의 20을 유지하는 것이 안전하다. (2) 같은 기기에서 세션에 따라 시간이 약 1.7~2배 달라졌다. MPS 최대값 자체가 2배가 되면 A에서 약 725초로 624초를 넘는다.
+- 그래서 선택지는 둘이다: **12**(MPS가 쓰일 때 운영 범위를 넓힘, CPU 대체·느린 세션은 `failed`/`timeout` 가능) 또는 **20 유지**(CPU 대체까지 덮음). 계수를 장치별로 나누려면 Worker가 Gate 뒤에 SyncNet 장치를 미리 알아야 하므로 설계 변경이다(README §15.3 기록 필요).
+- 근거는 Worker 종단 MPS 1회(A)와 단독 측정 몇 건이다. 다른 길이·기기·전원 상태에서 다시 재야 한다.
