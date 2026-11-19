@@ -88,6 +88,7 @@ webrtcvad 민감도 0·1·2·3 어느 것으로도 결과는 같다(전체가 �
 | `data/research/gate-vad/yamnet.tflite` | `https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite` | `4d8b4a53282dc83ef04e3e7dbc4fbc98082e34e44ed798e16c3a0cdd4c584faf` | VAD 비교만 |
 
 세 파일 모두 Git 밖에 있다. 이용 조건은 **확인 필요**(이번에 확인하지 않았다).
+→ 2026-11-19: `face_landmarker.task`(와 Gate가 쓰는 `blaze_face_short_range.tflite`)는 모델 카드에 Apache License 2.0으로 적혀 있다(`docs/licenses.md`). Silero VAD·YAMNet(비교에만 씀)은 여전히 확인 필요.
 
 ### 검증하지 않은 것 (이번 보완)
 
