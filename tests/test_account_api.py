@@ -130,6 +130,8 @@ def test_auth_and_status_share_read_snapshot(client, account_db, monkeypatch):
 
     def change_after_auth(conn, key):
         owner = lookup(conn, key)
+        if conn.row_factory is not sqlite3.Row:  # 호출량 기록은 별도 쓰기 트랜잭션이다.
+            return owner
         with accounts.connection(account_db, write=True) as writer:
             writer.execute("UPDATE credentials SET revoked_at=0 WHERE user_id=?", (owner,))
             writer.execute("UPDATE jobs SET job_status='cancelled' WHERE analysis_id=?", (aid,))

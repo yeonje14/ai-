@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid
 from dataclasses import replace
 from pathlib import Path
 
@@ -100,7 +101,7 @@ def account_db(settings: Settings):
 
 @pytest.fixture
 def client(settings: Settings, account_db) -> TestClient:
-    return TestClient(create_app(settings), headers={"Authorization": f"Bearer {TOKEN}"})
+    return TestClient(create_app(settings), headers={"Authorization": f"Bearer {TOKEN}", "Idempotency-Key": str(uuid.uuid4())})
 
 
 @pytest.fixture

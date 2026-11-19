@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server import accounts
 from server.config import Settings
+from server.jobs import admission
 from server.jobs.queue import JobQueue
 
 
@@ -18,9 +19,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     from server.api import analyses, health
 
     settings = settings or Settings.from_env()
-    # 구 DB를 열어 마이그레이션하거나 빈 DB를 암묵적으로 생성하지 않는다.
-    with accounts.connection(settings.db_path, write=False) as conn:
+    # 사전 초기화된 계정 DB만 허용한다. 스키마 설치도 다른 API 시작과 직렬화한다.
+    with accounts.connection(settings.db_path, write=True) as conn:
         conn.execute("SELECT user_id FROM jobs LIMIT 0")
+        admission.prepare(conn)
     queue = JobQueue(settings.db_path, registered_users=True)
 
     app = FastAPI(title="TRINITY", version="0.1.0")
@@ -41,7 +43,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         try:
             key = analyses.bearer_key(request)
             with analyses.authorized(request, key, write=request.method in {"POST", "DELETE"}):
-                return JSONResponse({"detail": {"reason_code": "invalid_request"}}, status_code=422)
+                missing_key = any(error["loc"] == ("header", "idempotency-key") for error in exc.errors())
+                reason = "invalid_idempotency_key" if missing_key else "invalid_request"
+                return JSONResponse({"detail": {"reason_code": reason}}, status_code=422)
         except HTTPException as error:
             return JSONResponse({"detail": error.detail}, status_code=error.status_code, headers=error.headers)
 
@@ -51,8 +55,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
             allow_methods=["GET", "POST", "DELETE"],
-            allow_headers=["Content-Type", "Authorization", "If-Match"],
-            expose_headers=["ETag"],
+            allow_headers=["Content-Type", "Authorization", "If-Match", "Idempotency-Key"],
+            expose_headers=["ETag", "Retry-After"],
             allow_credentials=False,
         )
     app.include_router(health.router)

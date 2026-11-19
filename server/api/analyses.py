@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from server import accounts
 from server.ingest.youtube_url import InvalidYouTubeUrl, parse_youtube_url
+from server.jobs import admission
 from server.jobs.queue import Job, QueueFull, PreconditionFailed, lifecycle_etag
 from server.jobs.runtime import remove_job_dir
 from server.schemas import (
@@ -49,17 +50,28 @@ router = APIRouter(prefix="/api/v1/analyses", tags=["analyses"])
 @contextmanager
 def authorized(request: Request, key: str, *, write: bool = False):
     try:
-        with accounts.connection(request.app.state.settings.db_path, write=write) as conn:
+        path = request.app.state.settings.db_path
+        with accounts.connection(path, write=True) as counter:
+            caller = accounts.identify_in(counter, key)
+            if caller is None:
+                raise unauthorized()
+            retry_after = admission.count_request(counter, caller)
+        if retry_after is not None:
+            raise admission.AdmissionDenied(429, "request_rate_limited", retry_after)
+        with accounts.connection(path, write=write) as conn:
             conn.row_factory = sqlite3.Row
             owner = accounts.identify_in(conn, key)
             if owner is None:
                 raise unauthorized()
             yield conn, owner
-    except sqlite3.OperationalError as exc:
+    except admission.AdmissionDenied as exc:
+        headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else {}
+        raise HTTPException(exc.status, detail={"reason_code": exc.reason}, headers=headers) from None
+    except sqlite3.DatabaseError as exc:
         primary_code = getattr(exc, "sqlite_errorcode", 0) & 0xff
         if primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
             raise HTTPException(503, detail={"reason_code": "temporarily_unavailable"}) from None
-        raise
+        raise HTTPException(500, detail={"reason_code": "database_error"}) from None
 
 
 def _owned_job(request: Request, analysis_id: str, key: str) -> Job:
@@ -74,6 +86,7 @@ def _owned_job(request: Request, analysis_id: str, key: str) -> Job:
 def create_analysis(
     body: CreateAnalysisRequest,
     request: Request,
+    idempotency_key: list[str] = Header(description="사용자 동작별 무작위 UUID v4"),
     key: str = Depends(bearer_key),
 ) -> CreateAnalysisResponse:
     with authorized(request, key, write=True) as (conn, owner):
@@ -82,8 +95,16 @@ def create_analysis(
         except InvalidYouTubeUrl:
             raise HTTPException(422, detail={"reason_code": "invalid_youtube_url"}) from None
         try:
-            analysis_id = request.app.state.queue.enqueue_in(
-                conn, parsed.video_id, owner, request.app.state.settings.max_queued
+            if len(idempotency_key) != 1:
+                raise ValueError
+            nonce = UUID(idempotency_key[0])
+            if nonce.version != 4 or str(nonce) != idempotency_key[0].lower():
+                raise ValueError
+        except ValueError:
+            raise HTTPException(422, detail={"reason_code": "invalid_idempotency_key"}) from None
+        try:
+            analysis_id = admission.submit(
+                conn, request.app.state.queue, owner, str(nonce), parsed.video_id, request.app.state.settings.max_queued
             )
         except QueueFull:
             raise HTTPException(429, detail={"reason_code": "queue_full"}) from None

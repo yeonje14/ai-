@@ -1,5 +1,16 @@
 # HANDOFF
 
+## 백로그 14 3단계 · 사용자별 제한과 중복 접수 방지
+
+- `design/auth-rate-limit`, 기준 `ca1bed3`. `server/jobs/admission.py`와 분석 API에 계정별 접수·호출 제한을 연결했다. Worker 코드와 전체 대기 3건·실행 1건 정책은 그대로다.
+- 인증된 분석 요청은 별도 BEGIN IMMEDIATE에서 키를 검증하고 (user_id, UTC 분) 호출 수를 먼저 커밋한다. 181번째부터 429 request_rate_limited와 다음 분까지의 Retry-After를 준다. 재전송·유효성 오류·타인 404·조건 불일치 412·접수 거절도 호출로 센다. health·CORS preflight와 인증 실패 요청은 제외한다. 이어서 조회는 읽기 스냅샷, POST·DELETE는 쓰기 잠금 획득 후 키를 다시 검증한다. 두 단계 사이에 키가 폐기되면 호출만 남고 작업은 생성되지 않는다.
+- 분석 POST는 사용자 동작마다 Idempotency-Key(UUID v4)가 필요하다. 유효 영수증의 동일 영상 재전송은 최초 응답 202/queued와 같은 ID, 충돌은 409, 삭제 표식은 410이다. 신규 접수만 활성 1건 → 최근 600초 6건 → 전체 대기 상한 순서로 검사한다. 시간창 거절은 429 user_submission_limit과 Retry-After, 자리 거절은 429 user_active_limit 또는 queue_full로 응답한다. 작업 INSERT와 영수증 INSERT가 함께 커밋되며 실패하면 두 INSERT 모두 롤백한다.
+- 스키마 준비: 전용 계정 DB에 대해 기존처럼 `python -m server.accounts --db <새-경로> init`으로 최초 초기화한다. 기존 **계정 DB**에는 init을 재실행하지 않는다. 같은 DB를 가리키는 3단계 API의 시작 시점에 쓰기 트랜잭션 하나로 영수증·분 버킷·인덱스·삭제 트리거를 설치한다. 이미 준비된 DB는 그대로 사용한다. 2단계에서 남아 있는 최근 작업은 기존 생성 시각으로 접수량에 반영한다. 전환 전에 이미 삭제된 2단계 작업 이력은 복원할 수 없으므로 첫 10분에 과거 접수량을 엄밀히 이어가려면 전환 직전 10분 동안 신규 접수를 중지한다. 24시간 재전송 복원은 3단계에서 키를 받아 접수한 작업부터 가능하다. 레거시 토큰 DB와 실제 운영 DB/runtime은 이번 작업에서 전환하지 않았다.
+- 작업 삭제와 같은 트랜잭션에서 영수증의 작업·영상 식별자를 지우고 삭제 표식과 접수 시각을 남긴다. Worker 재시도와 취소 접수는 신규 접수가 아니다. 유효기간은 접수 후 24시간 미만이며 만료된 같은 키는 새 요청으로 평가한다. 인증된 호출 시 오래된 버킷과 만료 영수증을 각각 최대 32개씩 정리한다.
+- 격리 검증: 같은 사용자·독립 API 두 곳에서 같은 키 동시 제출은 202/202와 동일 ID, 다른 키는 202/429. 두 경우 모두 작업 1건·영수증 1건·호출 2회. 재시작 및 키 재발급 후 재전송, 1분·10분·24시간 경계, 삭제 후 410, 영수증 저장 실패 시 원자적 롤백을 검사했다. 관련 명령 `python -m pytest -q tests/test_admission.py tests/test_account_api.py tests/test_api.py tests/test_analysis_delete.py tests/test_queue_worker.py tests/test_cors_and_label.py tests/test_run_info_record.py`는 92 통과했다.
+- 최종 전체 검증은 저장소 루트에서 `/opt/anaconda3/envs/trinity/bin/python -m pytest -q -rs`로 실행했다. **943 통과, 0 실패, 1 건너뜀**(331.45초). LightGBM 미설치로 tests/test_motionphys_train.py 1건을 건너뛰었고 Starlette TestClient 사용 중단 경고 1건이 있었다.
+- 다음 작업은 4단계 클라이언트 전환이다. 현재 Flutter·스모크의 구 헤더는 401이며 Bearer로 바꿔도 POST에 접수 키가 없으면 422다. 사용자 동작별 키 생성·재시도 시 재사용, 429 원인별 안내·Retry-After 대기, 재인증 후 본인 목록 복원이 필요하다. 실기기·브라우저 종단 동작과 외부 공개 전 폴링 부하·SQLite 잠금 지연 실측은 미검증이다.
+
 ## 백로그 14 2단계 · API 인증과 작업 소유권
 
 - 기준은 `design/auth-rate-limit`의 `f3bfb11`. 분석 POST, 목록·상태·결과 GET, DELETE에 발급된 개인 Bearer 키를 적용했다. API 시작 시 1단계의 계정 DB인지 읽기 전용으로 확인한다. 누락된 DB를 만들거나 레거시 DB를 변경하지 않는다. Worker는 기존 코드로 새 DB 작업을 선점한다.

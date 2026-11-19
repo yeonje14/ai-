@@ -1,5 +1,6 @@
 """jobs.run_info_json: API가 읽지 않는 실행 기록(축별 장치·열 상태). 시도 번호별로 쌓인다."""
 import json
+import uuid
 import sqlite3
 
 from server.jobs import worker
@@ -97,7 +98,7 @@ def test_api_responses_never_include_run_info(client):
     queue.claim("w1", 30, 2)
     queue.save_run_info(with_record, "w1", 1, AXES_1)
     _finish(queue, with_record, "w1")
-    control = client.post("/api/v1/analyses", json={"url": f"https://youtu.be/{REGISTERED_ID}"}).json()["analysis_id"]
+    control = client.post("/api/v1/analyses", headers={"Idempotency-Key": str(uuid.uuid4())}, json={"url": f"https://youtu.be/{REGISTERED_ID}"}).json()["analysis_id"]
     queue.claim("w2", 30, 2)
     _finish(queue, control, "w2")
     assert record(queue, with_record) is not None and record(queue, control) is None

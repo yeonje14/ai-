@@ -1,5 +1,6 @@
 """백로그 4번 완료 조건: 등록 ID 완료 / 미등록 ID 보류 / 422 / 404."""
 
+from server import accounts
 from tests.conftest import OTHER_TOKEN, REGISTERED_ID, UNREGISTERED_ID
 
 
@@ -135,11 +136,14 @@ def test_missing_token_is_401(client):
 
 def test_queue_full_is_429(client, settings):
     for _ in range(settings.max_queued):
-        _submit(client, REGISTERED_ID)
+        _, key = accounts.issue(settings.db_path)
+        assert client.post("/api/v1/analyses", headers={"Authorization": f"Bearer {key}"},
+                           json={"url": f"https://youtu.be/{REGISTERED_ID}"}).status_code == 202
     r = client.post(
         "/api/v1/analyses", json={"url": f"https://youtu.be/{REGISTERED_ID}"}
     )
-    assert r.status_code == 429
+    assert r.status_code == 429 and r.json()["detail"]["reason_code"] == "queue_full"
+    assert "Retry-After" not in r.headers
 
 
 def test_only_contract_routes_exist_and_no_upload(client):
