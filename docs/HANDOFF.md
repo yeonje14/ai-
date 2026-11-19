@@ -1,5 +1,21 @@
 # HANDOFF
 
+## 작은 확인 3건 (2026-11-19, 브랜치 `chore/small-checks`)
+
+**제품 코드 변경 없음.** 커밋 3개(확인별 하나씩).
+
+1. **오디오 트랙**(`docs/gate.md`·`docs/syncnet-adapter.md` "오디오 트랙 선택 확인"): 원본 A~E는 오디오가 2개(index 1 AAC 2ch default, index 2 apac 4ch, FFmpeg 8.0.1에 apac 디코더 없음). Gate VAD(`-map` 없음 → FFmpeg 자동 선택), SyncNet(`cut_segment`의 `-map 0:a:0`), 압축 에뮬레이터(첫 AAC)가 **모두 index 1**을 읽는다(PCM sha256 일치, A·B·E 변형 36개의 AAC 패킷도 원본 index 1과 같음). 로컬 MAVOS-DD 표본 2,160개는 모두 AAC 1개.
+   - 트랙 구성이 다르면 어긋난다(합성 사인파 영상): 첫 오디오가 default가 아니면 Gate만 다른 트랙(c2), 첫 오디오가 AAC가 아니면 에뮬레이터만 다른 트랙(c3), 둘 다면 SyncNet만 다른 트랙(c5). apac만 있는 파일은 `has_audio=True`인데 디코딩 실패로 `media_unreadable`.
+   - **제안만(결정 필요):** 오디오 index를 한 함수로 한 번 정해 Gate·SyncNet 요청·에뮬레이터가 같이 쓴다. `has_audio`를 "디코딩 가능한 오디오"로 바꿀지(§10 원인 코드)도 결정 필요.
+2. **MotionPhys margin**(`docs/motionphys-adapter.md` "LightGBM margin 일치 확인"): 합성 특징(504차원)으로 `research/training/train.py`를 그대로 학습하고, 서버 경로(`infer_axis._margin`, MotionPhys venv)가 낸 margin을 학습 쪽 `predict(raw_score=True)`(메모리 모델, `scores/M-*.csv`)와 비교했다. dev·test 255행(후보별 85) **모두 비트 단위로 같다**. 어댑터 프로세스 경로(후보 3개)와 실제 영상 A(full, 2.701591943937307)도 같다. 두 venv 모두 lightgbm 4.7.0·numpy 2.4.6. 새 테스트 `tests/test_motionphys_margin_parity.py`(5개, venv 없으면 건너뜀, 약 7초).
+   - 여전히 미검증: 실제 데이터 모델, 실제 영상의 `face_motion`(1512차원), 실제 묶음으로 Worker가 판정까지 가는 종단.
+3. **라이선스 표** `docs/licenses.md`(새 파일): 항목마다 라이선스·근거·상업 이용·확인 상태. 새로 확인: MediaPipe 모델 카드 3개 모두 Apache-2.0(전에는 확인 필요), FFmpeg 빌드 GPL v3 이상(`--enable-gpl --enable-version3`, nonfree 없음), webrtcvad 패키지 MIT, DeepSpeak v2·TalkingHeadBench 카드 문구. **결론: 지금 구성은 상업 이용 불가**(WaveRep 코드 비영리 전용, MAVOS-DD NC).
+   - 확인 필요로 남김: WaveRep·DINOv2 가중치, 저장소 자체 라이선스(MotionPhys 재구현 포함, 루트 LICENSE 없음), SyncNet·S3FD 가중치의 상업 이용, webrtcvad에 포함된 WebRTC 코드, DeepSpeak 라이선스 본문, TalkingHeadBench 원본 데이터셋 조건, HiDF(공식 출처 못 찾음).
+- 함께 고친 문서: `docs/motionphys-spec.md` §7·`docs/gate.md`·`docs/dataset-access.md`·`docs/training-pipeline.md`에 새 결과를 가리키는 줄(옛 기록은 지우지 않음), README 할 일 목록에서 끝난 3줄을 빼고 "결정 대기"에 2줄 추가.
+- 임시 파일: 합성 영상·apac 클립·SyncNet 절단 클립은 확인 뒤 지웠다. 모델 카드 PDF는 세션 임시 폴더에만 있다.
+- `pytest -q`: **864 passed, 1 skipped**(main 859 + 새 테스트 5, 건너뜀은 trinity에 LightGBM 없음).
+- 막힌 점: 없음. PR은 이 브랜치로 생성, merge는 사용자 지시 후.
+
 ## Worker 장치·열 상태 기록 (2026-11-19, 브랜치 `feat/worker-device-log`)
 
 - 한 일: WaveRep·MotionPhys·SyncNet 실행기마다 실제 장치(`device_used`)와 실행 시작·끝의 macOS thermalState를 Worker 로그 한 줄과 jobs 테이블의 내부 열 `run_info_json`에 남긴다. **API 필드·상태 값 변경 없음**(결과·축 키 집합이 스키마와 같은 것을 테스트·실제 실행으로 확인).
