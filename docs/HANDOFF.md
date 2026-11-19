@@ -1,5 +1,157 @@
 # HANDOFF
 
+## 백로그 14 4단계 · 시연 SyncNet 시간 초과 원인 조사 (2026-11-19, 코드 변경 없음)
+
+- 대상: 이전 시도 `e51a8e3f-cc9a-462c-887d-bb0dfb05eb00`(finished / partial, SyncNet error / timeout)과 새 시도 `2985b7ed-ce29-444c-9b27-a2317ca992ee`(finished / completed).
+- 자료 출처:
+  - jobs.run_info_json과 시각 열: 이전 시도는 보존 DB에서 읽기 전용으로, 새 시도는 임시 DB를 삭제하기 전에 읽었다.
+  - 새 시도 Worker 로그: 임시 파일을 삭제하기 전에 읽은 단계 시각.
+  - 이전 시도: 제어 스크립트가 Worker 출력을 버려(DEVNULL) **Worker 로그가 없다**. 단계 시각은 로컬 Codex 세션 기록에 남은 DB 조회 출력(16:40:33, 16:42:03, 16:43:19, 16:43:52)으로만 확인했다.
+  - macOS 통합 로그와 `pmset -g log`.
+- SyncNet 단계 제한은 Worker 로그에 남지 않는다. 표의 단계 제한 값은 `server/axes/alignment/__init__.py`의 식 `min(60 + 16 × 37.021, 남은 작업 시간 − 10)`으로 계산한 값이다. 작업 제한은 새 시도에서만 로그로 확인했다("timeout set to 920s").
+
+| 항목 | 오전 실행(오디오 트랙 절) | 새 시도 2985b7ed (21:01) | 이전 시도 e51a8e3f (16:40) |
+|---|---|---|---|
+| Gate(전처리) | 12.3초 | 13.5초 | 미기록. 7초 시점 진행 중, 97초 이전 종료 |
+| WaveRep | 18.6초 | 19.7초 | 시작 7~97초, 206초 시점에도 진행 중 → **109초 이상**(5.5배 이상) |
+| MotionPhys | 38.0초 | 38.9초 | 미관측(completed) |
+| SyncNet | 149.1초 | 167.5초(completed) | error / timeout. 시작 시점 **약 254초 이상**(계산) |
+| SyncNet 시작 시점 | 68.9초 | 72.1초 | 약 254초 이상 |
+| 전체 | 219.1초 | 239.6초(대기 8.1초 별도) | 911.4초 |
+| 작업 제한 | 기본값 | 920초(로그) | 920초(기본 규칙 계산) |
+| SyncNet 단계 제한 | 계산 652.3초 | 계산 652.3초 | 계산 min(652.3, 910.4 − 시작) ≤ 약 656초 |
+| 장치 signal / physics / alignment | mps / cpu / mps | mps / cpu / mps | mps / cpu / null |
+| 열 상태(축 시작→끝) | 미기록 | signal·physics nominal→nominal, alignment nominal→fair | 세 축 모두 fair→fair |
+
+- 이전 시도의 SyncNet 시작 시점 계산: 종료 911.4초 = min(시작 + 652.3, 910.4) + 마무리 지연. 마무리 지연은 새 시도에서 0.001초였고 상한은 SQLite 대기 5초다. 따라서 시작은 약 254초 이상이다. alignment device_used=null은 timeout 경로(`syncnet.py`가 결과 JSON 없이 `failure('error','timeout')` 반환)의 결과이며 장치 대체 증거가 아니다.
+- 환경 변수: 두 시도의 제어 스크립트 모두 상속받은 `TRINITY_*`를 지우고 다섯 개만 설정했다(DB·runtime·허가 레지스트리·미디어 루트·CORS 출처). 작업·SyncNet·WaveRep·MotionPhys 제한과 장치는 기본값이다. Codex 데몬과 이번 셸에는 `TRINITY_`·`PYTORCH_`·`OMP_`·`MKL_` 변수가 없다(이름만 확인).
+- Flutter 빌드와 Chrome:
+  - 이전 시도: 웹 빌드는 16:38:28~16:39에 끝나 제출(16:40:12)과 분석에 겹치지 않았다. Chrome은 분석 내내 떠 있었다. 16:44:21 중단 전까지 Codex가 접근성 트리·새로고침과 약 50초의 900 ms 네트워크 지연 에뮬레이션(브라우저 탭 한정)으로 화면을 조작했다. 그 직전 16:32~16:39에는 flutter analyze, 위젯 테스트, `smoke_slice.py --isolated`, `flutter build web`이 연속으로 돌았다.
+  - 새 시도: 웹 빌드는 21:00~21:01 제출 전에 끝나 겹치지 않았다. Chrome은 분석 내내 떠 있었고, 접근성 트리·새로고침·스크린샷으로 조작했다. 그 전 20:46~20:53에는 덮개를 닫은 잠자기 상태였고, 세션 시작 뒤 무거운 작업은 없었다.
+- 시스템 기록:
+  - 기기: MacBook Air(M3, 16 GB, 팬 없음). 두 시각 모두 AC 전원이었다. 저전력 모드는 현재 꺼져 있고, 이전 분석 중 잠자기·덮개 이벤트는 없었다.
+  - OS 열 수준(통합 로그의 VCPowerManager "Thermal level changed", avconferenced 기준. 숫자의 정확한 정의는 확인 필요, 상대 비교만 함):
+    - 이전 시도: 16:16~16:31은 0, 16:33에 1, 16:34에 2로 올랐다. 16:37~16:40에는 2를 유지했고, 분석 중인 16:41~16:56에는 1과 2를 약 39회 오갔다.
+    - 새 시도: 20:40~21:03은 변화 없이 0이었다. 21:03에 1, 21:04에 2(SyncNet 중), 21:06에 0으로 돌아왔다.
+  - 메모리 압박: Safari WebKit의 "memory pressure event 2"가 이전 창 18분에 21건(시스템 경고 수준 2건), 새 창 9분에 10건(1건)으로 빈도가 비슷했다.
+  - 실행 우선순위: Codex 데몬·실행 호스트와 이번 셸 모두 PRI 31 / nice 0이었다. 현재 측정값이며 당시 값은 기록이 없다.
+- 판단:
+  - 설정: 배제(같은 기본값).
+  - 장치: 배제(대체 증거 없음).
+  - 열: 두 시도의 가장 큰 차이다. 이전 시도는 연속 빌드·테스트 직후, 팬 없는 기기가 이미 높은 열 수준에서 시작해 분석 내내 그 수준을 유지했다. 새 시도는 잠자기 뒤 낮은 열 수준에서 시작했다.
+  - 동시 부하: 배제하지 못했다. 이전 시도 중 다른 프로세스의 CPU·GPU 사용량 기록이 없다(당시 ps 출력이 잘렸다).
+  - **결론: 원인 미확인.** 열이 가장 유력한 차이지만 크기를 설명할 근거가 없다. 이전 측정("SyncNet Worker 안 대 단독")에서는 앞선 부하가 SyncNet을 12.8% 늦춘 정도였는데, 이번에는 WaveRep이 5.5배 이상 느려졌다. 동시 부하와 메모리 영향도 배제하지 못했다. 이전 시도의 partial을 정상 동작으로 보지 않는다.
+- 재발 가능성: 연속 빌드·테스트 직후이거나 다른 앱이 많이 떠 있는 상태에서 시연하면 다시 날 수 있다(이전 시도는 작업 제한 920초 중 911초를 썼다). 낮은 열 상태에서 시작한 새 시도는 작업 제한의 26%(240초)만 썼다.
+- 대책(제안만, 코드·timeout 정책 변경 없음):
+  1. 시연 전에 웹 빌드와 테스트를 미리 끝낸다. 열 상태가 nominal로 돌아온 것을 확인한 뒤 제출한다(예: `pmset -g therm` 또는 Worker와 같은 열 상태 프로브).
+  2. 시연 중에는 Safari·메신저 등 큰 앱을 닫고 Chrome에는 시연 탭만 둔다.
+  3. 시연용 Worker의 출력을 파일로 남겨 단계별 시각을 확인할 수 있게 한다.
+  4. (코드 변경, 별도 승인 필요) Worker 로그에 SyncNet 단계 제한값과 축별 소요 시간을 남긴다.
+  5. (원인 확정 실험, 별도 작업) A를 차가운 상태와 빌드·테스트 직후 상태에서 각 3회 측정하고, `powermetrics`(sudo)와 `memory_pressure`를 함께 기록한다.
+  6. 시연 대비용으로 완료된 작업 화면을 미리 준비한다.
+- 남은 일: PR #31 리뷰 14건 처리 전(docs/review-pr31.md), merge 전 1·2·3·4·8 처리 예정.
+- 정리(0단계): 이전 시도의 `verify.py`는 이번 확인 시점에 이미 외부에서 종료돼 있어 따로 종료할 프로세스가 없었다. 고아로 남은 API 1개는 아래 절에 적은 대로 종료했다. 이번 조사에서는 프로세스를 새로 만들지 않았다. 임시 추출 스크립트는 세션 scratchpad에만 두었다가 삭제한다.
+
+## 백로그 14 4단계 · Chrome에서 허가 영상 A 검증 (2026-11-19)
+
+- 기준 `4974828` 위의 4단계 Flutter 릴리스 빌드를 매번 새 프로필의 macOS Google Chrome(창 1200×900, 웹형 배치)에서 열었다. 임시 사용자 키는 제어 프로세스 메모리에서 CDP 입력 이벤트로만 입력란에 넣었다. 명령 인자·로그·문서·화면 기록에 키 원문을 남기지 않았고 인증·접수 요청의 헤더와 본문도 기록하지 않았다. 화면은 Chrome 접근성 트리와 스크린샷으로 확인했다.
+- 재현 환경: trinity 환경에서 소유자 전용 임시 디렉터리에 `python -m server.accounts --db <임시 DB> init`과 `issue`로 계정을 준비한다(수동 발급 시 녹화 없는 터미널에서 개별 전달). `TRINITY_DB_PATH`, `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`는 임시 경로, `TRINITY_AUTHORIZED_MEDIA_ROOT`는 저장소의 data 절대 경로, `TRINITY_CORS_ORIGINS`는 선택한 Flutter 루프백 출처로 설정한다. 그 밖의 `TRINITY_*` 값은 넘기지 않는다(작업·SyncNet 제한은 기본값). 임시 registry의 authorized_media 한 항목에 youtube_video_id=TRINITYtest, provenance=registered_authorized_source, local_path=research/samples/A.MOV를 등록한다.
+- 재현 명령: `python -m uvicorn server.main:app --host 127.0.0.1 --port <API포트> --no-access-log`. app에서 `flutter build web --no-pub --no-web-resources-cdn --output <임시웹디렉터리> --dart-define=TRINITY_API_MODE=server --dart-define=TRINITY_API_BASE_URL=http://127.0.0.1:<API포트>`. 웹 디렉터리를 `python -m http.server <웹포트> --bind 127.0.0.1 --directory <임시웹디렉터리>`로 제공한다. Worker는 같은 환경 변수로 `python -m server.jobs.worker --drain`.
+- **이전 시도, 작업 `e51a8e3f-cc9a-462c-887d-bb0dfb05eb00`(16:40 접수).**
+  - 브라우저에서 직접 확인한 범위: 키 입력 → 테스트 URL `https://youtu.be/TRINITYtest` 1회 제출 → 대기 화면 → 별도 Worker → 전처리 진행 화면 → 새로고침·로그인 화면 → 같은 키로 재인증 → 내 작업에서 같은 ID 선택 → 진행 화면 복원까지다. 이 시도의 제어 세션(Codex)이 중단돼 같은 세션에서는 완료 화면을 보지 못했다.
+  - 중단 뒤 임시 DB를 읽기 전용으로 확인한 종료 상태: 작업 1건, attempts=1, **finished / partial / abstained**, overall_score=null, abstention_reason=no_valid_fusion_model. signal·physics completed. alignment는 **error / timeout**이었고 LSE-C·LSE-D null, included_in_fusion=false. 시작부터 종료까지 911.4초였다. 작업 제한은 기본 규칙에 따라 920초(180 + 20 × 적합 구간 37.021초)였다. run_info의 alignment device_used는 null, 세 축 열 상태는 fair였다. jobs 디렉터리에는 `.worker.lock`만 남았다. 종료 시각이 작업 제한 − 마무리 여유 10초 부근이라 SyncNet 남은 시간 제한에 걸린 것으로 보인다. 다만 이 시도의 Worker 로그를 남기지 않아 단계별 시간과 느려진 원인은 **확인 필요**다.
+  - 이어 쓰기: 원래 제어 세션은 정상적으로 이어 쓸 수 없었다. Chrome이 이미 종료됐고 키는 중단된 제어 프로세스 메모리에만 있었다. 대신 원본 DB를 SQLite backup으로 읽기 전용 사본을 만들었다. 사본에서만 같은 사용자의 키를 교체하고 별도 API와 새 Chrome 프로필로 같은 작업을 열람했다. Worker를 실행하지 않았고 재분석도 하지 않았다. 원본 DB·WAL의 sha256은 열람 전후에 같았다.
+  - 열람 결과는 API GET 결과(200)와 일치했다. 목록에는 '종료'로 나왔다. 결과 화면은 '판단 보류'와 '이번 요청의 상태. 작업 종료, 분석 부분 분석, 판정 보류'를 보였고, 이유는 '검증된 종합 판정 모델이 없습니다.'였다. 상세 화면의 SyncNet은 '오류 · 정해진 시간 안에 끝나지 않았습니다.'였고 LSE-C·LSE-D는 '값 없음', 종합 판정에 포함은 '아니오', 종합 점수는 '값 없음'이었다. 서버 상태 칸에는 finished / partial / abstained / no_valid_fusion_model이 나왔다.
+- **새 시도, 작업 `2985b7ed-ce29-444c-9b27-a2317ca992ee`(21:01 접수).** 새 임시 계정 DB·runtime·Chrome 프로필로 허가 영상 A를 1회 제출했다.
+  - 대기 화면이 나온 뒤 별도 Worker를 실행했다. MotionPhys 진행 중에 새로고침 → 로그인 → 같은 키로 재인증 → 내 작업에 같은 ID '진행 중' → 선택 → 진행 화면 복원을 다시 확인했다. 진행 화면은 단계명만 표시하고 % 숫자는 없었다.
+  - 결과: 작업 1건, 접수 영수증 1건, attempts=1. 대기 8.1초, 실행 239.6초, Worker 종료 코드 0. 작업 제한 920초는 Gate 뒤 Worker 로그로 확인했다. **finished / completed / abstained**, overall_score=null, abstention_reason=no_valid_fusion_model. 세 축 모두 completed였고 SyncNet은 167.5초(mps), raw_score·LSE는 null, included_in_fusion=false였다. API의 상태·결과·목록 조회는 모두 200이었고 목록 ID는 1개였다.
+  - 화면: '판단 보류', '작업 종료, 분석 완료, 판정 보류', 이유 '검증된 종합 판정 모델이 없습니다.'. 상세 화면은 세 축 '측정됨', 원시 점수·LSE '값 없음', 종합 점수 '값 없음'이었고 서버 상태 칸은 API 값과 같았다.
+  - 같은 기본 설정에서도 이번에는 SyncNet이 제한 안에 끝나 partial이 재현되지 않았다. timeout 정책과 설정은 바꾸지 않았다. 부분 분석 표시는 위의 이전 작업 열람으로 확인했다.
+- 점수 표시: 두 작업 모두 API overall_score가 null이었다. 결과·상세 화면도 숫자 점수나 확률을 만들지 않았다. 화면에 나온 숫자는 다음뿐이다.
+  - coverage('41초 가운데 37초', 분석한 양이며 정확도·신뢰도가 아님)
+  - 구간 시각
+  - 서버 설명문의 Gate 품질 수치
+  - MotionPhys 추적 성공률(%)
+- 결함: 이 흐름에서 수정이 필요한 결함은 찾지 못했다. 코드·테스트 변경 없음.
+- 정리:
+  - 새 시도와 사본 열람: 각각의 API·Worker·웹 서버·Chrome과 임시 디렉터리(DB, runtime, 프로필, 웹 빌드, 스크린샷, Worker 로그)를 종료·삭제했다. 두 시도 모두 runtime jobs에는 `.worker.lock`만 남아 있었고, Worker 로그에 인증값·URL이 없음을 확인했다.
+  - 이전 시도의 잔여물: 제어 프로세스는 이번 확인 중 이미 외부에서 종료돼 있었다. 고아로 남은 API 1개는 명령과 포트를 대조한 뒤 종료했다. 이전 임시 디렉터리의 Chrome 프로필·웹 빌드·`.worker.lock`·제어 스크립트는 지웠다.
+  - 보존: 증거 DB(`accounts.sqlite`, `-wal`, `-shm`)와 `registry.json`만 `/private/tmp/trinity-web-review.SKikEp/tmpolm8khbw/`에 남겼다. 이 DB에는 임시 사용자 키 digest가 들어 있으므로 필요 없어지면 지운다. 원본 A·모델·기존 DB는 변경하지 않았다.
+
+## 백로그 14 · Flutter 웹 연결
+
+- 3단계 체크포인트는 `4974828`. 변경 없는 코드·테스트에 직전 943 통과, 1 건너뜀 기록을 사용했다. 이번 세션에서 전체 pytest를 다시 실행하지 않았다.
+
+- API 스모크: `/opt/anaconda3/envs/trinity/bin/python scripts/smoke_slice.py --isolated` 통과. 임시 계정 DB·빈 레지스트리·전용 runtime 및 루프백 서버에서 미등록 ID POST 202, 별도 Worker attempts=1·종료 코드 0, 결과 GET 200 및 finished / analysis_unavailable / abstained, overall_score=null을 확인했다. 서버 종료·임시 디렉터리 정리 완료.
+
+- Flutter 서버 모드: 발급 키를 가린 입력창에서 받아 메모리에만 보관하고 내 작업 목록을 읽는다. 새로고침·401 뒤에는 키를 다시 입력한다. 401에서 진행 화면을 내려 타이머와 이전 목록을 폐기한다. 이전 작업은 커서로 더 읽고 선택한 ID의 상태·결과를 기존 화면으로 연다. 응답 유실·타임아웃 뒤 같은 주소의 재제출에는 같은 UUID v4를 사용한다. 새 분석 동작은 새 키를 쓰며 24시간이 지난 재시도는 목록 확인을 안내한다. Retry-After 동안 HTTP 발송을 보류하고, 조건부 취소는 기존 If-Match와 412 후 재조회 경로를 쓴다.
+- 앱 검증: `cd app && flutter test --no-pub --reporter expanded` **206 통과, 0 실패**. 모의 HTTP로 응답 유실 후 같은 키·다음 동작의 새 키, Retry-After 중 추가 HTTP 없음, 401 후 폴링 중단과 재인증·목록·결과 복원, 취소 202/412를 확인했다. `cd app && flutter analyze --no-pub` 문제 없음. 실제 Chrome 시연은 위 절에 따로 적었고 API 스모크와는 별개다. Chrome 검증 중 코드·테스트를 바꾸지 않아 206 통과·analyze 기록을 그대로 쓴다. 같은 코드의 `flutter build web` 릴리스 빌드는 두 번 성공했다.
+- 최종 검증 범위: Flutter 단위·위젯 테스트 206개 통과, analyze 문제 없음, 격리 API 스모크 통과, Chrome에서 허가 영상 A 실제 시연을 했다(로그인 → 1회 제출 → 별도 Worker → 새로고침·재인증 → 내 작업에서 같은 ID 복원 → 완료·상세 화면과 API 결과 대조). 부분 분석 화면은 이전 작업의 읽기 전용 DB 사본에서 확인했다.
+- 미검증: 모바일 공유 시트, 실기기와 좁은 화면(앱형 배치), 새 실행에서 SyncNet timeout이 실시간으로 나는 완료 화면, 외부 공개 전 폴링 부하·SQLite 잠금 지연, 나머지 실제 모델 스모크의 새 인증 전환. 운영 DB/runtime 전환도 하지 않았다. 4단계에서 서버 코드를 바꾸지 않아 전체 pytest는 다시 실행하지 않았다(직전 943 통과, 1 건너뜀).
+- 상태: 4단계는 `design/auth-rate-limit`에 로컬 커밋했다. push·PR·main 병합·운영 DB 전환은 하지 않았다.
+
+## 백로그 14 3단계 · 사용자별 제한과 중복 접수 방지
+
+- `design/auth-rate-limit`, 기준 `ca1bed3`. `server/jobs/admission.py`와 분석 API에 계정별 접수·호출 제한을 연결했다. Worker 코드와 전체 대기 3건·실행 1건 정책은 그대로다.
+- 인증된 분석 요청은 별도 BEGIN IMMEDIATE에서 키를 검증하고 (user_id, UTC 분) 호출 수를 먼저 커밋한다. 181번째부터 429 request_rate_limited와 다음 분까지의 Retry-After를 준다. 재전송·유효성 오류·타인 404·조건 불일치 412·접수 거절도 호출로 센다. health·CORS preflight와 인증 실패 요청은 제외한다. 이어서 조회는 읽기 스냅샷, POST·DELETE는 쓰기 잠금 획득 후 키를 다시 검증한다. 두 단계 사이에 키가 폐기되면 호출만 남고 작업은 생성되지 않는다.
+- 분석 POST는 사용자 동작마다 Idempotency-Key(UUID v4)가 필요하다. 유효 영수증의 동일 영상 재전송은 최초 응답 202/queued와 같은 ID, 충돌은 409, 삭제 표식은 410이다. 신규 접수만 활성 1건 → 최근 600초 6건 → 전체 대기 상한 순서로 검사한다. 시간창 거절은 429 user_submission_limit과 Retry-After, 자리 거절은 429 user_active_limit 또는 queue_full로 응답한다. 작업 INSERT와 영수증 INSERT가 함께 커밋되며 실패하면 두 INSERT 모두 롤백한다.
+- 스키마 준비: 전용 계정 DB에 대해 기존처럼 `python -m server.accounts --db <새-경로> init`으로 최초 초기화한다. 기존 **계정 DB**에는 init을 재실행하지 않는다. 같은 DB를 가리키는 3단계 API의 시작 시점에 쓰기 트랜잭션 하나로 영수증·분 버킷·인덱스·삭제 트리거를 설치한다. 이미 준비된 DB는 그대로 사용한다. 2단계에서 남아 있는 최근 작업은 기존 생성 시각으로 접수량에 반영한다. 전환 전에 이미 삭제된 2단계 작업 이력은 복원할 수 없으므로 첫 10분에 과거 접수량을 엄밀히 이어가려면 전환 직전 10분 동안 신규 접수를 중지한다. 24시간 재전송 복원은 3단계에서 키를 받아 접수한 작업부터 가능하다. 레거시 토큰 DB와 실제 운영 DB/runtime은 이번 작업에서 전환하지 않았다.
+- 작업 삭제와 같은 트랜잭션에서 영수증의 작업·영상 식별자를 지우고 삭제 표식과 접수 시각을 남긴다. Worker 재시도와 취소 접수는 신규 접수가 아니다. 유효기간은 접수 후 24시간 미만이며 만료된 같은 키는 새 요청으로 평가한다. 인증된 호출 시 오래된 버킷과 만료 영수증을 각각 최대 32개씩 정리한다.
+- 격리 검증: 같은 사용자·독립 API 두 곳에서 같은 키 동시 제출은 202/202와 동일 ID, 다른 키는 202/429. 두 경우 모두 작업 1건·영수증 1건·호출 2회. 재시작 및 키 재발급 후 재전송, 1분·10분·24시간 경계, 삭제 후 410, 영수증 저장 실패 시 원자적 롤백을 검사했다. 관련 명령 `python -m pytest -q tests/test_admission.py tests/test_account_api.py tests/test_api.py tests/test_analysis_delete.py tests/test_queue_worker.py tests/test_cors_and_label.py tests/test_run_info_record.py`는 92 통과했다.
+- 최종 전체 검증은 저장소 루트에서 `/opt/anaconda3/envs/trinity/bin/python -m pytest -q -rs`로 실행했다. **943 통과, 0 실패, 1 건너뜀**(331.45초). LightGBM 미설치로 tests/test_motionphys_train.py 1건을 건너뛰었고 Starlette TestClient 사용 중단 경고 1건이 있었다.
+- 다음 작업은 4단계 클라이언트 전환이다. 현재 Flutter·스모크의 구 헤더는 401이며 Bearer로 바꿔도 POST에 접수 키가 없으면 422다. 사용자 동작별 키 생성·재시도 시 재사용, 429 원인별 안내·Retry-After 대기, 재인증 후 본인 목록 복원이 필요하다. 실기기·브라우저 종단 동작과 외부 공개 전 폴링 부하·SQLite 잠금 지연 실측은 미검증이다.
+
+## 백로그 14 2단계 · API 인증과 작업 소유권
+
+- 기준은 `design/auth-rate-limit`의 `f3bfb11`. 분석 POST, 목록·상태·결과 GET, DELETE에 발급된 개인 Bearer 키를 적용했다. API 시작 시 1단계의 계정 DB인지 읽기 전용으로 확인한다. 누락된 DB를 만들거나 레거시 DB를 변경하지 않는다. Worker는 기존 코드로 새 DB 작업을 선점한다.
+- 목록·상태·결과는 BEGIN 뒤 첫 자격 조회에서 정해진 읽기 스냅샷으로 사용자와 작업을 조회한다. POST와 DELETE는 BEGIN IMMEDIATE 성공 후 현재 시각으로 자격을 판정한다. 같은 연결에서 POST는 전체 대기 상한 확인·고정 user_id 저장, DELETE는 소유권 → If-Match → 취소 접수 또는 종료 기록 정리를 수행한다. 응답 전에 커밋한다. SQLite 잠금 시간 초과는 503, 인증 실패는 Bearer challenge가 있는 동일 401이며 사용자 소유권 불일치는 없는 작업과 같은 404다.
+- 목록 응답은 `{items, next_cursor}`. 생성 시각·ID 내림차순, 기본/최대 20건. 다음 요청에 next_cursor를 cursor로 보내며 커서는 접근 권한을 부여하지 않는다. 모든 페이지에서 user_id를 다시 검사한다. 재발급 후 같은 목록을 복구한다.
+- 격리 재현 명령은 trinity 환경에서 `python -m pytest -q tests/test_account_api.py::test_issued_key_to_separate_worker_result`. 테스트가 만든 전용 계정 DB·runtime·레지스트리에서 실제 발급 키로 TestClient를 통해 접수하고 별도 `python -m server.jobs.worker --drain` 프로세스를 실행했다. 미등록 합성 ID 한 건이 attempts=1, finished / analysis_unavailable / abstained, overall_score=null로 종료됐다. 실운영 경로나 데이터셋은 전환 리허설의 입력으로 쓰지 않았다.
+- 회귀 명령은 `python -m pytest -q tests/test_account_api.py tests/test_api.py tests/test_analysis_delete.py tests/test_accounts.py tests/test_run_info_record.py tests/test_cors_and_label.py`(94 통과), `python -m pytest -q tests/test_job_lifecycle.py`(18 통과). 동일 시각 페이지 경계, 외부 사용자 커서, 삭제·재발급, 잠금 대기 중 만료/폐기, 읽는 도중 폐기, 기존 202/204/412 경합을 포함한다.
+- 최종 검증: Gate 의존성 미로딩 테스트에 임시 계정 DB fixture를 연결하고 subprocess에 `TRINITY_DB_PATH`를 전달했다. 기존 5개 모듈 미로딩 단언과 서버의 계정 DB 사전 초기화 요구를 유지했다. `python -m pytest -q tests/test_gate_segments.py::test_api_server_does_not_import_gate_dependencies` 1 통과. 현재 작업 트리에서 `/opt/anaconda3/envs/trinity/bin/python -m pytest -q -rs` 실행 결과 **935 통과, 0 실패, 1 건너뜀**(255.35초). LightGBM 미설치로 tests/test_motionphys_train.py 1건 건너뜀, Starlette TestClient 의존성 사용 중단 경고 1건. ps 권한 오류 없음.
+- 로컬 커밋 전 최종 리뷰에서 읽기 스냅샷과 쓰기 잠금 후 인증, 작업별 소유자 필터 및 커서 경계, 키 재발급, 동일 404, ETag와 취소·삭제 분기를 코드 및 회귀 테스트와 대조했다. Worker 선점·복구 로직과 Gate import 테스트의 기존 다섯 모듈 단언도 보존됐다. 2단계 범위에서 수정이 필요한 결함을 발견하지 않았다. 이번 리뷰는 코드·테스트를 변경하지 않아 pytest를 재실행하지 않았으며 위 935 통과는 직전 전체 실행 결과다.
+- 호환 상태: 현행 Flutter 서버 모드와 smoke_slice 등 구 헤더 클라이언트는 새 분석 API에서 401이다. 임시 빈 DB로 직접 서버를 시작하는 smoke_gate_worker, smoke_cancel_worker, verify_real_worker_lifecycle도 DB 사전 초기화·별도 계정 발급이 필요하다. 4단계에서 클라이언트를 전환한다. 이번 범위에는 Flutter 브라우저/실기기 및 기존 실제 모델 스모크의 새 인증 종단 검증이 없다.
+- 다음 3단계는 사용자별 API 호출 카운터와 접수 영수증부터 추가한다. 계정/쓰기 잠금 안에서 중복 키 확인 → 개인 활성·시간창 → 기존 전체 상한 → 작업·영수증 동시 저장을 연결한다. 현재 적용 중인 용량 제한은 기존 전체 대기 상한이다. 실운영 DB 전환과 구 DB 보존 종료일은 별도 결정이다.
+
+## 백로그 14 계정·자격 증명 1단계 (2026-11-19)
+
+- `design/auth-rate-limit`, 기준 커밋 `a19aa20`. 사용자 승인으로 DESIGN §9·12.2·14.1·15.3에 전환 후 계약, 인증·제한 초기값과 보존 결정을 반영했다. 아래 검토 대기 기록의 세 결정은 승인됐다.
+- `server/accounts.py`는 지정한 새 DB에 users·credentials와 사용자 FK가 필수인 jobs를 만든다. 기존 큐와 새 DB는 작업 열 정의만 공유한다. 서비스 API와 Flutter는 기존 토큰을 사용한다. 새 DB를 현행 API나 Worker의 DB 환경 변수로 지정하지 않는다.
+- 운영자 명령은 trinity 환경에서 `python -m server.accounts --db <별도-디렉터리>/accounts.sqlite init`이다. 신뢰하는 로컬 경로에 운영자 소유 전용 디렉터리(0700)를 만들고 심볼릭 링크를 거치지 않는 실제 경로를 사용한다. 도구 실행 중 같은 OS 계정의 다른 프로그램이 이 경로를 교체하지 않는 운영 환경을 전제한다. 기존 파일을 지정하면 실패한다. 같은 명령의 마지막 인자를 `issue`, `reissue <user_id>`, `revoke <user_id>`, `suspend <user_id>`로 바꿔 실행한다. issue/reissue의 isatty 검사는 표준 출력이 터미널인지 여부만 확인한다. 녹화·스크롤백·화면 공유로 키가 복사될 수 있으므로 기록이 없는 개인 터미널에서 발급하고 개별 전달한다. 노출되면 폐기·재발급한다. 폐기 후에는 같은 사용자에게 재발급할 수 있고 정지 후에는 발급할 수 없다.
+- 초기화는 같은 전용 디렉터리의 임시 하위 폴더에서 DB를 완성하고 연결을 닫은 뒤 대상 이름으로 배타적 하드 링크를 만든다. 일반적인 SQL 오류에서는 임시 파일이 정리되어 같은 명령으로 재시도할 수 있다. 기존 대상이나 같은 이름의 -wal/-shm/-journal(끊어진 링크 포함)이 있으면 보존하고 중단한다. 사용 중인 DB의 보조 파일을 지워 재시도하지 않는다.
+- 초기화 프로세스가 강제 종료되면 `.account-init-*` 폴더가 남을 수 있다. 게시 전이면 다른 init이 없는지 확인하고 같은 경로로 재시도할 수 있다. 게시 직후라면 대상 파일이 완성됐어도 임시 파일과 하드 링크를 공유할 수 있어 도구가 운영을 거부한다. 작업을 멈추고 소유자·inode를 대조해 해당 시도의 임시 링크만 분리한 뒤 완성된 DB를 사용한다. 상태가 불명확하면 파일을 보존하고 별도 전용 경로에 초기화한다.
+- DB·WAL·SHM은 타 사용자 권한 비트가 없는지 실측했다. 운영 도구는 DB와 존재하는 보조 파일의 소유자·권한·일반 파일 및 단일 링크 여부를 확인한다. 구 DB는 SQLite 연결 전 헤더를 검사해 거절한다. 기준 커밋과 새 코드의 레거시 jobs 스키마는 메모리 DB에서 열·기본값·키·인덱스가 일치했다.
+- 격리 리허설 명령은 `python -m pytest -q tests/test_accounts.py::test_transition_rehearsal`. 임시 레거시 DB에 합성 작업 등록 → 기존 Worker --drain 및 종료 → 임시 DB·sidecar·runtime 분리 → 빈 새 DB/runtime 생성 → 구 기록과 새 FK 검사. 실제 서비스의 DB/runtime과 보존기간은 건드리지 않았다.
+- 최종 검증: 관련 테스트 `python -m pytest -q tests/test_accounts.py tests/test_queue_worker.py tests/test_api.py` 35 통과. 코드·테스트 확정 후 전체 `python -m pytest -q -rs` 1회 실행, 914 통과·0 실패·1 건너뜀(190.78초). LightGBM 미설치로 tests/test_motionphys_train.py 1건 건너뜀, Starlette TestClient 의존성 사용 중단 경고 1건. 기존 테스트 파일 변경 없음. 계정 테스트에는 초기화 실패·재시도, 동시 초기화, 파일·링크·권한, 만료·회전 롤백, 재발급·폐기·정지 경합 및 임시 전환 리허설이 포함된다.
+- 다음은 제안서 §6의 2단계다. 인증 확인을 소유권 조회·변경 트랜잭션에 통합하고 계정별 목록 및 401/404·ETag 경합을 검증한다. 요청량 제한·접수 중복 방지는 3단계, Flutter 전환은 4단계다. 실운영 전환 시점과 구 DB 보존 종료일은 미정이다.
+
+## 백로그 14 인증·사용자별 요청 제한 제안 (검토 대기)
+
+- 기준 커밋 `a19aa20`에서 만든 `design/auth-rate-limit` 브랜치. [제안서](proposals/auth-rate-limit.md)에 현행 API·Flutter·큐 동작, 인증 대안, SQLite 제한과 중복 접수 처리, 경합별 수용 기준을 정리했다.
+- 다음 작업은 제안서 §7의 인증 방식·초기 상한·구 DB 전환 방식 결정이다. 승인 뒤 §15.3과 API 계약을 반영하고 계정 발급·폐기 및 전환 도구부터 구현한다.
+- 문서 작업만 진행했다. 이번 세션 테스트·실제 모델 실험은 미실행이다. 아래 896개 통과는 a19aa20의 리뷰 수정 전 전체 실행 기록이다.
+
+## 백로그 14 실제 Worker 수명주기 (2026-11-19)
+
+- 기준은 원격 main `8d093fbeb2a3b622c7635a58f47527ccd6c431a6`, 작업 브랜치는 `verify/worker-lifecycle-abcd`다.
+- 허가 원본 `data/research/samples/A.MOV`, 기존 Gate·MotionPhys·SyncNet 가중치와 WaveRep 체크포인트, 모델별 기존 venv를 사용했다. 시나리오마다 로컬 API 포트·레지스트리·DB·runtime을 따로 생성했다.
+- `scripts/verify_real_worker_lifecycle.py`를 확장했다. 목표 자식과 DB 단계를 확인한 뒤 개입하고, 복구 시 이전 시도 폴더에 남긴 표식 제거와 DB의 두 번째 시작 시각을 확인한다. ps 조회 오류는 검증 실패로 처리한다. 제품 코드와 정책 변경은 없다.
+- 재현 명령은 trinity 환경에서 `python scripts/verify_real_worker_lifecycle.py --new-run --only cancel-motionphys --only sigkill-gate --only sigkill-waverep --only sigkill-motionphys`다. 두 번 실행하면 Git 밖 `data/research/real-lifecycle/run-*/`에 회차별 JSON이 남는다.
+- 기존 테스트 기준선은 `python -m pytest -q` 895 통과, 0 실패, 1 건너뜀이다. 검증기 단위 테스트 `python -m pytest -q tests/test_verify_real_worker_lifecycle.py`는 기존 5건과 ps 실패 회귀 1건 모두 통과했다. 최종 전체 테스트 `python -m pytest -q -rs`는 896 통과, 0 실패, 1 건너뜀(LightGBM 미설치), 경고 1건이었다.
+- 로컬 커밋 전 리뷰에서 실패한 저장 결과를 재실행 없이 성공으로 처리하는 경로를 수정했다. A~D 기록의 supervisor·목표 자식, 복구 Worker 종료 코드, 취소 관찰 시간도 확인한다. 수정 후 관련 테스트 7개 통과, 저장된 두 회차 JSON 8건 모두 재대조 통과. 위 전체 테스트 수치는 리뷰 수정 전 실행 로그 기준이다.
+- 실제 결과 파일은 `data/research/real-lifecycle/{run-27rjrq6a,run-5cgifdde}/`에 있다. 두 회차 모두 A~D 완료 조건을 JSON과 대조했다.
+
+| 시나리오 | 실제 결과 | 회차 1 / 2 실측 |
+|---|---|---|
+| A Gate 중 SIGKILL | 2/2 복구 | lease 만료 후 0.370 / 0.153초에 재선점 |
+| B WaveRep 중 SIGKILL | 2/2 복구 | 0.004 / 0.026초에 재선점 |
+| C MotionPhys 중 SIGKILL | 2/2 복구 | 0.477 / 0.079초에 재선점 |
+| D MotionPhys 중 API 취소 | 2/2 취소 | DELETE 202 후 1.700 / 1.785초에 cancelled |
+
+- A~C는 6건 모두 첫 시도 supervisor·목표 자식의 종료와 빈 프로세스 그룹을 확인했다. 두 번째 시도에서 이전 폴더 표식이 사라졌고 각각 finished / completed / abstained, 세 축 completed, signal·physics raw_score 및 overall_score·verdict_label은 null, 보류 원인은 no_valid_fusion_model이었다. D는 attempts=1, 축 결과와 점수 없이 cancelled였다.
+- 개입 순간의 스냅샷에는 활성 FFmpeg가 없었다. 복구 시도에서는 실제 FFmpeg를 관찰했고 종료 후 관찰한 후손이 모두 사라졌다. 8건 모두 작업 종료 후 1초 재확인에서 작업 폴더·작업 프로세스가 없었고 실행기 종료 뒤 전용 runtime이 비었다. 실제 축 실패를 별도로 유발하는 사례는 이번 8건에 없었다.
+- 다음 작업은 활성 FFmpeg 중 개입을 직접 확인할 필요가 있을 때 그 시점에 맞춘 별도 검증이다. 백로그 14의 정식 인증·rate limit은 별도 작업이다.
+
 ## 설계 문서 상태 갱신 (2026-11-19, 브랜치 `docs/design-status-refresh`)
 
 - 한 일(문서만, 코드 변경 없음): `docs/DESIGN.md`

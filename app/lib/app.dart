@@ -13,6 +13,7 @@ import 'screens/guide_screen.dart';
 import 'screens/input_screen.dart';
 import 'screens/progress_screen.dart';
 import 'screens/result_screen.dart';
+import 'screens/session_screen.dart';
 import 'view_state.dart';
 
 class TrinityApp extends StatelessWidget {
@@ -30,7 +31,10 @@ class TrinityApp extends StatelessWidget {
       theme: buildTrinityTheme(Brightness.light),
       darkTheme: buildTrinityTheme(Brightness.dark),
       themeMode: ThemeMode.system,
-      home: AnalysisFlow(config: config, api: api),
+      home: config.mode == ApiMode.server && api is HttpAnalysisApi
+          ? SessionScreen(api: api as HttpAnalysisApi, flow: (id, back) =>
+              AnalysisFlow(config: config, api: api, initialId: id, onJobs: back))
+          : AnalysisFlow(config: config, api: api),
     );
   }
 }
@@ -41,7 +45,10 @@ enum _Phase { input, progress, result, detail }
 
 /// 입력 → 분석 중(상태 조회 반복) → 결과 → 상세.
 class AnalysisFlow extends StatefulWidget {
-  const AnalysisFlow({super.key, required this.config, required this.api});
+  const AnalysisFlow({super.key, required this.config, required this.api, this.initialId, this.onJobs});
+
+  final String? initialId;
+  final VoidCallback? onJobs;
 
   final AppConfig config;
   final AnalysisApi api;
@@ -67,12 +74,24 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
   MockAnalysisApi? get _mock => widget.api is MockAnalysisApi ? widget.api as MockAnalysisApi : null;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.initialId != null) {
+      _phase = _Phase.progress;
+      _analysisId = widget.initialId;
+      _timer = Timer.periodic(widget.config.pollInterval, (_) => _poll());
+      _poll();
+    }
+  }
+
+  @override
   void dispose() {
     _timer?.cancel();
     super.dispose();
   }
 
   Future<void> _submit(String url) async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _inputError = null;
@@ -96,7 +115,9 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _inputError = apiErrorText(e);
+        _inputError = e.kind == ApiErrorKind.network && widget.api is HttpAnalysisApi
+            ? '접수 여부를 확인하지 못했습니다. 같은 주소로 다시 요청하면 기존 접수를 확인합니다.'
+            : apiErrorText(e);
       });
     }
   }
@@ -132,6 +153,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       });
     } on ApiException catch (e) {
       if (!mounted || id != _analysisId) return;
+      if (e.retryAt != null) return; // API는 기한까지 실제 HTTP 요청을 보내지 않는다.
       if (e.kind == ApiErrorKind.network || e.kind == ApiErrorKind.server) {
         setState(() => _connectionLost = true); // 다음 주기에 다시 조회한다
       } else {
@@ -169,6 +191,10 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
 
   void _restart() {
     _timer?.cancel();
+    if (widget.onJobs != null) {
+      widget.onJobs!();
+      return;
+    }
     setState(() {
       _phase = _Phase.input;
       _analysisId = null;
@@ -207,6 +233,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       case _Phase.input:
         return InputScreen(
           onSubmit: _submit,
+          onJobs: widget.onJobs,
           busy: _busy,
           errorText: _inputError,
           mockScenario: _mock?.scenario,

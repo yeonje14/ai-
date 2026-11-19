@@ -1,6 +1,9 @@
 """scripts/verify_real_worker_lifecycle.py의 보조 논리(프로세스 찾기, 단계 시간). 영상·모델·서버는 쓰지 않는다."""
 import importlib.util
+import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('verify_real_worker_lifecycle', REPO_ROOT / 'scripts/verify_real_worker_lifecycle.py')
@@ -47,3 +50,24 @@ def test_every_scenario_has_a_runner_and_env():
     assert set(lc.SCENARIOS) == set(lc.RUNNERS) == set(lc.SCENARIO_ENV)
     # 제한을 낮추는 시나리오만 제한 환경 변수를 바꾼다
     assert lc.SCENARIO_ENV['sigkill-syncnet'] == {} and lc.SCENARIO_ENV['cancel-syncnet'] == {}
+
+
+def test_process_query_failure_cannot_count_as_dead(monkeypatch):
+    def denied(args, **kwargs):
+        if kwargs.get("check"):
+            raise subprocess.CalledProcessError(1, args)
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="denied")
+
+    monkeypatch.setattr(lc.subprocess, "run", denied)
+    with pytest.raises(subprocess.CalledProcessError):
+        lc.alive(123)
+
+
+def test_cached_failed_run_cannot_succeed(tmp_path, monkeypatch):
+    sample = tmp_path / "data/research/samples/A.MOV"
+    sample.parent.mkdir(parents=True)
+    sample.touch()
+    monkeypatch.setattr(lc, "ROOT", tmp_path)
+    monkeypatch.setattr(lc, "OUT", tmp_path)
+    (tmp_path / "sigkill-gate.json").write_text('{"scenario":"sigkill-gate"}')
+    assert lc.main(["--only", "sigkill-gate"]) == 1

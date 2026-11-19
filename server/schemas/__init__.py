@@ -74,6 +74,17 @@ class CreateAnalysisResponse(BaseModel):
     job_status: JobStatus
 
 
+class AnalysisListItem(BaseModel):
+    analysis_id: str
+    created_at: float
+    job_status: JobStatus
+
+
+class AnalysisListResponse(BaseModel):
+    items: list[AnalysisListItem]
+    next_cursor: Optional[str]
+
+
 class AnalysisStatusResponse(BaseModel):
     analysis_id: str
     job_status: JobStatus

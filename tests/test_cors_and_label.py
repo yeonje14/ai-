@@ -14,7 +14,7 @@ from server.schemas import AnalysisResult
 from tests.conftest import REGISTERED_ID, TOKEN, UNREGISTERED_ID
 
 PREFLIGHT = {"Access-Control-Request-Method": "POST",
-             "Access-Control-Request-Headers": "content-type,x-client-token"}
+             "Access-Control-Request-Headers": "content-type,authorization"}
 
 
 def test_default_origins_are_localhost_only():
@@ -55,7 +55,7 @@ def test_allowed_origin_gets_cors_headers(client):
     pre = client.options("/api/v1/analyses", headers={"Origin": origin, **PREFLIGHT})
     assert pre.status_code == 200
     assert pre.headers["access-control-allow-origin"] == origin
-    assert "x-client-token" in pre.headers["access-control-allow-headers"].lower()
+    assert "authorization" in pre.headers["access-control-allow-headers"].lower()
     assert "DELETE" in pre.headers["access-control-allow-methods"]
     assert "access-control-allow-credentials" not in pre.headers
     got = client.get("/api/v1/health", headers={"Origin": origin})
@@ -71,8 +71,8 @@ def test_other_origins_get_no_cors_headers(client, origin):
     assert "access-control-allow-origin" not in got.headers
 
 
-def test_empty_origins_disable_cors(settings):
-    c = TestClient(create_app(replace(settings, cors_origins=())), headers={"X-Client-Token": TOKEN})
+def test_empty_origins_disable_cors(settings, account_db):
+    c = TestClient(create_app(replace(settings, cors_origins=())), headers={"Authorization": f"Bearer {TOKEN}"})
     got = c.get("/api/v1/health", headers={"Origin": "http://localhost:8080"})
     assert got.status_code == 200 and "access-control-allow-origin" not in got.headers
 

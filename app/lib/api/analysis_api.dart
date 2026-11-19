@@ -9,11 +9,12 @@ import 'models.dart';
 enum ApiErrorKind { invalidUrl, queueFull, unauthorized, notFound, network, server }
 
 class ApiException implements Exception {
-  const ApiException(this.kind, {this.reasonCode, this.statusCode});
+  const ApiException(this.kind, {this.reasonCode, this.statusCode, this.retryAt});
 
   final ApiErrorKind kind;
   final String? reasonCode;
   final int? statusCode;
+  final DateTime? retryAt;
 
   @override
   String toString() => 'ApiException(${kind.name}, $statusCode, $reasonCode)';
@@ -35,35 +36,84 @@ abstract interface class AnalysisApi {
   Future<void> cancel(String analysisId);
 }
 
-/// 작업 소유권 확인용 임시 토큰. 메모리에만 둔다(정식 인증은 백로그 14번).
-String generateClientToken([Random? random]) {
-  final r = random ?? Random.secure();
-  return List.generate(32, (_) => r.nextInt(16).toRadixString(16)).join();
+/// 사용자 동작 하나를 나타내는 무작위 UUID v4.
+String newSubmissionKey() {
+  final random = Random.secure();
+  final bytes = List.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  final hex = bytes.map((v) => v.toRadixString(16).padLeft(2, '0')).join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-'
+      '${hex.substring(16, 20)}-${hex.substring(20)}';
 }
 
+typedef JobEntry = ({String id, JobStatus status, DateTime created});
+typedef JobPage = ({List<JobEntry> items, String? cursor});
+
 class HttpAnalysisApi implements AnalysisApi {
-  HttpAnalysisApi({required String baseUrl, http.Client? client, String? clientToken})
+  HttpAnalysisApi({required String baseUrl, http.Client? client, String? bearerKey})
       : _base = Uri.parse(baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl),
-        _client = client ?? http.Client(),
-        _token = clientToken ?? generateClientToken();
+        _client = client ?? http.Client(), _token = bearerKey;
 
   final Uri _base;
   final http.Client _client;
-  final String _token;
+  String? _token;
+  void Function()? onUnauthorized;
+  int _session = 0;
+  String? _pendingUrl;
+  String? _pendingKey;
+  DateTime? _pendingSince;
+  DateTime? _retryAt;
+  DateTime? _submitAt;
+
+  void setCredential(String? value) {
+    _session++;
+    _token = value;
+    clearSubmission();
+  }
+
+  void clearSubmission() {
+    _pendingUrl = null;
+    _pendingKey = null;
+    _pendingSince = null;
+  }
+
+  Future<JobPage> jobs([String? cursor]) async {
+    final uri = _uri('').replace(queryParameters: cursor == null ? null : {'cursor': cursor});
+    final res = await _send(() => _client.get(uri, headers: _headers));
+    if (res.statusCode != 200) throw _error(res);
+    final body = _json(res);
+    final items = (body['items'] as List).map((item) => (
+      id: item['analysis_id'] as String, status: parseJobStatus(item['job_status']),
+      created: DateTime.fromMillisecondsSinceEpoch(((item['created_at'] as num) * 1000).round()),
+    )).toList();
+    return (items: items, cursor: body['next_cursor'] as String?);
+  }
 
   Uri _uri(String path) => _base.replace(path: '${_base.path}/api/v1/analyses$path');
 
-  Map<String, String> get _headers => {'X-Client-Token': _token, 'Accept': 'application/json'};
+  Map<String, String> get _headers => {'Authorization': 'Bearer $_token', 'Accept': 'application/json'};
 
   @override
   Future<CreatedAnalysis> create(String url) async {
+    final now = DateTime.now();
+    if (_pendingUrl == url && now.difference(_pendingSince!) >= const Duration(hours: 24)) {
+      throw const ApiException(ApiErrorKind.server, reasonCode: 'retry_expired');
+    }
+    if (_pendingUrl != url) {
+      _pendingUrl = url;
+      _pendingKey = newSubmissionKey();
+      _pendingSince = now;
+    }
     final res = await _send(() => _client.post(
           _uri(''),
-          headers: {..._headers, 'Content-Type': 'application/json'},
+          headers: {..._headers, 'Content-Type': 'application/json', 'Idempotency-Key': _pendingKey!},
           body: jsonEncode({'url': url}),
-        ));
+        ), submitting: true);
     if (res.statusCode != 202) throw _error(res);
-    return CreatedAnalysis.fromJson(_json(res));
+    final created = CreatedAnalysis.fromJson(_json(res));
+    clearSubmission();
+    return created;
   }
 
   @override
@@ -98,9 +148,23 @@ class HttpAnalysisApi implements AnalysisApi {
     if (res.statusCode != 202 && res.statusCode != 412) throw _error(res);
   }
 
-  Future<http.Response> _send(Future<http.Response> Function() call) async {
+  Future<http.Response> _send(Future<http.Response> Function() call, {bool submitting = false}) async {
+    if (_token == null) throw const ApiException(ApiErrorKind.unauthorized);
+    final session = _session;
+    final now = DateTime.now();
+    for (final deadline in [_retryAt, if (submitting) _submitAt]) {
+      if (deadline != null && now.isBefore(deadline)) {
+        throw ApiException(ApiErrorKind.queueFull, retryAt: deadline);
+      }
+    }
     try {
-      return await call().timeout(const Duration(seconds: 15));
+      final response = await call().timeout(const Duration(seconds: 15));
+      if (_session != session) throw const ApiException(ApiErrorKind.unauthorized);
+      if (response.statusCode == 401) {
+        setCredential(null);
+        onUnauthorized?.call();
+      }
+      return response;
     } on ApiException {
       rethrow;
     } catch (_) {
@@ -125,11 +189,21 @@ class HttpAnalysisApi implements AnalysisApi {
     } catch (_) {}
     final kind = switch (res.statusCode) {
       422 => ApiErrorKind.invalidUrl,
-      429 || 503 => ApiErrorKind.queueFull,
+      429 => ApiErrorKind.queueFull,
       401 || 403 => ApiErrorKind.unauthorized,
       404 => ApiErrorKind.notFound,
       _ => ApiErrorKind.server,
     };
-    return ApiException(kind, reasonCode: reason, statusCode: res.statusCode);
+    DateTime? retryAt;
+    final seconds = int.tryParse(res.headers['retry-after'] ?? '');
+    if (res.statusCode == 429 && seconds != null && seconds > 0) {
+      retryAt = DateTime.now().add(Duration(seconds: seconds));
+      if (reason == 'user_submission_limit') {
+        _submitAt = retryAt;
+      } else {
+        _retryAt = retryAt;
+      }
+    }
+    return ApiException(kind, reasonCode: reason, statusCode: res.statusCode, retryAt: retryAt);
   }
 }

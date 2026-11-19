@@ -1,11 +1,10 @@
 """DELETE의 권한·수명주기·조건부 취소 계약. 실제 SQLite와 API를 함께 사용한다."""
-import hashlib
 
 import pytest
 
-from tests.conftest import TOKEN, OTHER_TOKEN, REGISTERED_ID
+from tests.conftest import OTHER_TOKEN, REGISTERED_ID
 
-OWNER = hashlib.sha256(TOKEN.encode()).hexdigest()
+OWNER = "test-user"
 
 
 def submit(client):
@@ -16,8 +15,8 @@ def submit(client):
 
 def test_delete_requires_token_and_hides_other_owner(client):
     path = submit(client)
-    assert client.delete(path, headers={'X-Client-Token': OTHER_TOKEN, 'If-Match': '"wrong"'}).status_code == 404
-    client.headers.pop('X-Client-Token')
+    assert client.delete(path, headers={'Authorization': f"Bearer {OTHER_TOKEN}", 'If-Match': '"wrong"'}).status_code == 404
+    client.headers.pop('Authorization')
     assert client.delete(path).status_code == 401
 
 
@@ -140,7 +139,7 @@ def test_browser_can_read_etag_and_send_conditional_delete(client):
     assert 'etag' in response.headers.get('access-control-expose-headers', '').lower()
     preflight = client.options(path, headers={
         'Origin': origin, 'Access-Control-Request-Method': 'DELETE',
-        'Access-Control-Request-Headers': 'X-Client-Token,If-Match',
+        'Access-Control-Request-Headers': 'Authorization,If-Match',
     })
     assert preflight.status_code == 200
     assert 'DELETE' in preflight.headers['access-control-allow-methods']

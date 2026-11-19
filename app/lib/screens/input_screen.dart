@@ -15,12 +15,14 @@ class InputScreen extends StatefulWidget {
     required this.onSubmit,
     this.busy = false,
     this.errorText,
+    this.onJobs,
     this.mockScenario,
     this.onMockScenarioChanged,
   });
 
   final ValueChanged<String> onSubmit;
   final bool busy;
+  final VoidCallback? onJobs;
 
   /// 요청 실패 안내(HTTP 422·429·연결 실패 등). 분석 결과가 아니다.
   final String? errorText;
@@ -200,6 +202,8 @@ class _InputScreenState extends State<InputScreen> {
               ),
               const SizedBox(height: TSpace.x2),
               Text('공유한 링크를 여기에 붙여넣어 주세요.', style: TText.small.copyWith(color: p.muted)),
+              if (widget.onJobs != null)
+                TextButton(onPressed: widget.busy ? null : widget.onJobs, child: const Text('내 작업')),
               if (_mock)
                 Align(
                   alignment: AlignmentDirectional.centerStart,
@@ -276,6 +280,8 @@ class _InputScreenState extends State<InputScreen> {
               label: widget.busy ? '요청하는 중…' : InputScreen.submitLabel,
               onPressed: widget.busy ? null : _submit,
             ),
+            if (widget.onJobs != null)
+              SecondaryButton(label: '내 작업', onPressed: widget.busy ? null : widget.onJobs),
             if (_mock)
               SecondaryButton(label: InputScreen.exampleLabel, onPressed: widget.busy ? null : _example),
           ],

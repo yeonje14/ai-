@@ -378,6 +378,13 @@ Flutter — REST Polling으로 상태/결과 표시
 
 ## 9. API 계약
 
+**승인된 인증 전환 계약 (백로그 14).** 아래 계약은 새 계정 DB로 전환할 때 적용한다. 1단계에서는 운영자 도구만 새 DB를 사용하고 실행 중인 v1 API와 Flutter는 기존 X-Client-Token 경로를 사용한다.
+
+- 분석 API는 개인 Bearer 키로 고정 사용자 ID를 확인한다. 무효·만료·폐기·정지 자격은 401, 인증된 타인의 작업은 없는 작업과 같은 404다. health는 기존처럼 생존 여부만 제공한다.
+- 본인 작업 목록 GET /api/v1/analyses를 추가한다. POST는 Idempotency-Key를 요구하고, 24시간 내 같은 사용자·키·영상의 재전송은 최초 202와 작업 ID를 재사용한다. 다른 영상은 409, 이미 삭제한 접수의 재전송은 410이다.
+- 초기 제안값으로 사용자별 활성 1건, 최근 10분 신규 접수 6건, 분당 분석 API 180회를 채택한다. 전체 대기 3건·실행 1건과 함께 적용한다. 제한은 원인을 구분한 429이며 시간 기반 제한에는 Retry-After를 제공한다. Worker 재시도는 신규 접수 횟수에서 제외한다. 활성 상한·시간창 접수·분당 요청·전체 포화의 원인은 각각 `user_active_limit`, `user_submission_limit`, `request_rate_limited`, `queue_full`로 구분한다. DB 잠금 제한시간 초과는 503이다.
+- 인증과 소유권을 확인한 뒤 기존 ETag·If-Match·취소/삭제 계약을 적용한다. 키 만료·폐기는 작업 취소나 분석 결과 변경을 일으키지 않는다. 전환 후 구 인증 헤더 단독 또는 신구 헤더 혼용은 401, 접수 키 누락·형식 오류는 422다. 인증 응답은 no-store이며 허용 출처의 CORS에 Authorization·Idempotency-Key를 허용하고 ETag·Retry-After를 노출한다.
+
 기본 접두어는 `/api/v1`입니다. 아래 JSON은 API 형태를 설명하는 예시이며, 실제 Gate·WaveRep 연결 상태는 §14.1을 따릅니다. 일반 사용자 미디어 파일 업로드 엔드포인트는 없습니다.
 
 | 메서드 | 경로 | 의미 | 접근 |
@@ -526,6 +533,8 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 
 ### 12.2 보안·개인정보
 
+- 통제 시연은 운영자가 사용자별 고정 ID와 불투명 난수 키를 발급한다. 서버는 digest만 저장한다. 키는 발급 후 24시간에 절대 만료되고 재발급하면 같은 사용자 ID에서 이전 키를 원자적으로 폐기한다. 운영자는 키만 폐기하거나 계정을 정지할 수 있다.
+
 - **URL allowlist + SSRF 방지:** 사용자 URL은 정규화·구문검사·허용 호스트·ID 추출만 수행; 내부망 IP, 임의 리디렉션, 로컬 파일 경로, 셸 인자, 임의 다운로드 소스 입력 금지.
 - **인증·소유권:** `analysis_id` UUID만으로 권한을 부여하지 않음. 조회·취소·삭제는 서버가 인증된 주체와 작업 소유권 검사. 외부 시연은 접근 제한 및 HTTPS.
 - **요청·자원 제한:** 사용자별 rate limit, 대기열 제한, 단계별 timeout, FFmpeg/서브프로세스 리소스 제한, 강제 취소/정리 경로.
@@ -607,7 +616,7 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 | **11** | **P2-2 / 연구** | **SyncNet CPU 동기화 검증**: 실제 발화 구간과 인위적 오프셋, A/B/C 비교. | LSE-C/LSE-D/오프셋 산출, 실패 조건, 위조 탐지 추가 기여 판단.<br>**상태(2026-11-19): Worker 연결과 실측. 위조 탐지 추가 기여는 미검증.** 원본 코드를 수정 없이 재현하고 Gate 적합 구간만 실행함. A의 한 구간(26–34초)에서 인위적 오디오 이동(±0.08·0.20초)에 오프셋이 기대한 부호·크기대로 변함(2026-11-15). A·B·E 원본과 압축 변형의 LSE-C·LSE-D·오프셋을 잼(2026-11-16~17). 짧은 구간 규칙과 기본 장치 MPS(2026-11-17), 작업·단계 제한(2026-11-18), 실제 Worker의 단계 제한·SIGKILL 복구·MPS 실행 중 취소(2026-11-19)를 확인함. 가짜 영상이 없어 탐지 추가 기여는 판단하지 못함. 근거: `docs/syncnet-adapter.md`, `docs/syncnet-spike.md`, `docs/robustness-selfvideo.md` | 6·8·9 |
 | **12** | **P2-3 / 연구** | **OOF 기반 Logistic Regression·보정·임계값**: WaveRep 최강 단일 모델과 비교. | 미사용 그룹에서 비교 완료, 조합 채택/보류 결정. 3축 강제 채택 금지.<br>**상태(2026-11-19): 진행 중(절차·관문 구현과 감사 반영, 실제 비교 전).** 그룹 5-fold OOF 로지스틱 결합, OOF sigmoid 보정, dev 임계값 잠금, 사전 고정 채택 조건(`configs/training.json`), 검증된 묶음만 서버가 쓰는 관문을 합성 데이터로 확인함. 2026-11-18 감사 결정(서빙 규칙 A9, FPR 관문 A10 등)을 반영함. 신호 없는 합성 데이터(인물 1,000명·시드 100회)에서 결합·WaveRep 단독 채택 0/100. 실제 데이터의 비교와 채택 결정은 하지 않았고 `configs/fusion_bundle.json`이 비어 있어 서버는 항상 보류함. 근거: `docs/training-pipeline.md`, `docs/audit-training-pipeline.md`, `configs/fusion_bundle.json` | 8·10·11 |
 | **13** | **P3-1 / 제품** | **Flutter YouTube 공유 시트 + URL 붙여넣기 + 상태 Polling + 결과 요약/상세**. | YouTube 앱에서 공유→TRINITY→상태/보류/근거 화면 시연. 파일 업로드 UI 없음.<br>**상태(2026-11-19): 진행 중(웹만).** 디자인 시스템, 화면 8개, mock·실제 서버 모드, 세 엔드포인트 연결, 밝은 테마 개정(2026-11-14). 2026-11-16 Chrome에서 실제 서버 모드로 테스트 ID 한 건(A, WaveRep·SyncNet 실제 실행)을 끝까지 확인함(finished / partial / abstained). 앱 취소·412 재조회는 모의 응답 위젯 테스트로만 확인함. YouTube 공유 시트, iOS·Android 빌드, 실제 YouTube ID 시연, 기기 화면 낭독기 확인은 없음. 근거: `app/README.md`, `docs/design-system.md`, `docs/HANDOFF.md` "Flutter 실제 서버 모드 A 예행" | 4·7 |
-| **14** | **P3-2 / 안정화** | **인증·작업 소유권·취소·중복 방지·재시작 복구·임시 파일 삭제·rate limit**. | 다른 사용자 결과 접근 차단, 작업 복구/취소/정리 통합 테스트.<br>**상태(2026-11-19): 일부 구현·검증. 정식 인증·rate limit은 없음.** 클라이언트 토큰 해시로 작업 소유권 확인(조회·취소·삭제), 대기 3건 초과 429, DELETE 취소·삭제, ETag 조건부 취소, Worker 재시작 복구·자식 종료·임시 폴더 정리, 비정상 종료 잔여물 24시간 정리(Worker 실행 중 반복)를 구현함. 실제 모델로 SyncNet 실행 중 Worker SIGKILL 복구, SyncNet·WaveRep MPS 실행 중 취소, 단계·작업 제한을 확인함(2026-11-19). Gate·WaveRep·MotionPhys 실행 중 SIGKILL은 미검증. 근거: `docs/HANDOFF.md`, `docs/syncnet-adapter.md` "실제 Worker 수명주기 확인" | 4·7·13 (보안 기초는 4부터 적용) |
+| **14** | **P3-2 / 안정화** | **인증·작업 소유권·취소·중복 방지·재시작 복구·임시 파일 삭제·rate limit**. | 다른 사용자 결과 접근 차단, 작업 복구/취소/정리 통합 테스트.<br>**상태(2026-11-19): 새 DB용 계정·자격 증명 운영 도구와 격리 전환 리허설을 구현했다. 서비스 API의 계정 인증과 rate limit은 후속 단계다.** 클라이언트 토큰 해시로 작업 소유권 확인(조회·취소·삭제), 대기 3건 초과 429, DELETE 취소·삭제, ETag 조건부 취소, Worker 재시작 복구·자식 종료·임시 폴더 정리, 비정상 종료 잔여물 24시간 정리(Worker 실행 중 반복)를 구현함. 실제 모델로 SyncNet 실행 중 Worker SIGKILL 복구, SyncNet·WaveRep MPS 실행 중 취소, 단계·작업 제한을 확인함(2026-11-19). Gate·WaveRep·MotionPhys 실행 중 SIGKILL 복구와 MotionPhys 실행 중 API 취소는 각각 실제 2회 확인했다(커밋 a19aa20의 HANDOFF). 근거: `docs/HANDOFF.md`, `docs/syncnet-adapter.md` "실제 Worker 수명주기 확인" | 4·7·13 (보안 기초는 4부터 적용) |
 | **15** | **P4 / 최종 검증** | **내부 홀드아웃+허가된 외부 벤치마크, 압축 일반화, 맥북 latency·RAM, 결과 해석 검증**. | 모델·임계값 잠금, 실제 FPR/TPR·Coverage·실패율/CI 공개, 범용 YouTube 접근 가능 여부를 별도로 보고.<br>**상태(2026-11-19): 시작 전.** 외부 평가 잠금(`configs/external_eval_lock.json`: MAVOS-DD 표본, TalkingHeadBench, Deepfake-Eval-2024 모두 locked)과 평가 명령은 있으나 모델·임계값을 고정하지 않아 실행하지 않음. 맥북 latency·메모리는 본인 영상 몇 개로 축별 처리 시간을 잰 기록만 있음(평가 아님). 근거: `docs/evaluation-pipeline.md`, `configs/external_eval_lock.json`, `docs/robustness-selfvideo.md` "처리 시간과 메모리", `docs/syncnet-adapter.md` | 8~14 |
 
 **즉시 시작할 작업은 1~3번**입니다. 세 가지는 병렬 조사 가능하지만, **권한 없는 YouTube 미디어를 전제로 전체 시스템을 개발하지는 않습니다.** 가장 먼저 **코드로 완성할 작은 기능은 4번 URL-only 수직 슬라이스**이고, 가장 먼저 **실제 추론으로 검증할 모델은 5번 WaveRep**입니다.
@@ -693,6 +702,8 @@ TRINITY/
 | Mac RAM·긴 추론·보안 | Medium/High | 한 번에 1건, 단일 Worker, timeout/인증/삭제 |
 
 ### 15.3 설계 결정 1~12 요약
+
+**백로그 14 인증·제한·전환 (사용자 승인, 2026-11-19).** §9의 사용자별 제한과 재전송 보호 초기값, §12.2의 운영자 등록 개인 Bearer 키를 채택한다. 구 시스템의 접수를 닫고 작업을 drain한 뒤 API·Worker를 정지하고 구 DB/runtime을 분리 보존한다. 사용자 FK가 있는 새 DB와 별도 runtime으로 전환한다. 기존 소유자 해시를 계정으로 자동 이전하지 않는다. 구 기록의 보존 종료일은 미정이다. 구현 순서는 [단계별 제안서](proposals/auth-rate-limit.md) §6을 따른다. 실제 전환은 별도 운영 작업이다.
 
 **결정 2·7 보완(오디오 트랙 선택) — 2026-11-19, 규칙은 사용자 지시, 세부(D1~D4)는 Claude 제안·사용자 승인.**
 Gate VAD, SyncNet 구간 절단, 압축 에뮬레이터는 같은 함수(`server/gate/audio_track.py`)로 오디오 트랙 하나를 고르고 `-map 0:<index>`로 명시해 쓴다. FFmpeg의 자동 선택에 맡기지 않는다. 규칙: 디코딩할 수 있는 오디오 트랙 가운데 default 표시가 있는 것(여럿이면 index가 가장 작은 것), 없으면 디코딩할 수 있는 트랙 가운데 index가 가장 작은 것. 디코딩 가능 여부는 ffprobe의 `codec_name`이 그 FFmpeg의 `-codecs` 목록에서 디코딩 표시가 있는 오디오 코덱인지로 정한다(코덱 태그로 판단하지 않는다).
