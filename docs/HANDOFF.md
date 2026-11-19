@@ -1,5 +1,43 @@
 # HANDOFF
 
+## 백로그 14 4단계 · Chrome에서 허가 영상 A 검증 (2026-11-19)
+
+- 기준 `4974828` 위의 4단계 Flutter 릴리스 빌드를 매번 새 프로필의 macOS Google Chrome(창 1200×900, 웹형 배치)에서 열었다. 임시 사용자 키는 제어 프로세스 메모리에서 CDP 입력 이벤트로만 입력란에 넣었다. 명령 인자·로그·문서·화면 기록에 키 원문을 남기지 않았고 인증·접수 요청의 헤더와 본문도 기록하지 않았다. 화면은 Chrome 접근성 트리와 스크린샷으로 확인했다.
+- 재현 환경: trinity 환경에서 소유자 전용 임시 디렉터리에 `python -m server.accounts --db <임시 DB> init`과 `issue`로 계정을 준비한다(수동 발급 시 녹화 없는 터미널에서 개별 전달). `TRINITY_DB_PATH`, `TRINITY_RUNTIME_DIR`, `TRINITY_AUTHORIZED_MEDIA`는 임시 경로, `TRINITY_AUTHORIZED_MEDIA_ROOT`는 저장소의 data 절대 경로, `TRINITY_CORS_ORIGINS`는 선택한 Flutter 루프백 출처로 설정한다. 그 밖의 `TRINITY_*` 값은 넘기지 않는다(작업·SyncNet 제한은 기본값). 임시 registry의 authorized_media 한 항목에 youtube_video_id=TRINITYtest, provenance=registered_authorized_source, local_path=research/samples/A.MOV를 등록한다.
+- 재현 명령: `python -m uvicorn server.main:app --host 127.0.0.1 --port <API포트> --no-access-log`. app에서 `flutter build web --no-pub --no-web-resources-cdn --output <임시웹디렉터리> --dart-define=TRINITY_API_MODE=server --dart-define=TRINITY_API_BASE_URL=http://127.0.0.1:<API포트>`. 웹 디렉터리를 `python -m http.server <웹포트> --bind 127.0.0.1 --directory <임시웹디렉터리>`로 제공한다. Worker는 같은 환경 변수로 `python -m server.jobs.worker --drain`.
+- **이전 시도, 작업 `e51a8e3f-cc9a-462c-887d-bb0dfb05eb00`(16:40 접수).**
+  - 브라우저에서 직접 확인한 범위: 키 입력 → 테스트 URL `https://youtu.be/TRINITYtest` 1회 제출 → 대기 화면 → 별도 Worker → 전처리 진행 화면 → 새로고침·로그인 화면 → 같은 키로 재인증 → 내 작업에서 같은 ID 선택 → 진행 화면 복원까지다. 이 시도의 제어 세션(Codex)이 중단돼 같은 세션에서는 완료 화면을 보지 못했다.
+  - 중단 뒤 임시 DB를 읽기 전용으로 확인한 종료 상태: 작업 1건, attempts=1, **finished / partial / abstained**, overall_score=null, abstention_reason=no_valid_fusion_model. signal·physics completed. alignment는 **error / timeout**이었고 LSE-C·LSE-D null, included_in_fusion=false. 시작부터 종료까지 911.4초였다. 작업 제한은 기본 규칙에 따라 920초(180 + 20 × 적합 구간 37.021초)였다. run_info의 alignment device_used는 null, 세 축 열 상태는 fair였다. jobs 디렉터리에는 `.worker.lock`만 남았다. 종료 시각이 작업 제한 − 마무리 여유 10초 부근이라 SyncNet 남은 시간 제한에 걸린 것으로 보인다. 다만 이 시도의 Worker 로그를 남기지 않아 단계별 시간과 느려진 원인은 **확인 필요**다.
+  - 이어 쓰기: 원래 제어 세션은 정상적으로 이어 쓸 수 없었다. Chrome이 이미 종료됐고 키는 중단된 제어 프로세스 메모리에만 있었다. 대신 원본 DB를 SQLite backup으로 읽기 전용 사본을 만들었다. 사본에서만 같은 사용자의 키를 교체하고 별도 API와 새 Chrome 프로필로 같은 작업을 열람했다. Worker를 실행하지 않았고 재분석도 하지 않았다. 원본 DB·WAL의 sha256은 열람 전후에 같았다.
+  - 열람 결과는 API GET 결과(200)와 일치했다. 목록에는 '종료'로 나왔다. 결과 화면은 '판단 보류'와 '이번 요청의 상태. 작업 종료, 분석 부분 분석, 판정 보류'를 보였고, 이유는 '검증된 종합 판정 모델이 없습니다.'였다. 상세 화면의 SyncNet은 '오류 · 정해진 시간 안에 끝나지 않았습니다.'였고 LSE-C·LSE-D는 '값 없음', 종합 판정에 포함은 '아니오', 종합 점수는 '값 없음'이었다. 서버 상태 칸에는 finished / partial / abstained / no_valid_fusion_model이 나왔다.
+- **새 시도, 작업 `2985b7ed-ce29-444c-9b27-a2317ca992ee`(21:01 접수).** 새 임시 계정 DB·runtime·Chrome 프로필로 허가 영상 A를 1회 제출했다.
+  - 대기 화면이 나온 뒤 별도 Worker를 실행했다. MotionPhys 진행 중에 새로고침 → 로그인 → 같은 키로 재인증 → 내 작업에 같은 ID '진행 중' → 선택 → 진행 화면 복원을 다시 확인했다. 진행 화면은 단계명만 표시하고 % 숫자는 없었다.
+  - 결과: 작업 1건, 접수 영수증 1건, attempts=1. 대기 8.1초, 실행 239.6초, Worker 종료 코드 0. 작업 제한 920초는 Gate 뒤 Worker 로그로 확인했다. **finished / completed / abstained**, overall_score=null, abstention_reason=no_valid_fusion_model. 세 축 모두 completed였고 SyncNet은 167.5초(mps), raw_score·LSE는 null, included_in_fusion=false였다. API의 상태·결과·목록 조회는 모두 200이었고 목록 ID는 1개였다.
+  - 화면: '판단 보류', '작업 종료, 분석 완료, 판정 보류', 이유 '검증된 종합 판정 모델이 없습니다.'. 상세 화면은 세 축 '측정됨', 원시 점수·LSE '값 없음', 종합 점수 '값 없음'이었고 서버 상태 칸은 API 값과 같았다.
+  - 같은 기본 설정에서도 이번에는 SyncNet이 제한 안에 끝나 partial이 재현되지 않았다. timeout 정책과 설정은 바꾸지 않았다. 부분 분석 표시는 위의 이전 작업 열람으로 확인했다.
+- 점수 표시: 두 작업 모두 API overall_score가 null이었다. 결과·상세 화면도 숫자 점수나 확률을 만들지 않았다. 화면에 나온 숫자는 다음뿐이다.
+  - coverage('41초 가운데 37초', 분석한 양이며 정확도·신뢰도가 아님)
+  - 구간 시각
+  - 서버 설명문의 Gate 품질 수치
+  - MotionPhys 추적 성공률(%)
+- 결함: 이 흐름에서 수정이 필요한 결함은 찾지 못했다. 코드·테스트 변경 없음.
+- 정리:
+  - 새 시도와 사본 열람: 각각의 API·Worker·웹 서버·Chrome과 임시 디렉터리(DB, runtime, 프로필, 웹 빌드, 스크린샷, Worker 로그)를 종료·삭제했다. 두 시도 모두 runtime jobs에는 `.worker.lock`만 남아 있었고, Worker 로그에 인증값·URL이 없음을 확인했다.
+  - 이전 시도의 잔여물: 제어 프로세스는 이번 확인 중 이미 외부에서 종료돼 있었다. 고아로 남은 API 1개는 명령과 포트를 대조한 뒤 종료했다. 이전 임시 디렉터리의 Chrome 프로필·웹 빌드·`.worker.lock`·제어 스크립트는 지웠다.
+  - 보존: 증거 DB(`accounts.sqlite`, `-wal`, `-shm`)와 `registry.json`만 `/private/tmp/trinity-web-review.SKikEp/tmpolm8khbw/`에 남겼다. 이 DB에는 임시 사용자 키 digest가 들어 있으므로 필요 없어지면 지운다. 원본 A·모델·기존 DB는 변경하지 않았다.
+
+## 백로그 14 · Flutter 웹 연결
+
+- 3단계 체크포인트는 `4974828`. 변경 없는 코드·테스트에 직전 943 통과, 1 건너뜀 기록을 사용했다. 이번 세션에서 전체 pytest를 다시 실행하지 않았다.
+
+- API 스모크: `/opt/anaconda3/envs/trinity/bin/python scripts/smoke_slice.py --isolated` 통과. 임시 계정 DB·빈 레지스트리·전용 runtime 및 루프백 서버에서 미등록 ID POST 202, 별도 Worker attempts=1·종료 코드 0, 결과 GET 200 및 finished / analysis_unavailable / abstained, overall_score=null을 확인했다. 서버 종료·임시 디렉터리 정리 완료.
+
+- Flutter 서버 모드: 발급 키를 가린 입력창에서 받아 메모리에만 보관하고 내 작업 목록을 읽는다. 새로고침·401 뒤에는 키를 다시 입력한다. 401에서 진행 화면을 내려 타이머와 이전 목록을 폐기한다. 이전 작업은 커서로 더 읽고 선택한 ID의 상태·결과를 기존 화면으로 연다. 응답 유실·타임아웃 뒤 같은 주소의 재제출에는 같은 UUID v4를 사용한다. 새 분석 동작은 새 키를 쓰며 24시간이 지난 재시도는 목록 확인을 안내한다. Retry-After 동안 HTTP 발송을 보류하고, 조건부 취소는 기존 If-Match와 412 후 재조회 경로를 쓴다.
+- 앱 검증: `cd app && flutter test --no-pub --reporter expanded` **206 통과, 0 실패**. 모의 HTTP로 응답 유실 후 같은 키·다음 동작의 새 키, Retry-After 중 추가 HTTP 없음, 401 후 폴링 중단과 재인증·목록·결과 복원, 취소 202/412를 확인했다. `cd app && flutter analyze --no-pub` 문제 없음. 실제 Chrome 시연은 위 절에 따로 적었고 API 스모크와는 별개다. Chrome 검증 중 코드·테스트를 바꾸지 않아 206 통과·analyze 기록을 그대로 쓴다. 같은 코드의 `flutter build web` 릴리스 빌드는 두 번 성공했다.
+- 최종 검증 범위: Flutter 단위·위젯 테스트 206개 통과, analyze 문제 없음, 격리 API 스모크 통과, Chrome에서 허가 영상 A 실제 시연을 했다(로그인 → 1회 제출 → 별도 Worker → 새로고침·재인증 → 내 작업에서 같은 ID 복원 → 완료·상세 화면과 API 결과 대조). 부분 분석 화면은 이전 작업의 읽기 전용 DB 사본에서 확인했다.
+- 미검증: 모바일 공유 시트, 실기기와 좁은 화면(앱형 배치), 새 실행에서 SyncNet timeout이 실시간으로 나는 완료 화면, 외부 공개 전 폴링 부하·SQLite 잠금 지연, 나머지 실제 모델 스모크의 새 인증 전환. 운영 DB/runtime 전환도 하지 않았다. 4단계에서 서버 코드를 바꾸지 않아 전체 pytest는 다시 실행하지 않았다(직전 943 통과, 1 건너뜀).
+- 상태: 4단계는 `design/auth-rate-limit`에 로컬 커밋했다. push·PR·main 병합·운영 DB 전환은 하지 않았다.
+
 ## 백로그 14 3단계 · 사용자별 제한과 중복 접수 방지
 
 - `design/auth-rate-limit`, 기준 `ca1bed3`. `server/jobs/admission.py`와 분석 API에 계정별 접수·호출 제한을 연결했다. Worker 코드와 전체 대기 3건·실행 1건 정책은 그대로다.

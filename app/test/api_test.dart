@@ -27,7 +27,7 @@ void main() {
           'completed_stages': ['validating'],
         }, 200);
       });
-      final api = HttpAnalysisApi(baseUrl: 'http://localhost:8000/', client: client, clientToken: 't' * 32);
+      final api = HttpAnalysisApi(baseUrl: 'http://localhost:8000/', client: client, bearerKey: 't' * 32);
 
       final created = await api.create('https://youtu.be/abc');
       expect(created.analysisId, 'id-1');
@@ -47,13 +47,13 @@ void main() {
       ]);
       expect(jsonDecode(seen.first.body), {'url': 'https://youtu.be/abc'});
       for (final r in seen) {
-        expect(r.headers['X-Client-Token'], 't' * 32);
+        expect(r.headers['Authorization'], 'Bearer ${'t' * 32}');
       }
     });
 
     test('200 결과를 그대로 읽는다', () async {
       final body = mockResultJson(MockScenario.abstained, 'id-1');
-      final api = HttpAnalysisApi(baseUrl: 'http://localhost:8000', client: MockClient((_) async => jsonRes(body, 200)));
+      final api = HttpAnalysisApi(baseUrl: 'http://localhost:8000', bearerKey: 'test-key', client: MockClient((_) async => jsonRes(body, 200)));
       final res = (await api.result('id-1')).result!;
       expect(res.jobStatus, JobStatus.finished);
       expect(res.analysisStatus, AnalysisStatus.partial);
@@ -67,7 +67,7 @@ void main() {
     });
 
     final errors = {
-      422: ApiErrorKind.invalidUrl, 429: ApiErrorKind.queueFull, 503: ApiErrorKind.queueFull,
+      422: ApiErrorKind.invalidUrl, 429: ApiErrorKind.queueFull, 503: ApiErrorKind.server,
       401: ApiErrorKind.unauthorized, 403: ApiErrorKind.unauthorized, 404: ApiErrorKind.notFound,
       500: ApiErrorKind.server,
     };
@@ -75,7 +75,7 @@ void main() {
       test('HTTP $status → ${kind.name}', () async {
         final api = HttpAnalysisApi(
           baseUrl: 'http://localhost:8000',
-          client: MockClient((_) async => jsonRes({'detail': {'reason_code': 'some_reason'}}, status)),
+          bearerKey: 'test-key', client: MockClient((_) async => jsonRes({'detail': {'reason_code': 'some_reason'}}, status)),
         );
         await expectLater(
           api.create('x'),
@@ -89,7 +89,7 @@ void main() {
     test('연결 실패는 network이고 주소를 담지 않는다', () async {
       final api = HttpAnalysisApi(
         baseUrl: 'http://localhost:8000',
-        client: MockClient((_) async => throw http.ClientException('refused http://localhost:8000/secret?q=1')),
+        bearerKey: 'test-key', client: MockClient((_) async => throw http.ClientException('refused http://localhost:8000/secret?q=1')),
       );
       try {
         await api.status('id');
@@ -100,9 +100,37 @@ void main() {
       }
     });
 
-    test('토큰은 서버가 받는 길이(16~256)다', () {
-      final a = generateClientToken(), b = generateClientToken();
-      expect(a.length, 32);
+    test('응답 유실 뒤 같은 제출을 재시도하고 성공 후 새 동작에는 새 키를 쓴다', () async {
+      final keys = <String>[];
+      final api = HttpAnalysisApi(baseUrl: 'http://localhost', bearerKey: 'test',
+        client: MockClient((req) async {
+          keys.add(req.headers['idempotency-key']!);
+          if (keys.length == 1) throw http.ClientException('response lost');
+          return jsonRes({'analysis_id': 'id', 'job_status': 'queued'}, 202);
+        }));
+      await expectLater(api.create('url'), throwsA(isA<ApiException>()));
+      await api.create('url');
+      await api.create('url');
+      expect(keys[1], keys.first);
+      expect(keys[2], isNot(keys.first));
+    });
+
+    test('Retry-After가 유효한 동안 실제 HTTP를 보내지 않는다', () async {
+      var calls = 0;
+      final api = HttpAnalysisApi(baseUrl: 'http://localhost', bearerKey: 'test',
+        client: MockClient((req) async {
+          calls++;
+          return http.Response('{}', 429, headers: {'retry-after': '60'});
+        }));
+      for (var i = 0; i < 2; i++) {
+        await expectLater(api.status('id'), throwsA(isA<ApiException>().having((e) => e.retryAt, 'retryAt', isNotNull)));
+      }
+      expect(calls, 1);
+    });
+
+    test('새 제출 키는 UUID v4다', () {
+      final a = newSubmissionKey(), b = newSubmissionKey();
+      expect(a, matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')));
       expect(a, isNot(b));
     });
   });
