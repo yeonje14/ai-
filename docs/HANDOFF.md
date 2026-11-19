@@ -1,5 +1,26 @@
 # HANDOFF
 
+## 백로그 14 실제 Worker 수명주기 (2026-11-19)
+
+- 기준은 원격 main `8d093fbeb2a3b622c7635a58f47527ccd6c431a6`, 작업 브랜치는 `verify/worker-lifecycle-abcd`다.
+- 허가 원본 `data/research/samples/A.MOV`, 기존 Gate·MotionPhys·SyncNet 가중치와 WaveRep 체크포인트, 모델별 기존 venv를 사용했다. 시나리오마다 로컬 API 포트·레지스트리·DB·runtime을 따로 생성했다.
+- `scripts/verify_real_worker_lifecycle.py`를 확장했다. 목표 자식과 DB 단계를 확인한 뒤 개입하고, 복구 시 이전 시도 폴더에 남긴 표식 제거와 DB의 두 번째 시작 시각을 확인한다. ps 조회 오류는 검증 실패로 처리한다. 제품 코드와 정책 변경은 없다.
+- 재현 명령은 trinity 환경에서 `python scripts/verify_real_worker_lifecycle.py --new-run --only cancel-motionphys --only sigkill-gate --only sigkill-waverep --only sigkill-motionphys`다. 두 번 실행하면 Git 밖 `data/research/real-lifecycle/run-*/`에 회차별 JSON이 남는다.
+- 기존 테스트 기준선은 `python -m pytest -q` 895 통과, 0 실패, 1 건너뜀이다. 검증기 단위 테스트 `python -m pytest -q tests/test_verify_real_worker_lifecycle.py`는 기존 5건과 ps 실패 회귀 1건 모두 통과했다. 최종 전체 테스트 `python -m pytest -q -rs`는 896 통과, 0 실패, 1 건너뜀(LightGBM 미설치), 경고 1건이었다.
+- 로컬 커밋 전 리뷰에서 실패한 저장 결과를 재실행 없이 성공으로 처리하는 경로를 수정했다. A~D 기록의 supervisor·목표 자식, 복구 Worker 종료 코드, 취소 관찰 시간도 확인한다. 수정 후 관련 테스트 7개 통과, 저장된 두 회차 JSON 8건 모두 재대조 통과. 위 전체 테스트 수치는 리뷰 수정 전 실행 로그 기준이다.
+- 실제 결과 파일은 `data/research/real-lifecycle/{run-27rjrq6a,run-5cgifdde}/`에 있다. 두 회차 모두 A~D 완료 조건을 JSON과 대조했다.
+
+| 시나리오 | 실제 결과 | 회차 1 / 2 실측 |
+|---|---|---|
+| A Gate 중 SIGKILL | 2/2 복구 | lease 만료 후 0.370 / 0.153초에 재선점 |
+| B WaveRep 중 SIGKILL | 2/2 복구 | 0.004 / 0.026초에 재선점 |
+| C MotionPhys 중 SIGKILL | 2/2 복구 | 0.477 / 0.079초에 재선점 |
+| D MotionPhys 중 API 취소 | 2/2 취소 | DELETE 202 후 1.700 / 1.785초에 cancelled |
+
+- A~C는 6건 모두 첫 시도 supervisor·목표 자식의 종료와 빈 프로세스 그룹을 확인했다. 두 번째 시도에서 이전 폴더 표식이 사라졌고 각각 finished / completed / abstained, 세 축 completed, signal·physics raw_score 및 overall_score·verdict_label은 null, 보류 원인은 no_valid_fusion_model이었다. D는 attempts=1, 축 결과와 점수 없이 cancelled였다.
+- 개입 순간의 스냅샷에는 활성 FFmpeg가 없었다. 복구 시도에서는 실제 FFmpeg를 관찰했고 종료 후 관찰한 후손이 모두 사라졌다. 8건 모두 작업 종료 후 1초 재확인에서 작업 폴더·작업 프로세스가 없었고 실행기 종료 뒤 전용 runtime이 비었다. 실제 축 실패를 별도로 유발하는 사례는 이번 8건에 없었다.
+- 다음 작업은 활성 FFmpeg 중 개입을 직접 확인할 필요가 있을 때 그 시점에 맞춘 별도 검증이다. 백로그 14의 정식 인증·rate limit은 별도 작업이다.
+
 ## 설계 문서 상태 갱신 (2026-11-19, 브랜치 `docs/design-status-refresh`)
 
 - 한 일(문서만, 코드 변경 없음): `docs/DESIGN.md`
