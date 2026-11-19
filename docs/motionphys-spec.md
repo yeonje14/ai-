@@ -119,6 +119,7 @@ MediaPipe는 얼굴 위치와 특징점을 주는 도구이지 딥페이크 탐�
   - 확인한 것: MediaPipe 코드 저장소(`google-ai-edge/mediapipe`)의 LICENSE는 Apache License 2.0이다. Face Landmarker 안내 페이지(`ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker`)의 꼬리말은 페이지 내용이 CC BY 4.0, 코드 예시가 Apache 2.0이라고 적는다(2026-11-14 확인).
   - 확인하지 못한 것: **모델 파일 자체의 라이선스와 사용 제한.** 위 두 문구는 코드와 문서에 대한 것이고, 모델 파일에 적용된다는 문장은 찾지 못했다. 모델 카드(PDF)는 읽지 않았다.
   - 그래서 모델 파일은 저장소에 넣지 않고 재배포하지 않는다. 졸업작품 범위에서 로컬 실행에만 쓴다. 결과를 공개하거나 배포하기 전에 모델 카드를 읽고 이 절을 고친다.
+  - → 2026-11-19 모델 카드를 읽었다: Face Landmarker 묶음의 카드 세 개(BlazeFace 단거리, Face Mesh V2, Blendshape V2)가 모두 "LICENSED UNDER Apache License, Version 2.0"이다. 근거 URL과 사용 범위 밖 항목은 `docs/licenses.md`. 파일은 그대로 저장소에 넣지 않는다.
 
 ## 8. 환경
 

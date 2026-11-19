@@ -845,3 +845,12 @@ job <analysis_id> axis <signal|physics|alignment> device=<cpu|mps|gpu|unknown> t
 - 시도별 누적(재선점 뒤 2차 기록)은 실제 SIGKILL로 확인하지 않았다. 테스트(`tests/test_run_info_record.py`)로 확인했다.
 
 **테스트:** `tests/test_device_state.py`(6, 실제 프로브 1 포함), `tests/test_axis_device_used.py`(8), `tests/test_run_info_record.py`(7), `tests/test_worker_device_log.py`(8). 실제 영상 MotionPhys 테스트에 `device_used == "cpu"` 단언을 더했다. `tests/conftest.py`가 Worker 테스트에서 프로브 자식 프로세스를 띄우지 않게 바꾼다.
+
+## 오디오 트랙 선택 확인 (2026-11-19, 브랜치 `chore/small-checks`)
+
+상세 표와 합성 실험은 `docs/gate.md` "오디오 트랙 선택 확인". SyncNet 쪽 요약이다. **코드 변경 없음.**
+
+- SyncNet은 `research/syncnet/infer_segments.py::cut_segment`에서 `-map 0:v:0 -map 0:a:0`으로 **첫 오디오 스트림**을 16kHz 모노 PCM으로 잘라 클립(ffv1 + pcm_s16le, 오디오 1개)을 만든다. upstream `syncnet_pipeline.py::_extract_audio_from_video`는 `-map` 없이 그 클립을 읽지만 오디오가 하나라 선택의 여지가 없다.
+- A~E(트랙: index 1 aac 2ch default, index 2 apac 4ch): `0:a:0` = index 1. `cut_segment`를 SyncNet venv에서 그대로 불러 자른 10~14초 클립의 오디오가 원본 index 1의 같은 시간 창과 PCM sha256까지 같았다(다섯 파일). Gate(FFmpeg 자동 선택)와 압축 에뮬레이터(첫 AAC)도 index 1이라 **세 경로가 같은 트랙**이다.
+- 다른 트랙 구성에서는 어긋날 수 있다: 첫 오디오가 default가 아니고 뒤 트랙이 default면 Gate는 뒤 트랙, SyncNet은 첫 트랙을 읽는다(합성 c2·c5). 그러면 Gate가 한 트랙의 발화로 고른 구간을 SyncNet이 다른 트랙으로 재서, 동기 지표가 원래 음성과 무관해진 채 `completed`가 될 수 있다.
+- 고치는 방안(제안만): 오디오 index를 한 함수로 한 번 정해 Gate와 SyncNet 요청 JSON에 같이 넘기고 `cut_segment`가 `-map 0:<index>`를 쓴다. 세부는 `docs/gate.md` 해당 절.

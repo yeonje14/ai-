@@ -150,14 +150,13 @@ flowchart TD
 **데이터 없이 할 수 있는 일**
 - 세션마다 처리 시간이 크게 달라지는 원인 조사, Worker 안 SyncNet의 실제 장치 기록
 - 실제 영상으로 단계 제한시간·실제 모델 실행 중 강제 종료(SIGKILL)·MPS 취소 검증
-- MotionPhys LightGBM margin을 실제 가상환경 경로로 확인
-- 원본 영상의 여러 오디오 트랙 중 Gate·SyncNet이 어느 트랙을 쓰는지 확인
 - 정식 인증·사용자별 요청 한도(rate limit) (대기 3건 초과 시 429는 구현됨)
 - Flutter 공유 시트 + iOS/Android 빌드
-- 라이선스 표 (SyncNet·S3FD 가중치, MediaPipe, webrtcvad, 폰트)
 - HiDF 호환성 점검 (진짜 10 + 가짜 10: 해상도·오디오·Gate·WaveRep)
 
 **결정 대기**
+- 오디오 트랙 선택을 Gate·SyncNet·압축 에뮬레이터에서 한 함수로 통일할지(제안, `docs/gate.md` "오디오 트랙 선택 확인")
+- 이 저장소 자체의 라이선스(`docs/licenses.md`)
 - 시연 방식: 테스트 URL(권장) vs 비공개 YouTube 업로드
 - Deepfake-Eval-2024 재신청
 - 앱에 판정 라벨 노출 시점
