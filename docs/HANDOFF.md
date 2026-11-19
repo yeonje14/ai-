@@ -1,5 +1,17 @@
 # HANDOFF
 
+## 백로그 14 2단계 · API 인증과 작업 소유권
+
+- 기준은 `design/auth-rate-limit`의 `f3bfb11`. 분석 POST, 목록·상태·결과 GET, DELETE에 발급된 개인 Bearer 키를 적용했다. API 시작 시 1단계의 계정 DB인지 읽기 전용으로 확인한다. 누락된 DB를 만들거나 레거시 DB를 변경하지 않는다. Worker는 기존 코드로 새 DB 작업을 선점한다.
+- 목록·상태·결과는 BEGIN 뒤 첫 자격 조회에서 정해진 읽기 스냅샷으로 사용자와 작업을 조회한다. POST와 DELETE는 BEGIN IMMEDIATE 성공 후 현재 시각으로 자격을 판정한다. 같은 연결에서 POST는 전체 대기 상한 확인·고정 user_id 저장, DELETE는 소유권 → If-Match → 취소 접수 또는 종료 기록 정리를 수행한다. 응답 전에 커밋한다. SQLite 잠금 시간 초과는 503, 인증 실패는 Bearer challenge가 있는 동일 401이며 사용자 소유권 불일치는 없는 작업과 같은 404다.
+- 목록 응답은 `{items, next_cursor}`. 생성 시각·ID 내림차순, 기본/최대 20건. 다음 요청에 next_cursor를 cursor로 보내며 커서는 접근 권한을 부여하지 않는다. 모든 페이지에서 user_id를 다시 검사한다. 재발급 후 같은 목록을 복구한다.
+- 격리 재현 명령은 trinity 환경에서 `python -m pytest -q tests/test_account_api.py::test_issued_key_to_separate_worker_result`. 테스트가 만든 전용 계정 DB·runtime·레지스트리에서 실제 발급 키로 TestClient를 통해 접수하고 별도 `python -m server.jobs.worker --drain` 프로세스를 실행했다. 미등록 합성 ID 한 건이 attempts=1, finished / analysis_unavailable / abstained, overall_score=null로 종료됐다. 실운영 경로나 데이터셋은 전환 리허설의 입력으로 쓰지 않았다.
+- 회귀 명령은 `python -m pytest -q tests/test_account_api.py tests/test_api.py tests/test_analysis_delete.py tests/test_accounts.py tests/test_run_info_record.py tests/test_cors_and_label.py`(94 통과), `python -m pytest -q tests/test_job_lifecycle.py`(18 통과). 동일 시각 페이지 경계, 외부 사용자 커서, 삭제·재발급, 잠금 대기 중 만료/폐기, 읽는 도중 폐기, 기존 202/204/412 경합을 포함한다.
+- 최종 검증: Gate 의존성 미로딩 테스트에 임시 계정 DB fixture를 연결하고 subprocess에 `TRINITY_DB_PATH`를 전달했다. 기존 5개 모듈 미로딩 단언과 서버의 계정 DB 사전 초기화 요구를 유지했다. `python -m pytest -q tests/test_gate_segments.py::test_api_server_does_not_import_gate_dependencies` 1 통과. 현재 작업 트리에서 `/opt/anaconda3/envs/trinity/bin/python -m pytest -q -rs` 실행 결과 **935 통과, 0 실패, 1 건너뜀**(255.35초). LightGBM 미설치로 tests/test_motionphys_train.py 1건 건너뜀, Starlette TestClient 의존성 사용 중단 경고 1건. ps 권한 오류 없음.
+- 로컬 커밋 전 최종 리뷰에서 읽기 스냅샷과 쓰기 잠금 후 인증, 작업별 소유자 필터 및 커서 경계, 키 재발급, 동일 404, ETag와 취소·삭제 분기를 코드 및 회귀 테스트와 대조했다. Worker 선점·복구 로직과 Gate import 테스트의 기존 다섯 모듈 단언도 보존됐다. 2단계 범위에서 수정이 필요한 결함을 발견하지 않았다. 이번 리뷰는 코드·테스트를 변경하지 않아 pytest를 재실행하지 않았으며 위 935 통과는 직전 전체 실행 결과다.
+- 호환 상태: 현행 Flutter 서버 모드와 smoke_slice 등 구 헤더 클라이언트는 새 분석 API에서 401이다. 임시 빈 DB로 직접 서버를 시작하는 smoke_gate_worker, smoke_cancel_worker, verify_real_worker_lifecycle도 DB 사전 초기화·별도 계정 발급이 필요하다. 4단계에서 클라이언트를 전환한다. 이번 범위에는 Flutter 브라우저/실기기 및 기존 실제 모델 스모크의 새 인증 종단 검증이 없다.
+- 다음 3단계는 사용자별 API 호출 카운터와 접수 영수증부터 추가한다. 계정/쓰기 잠금 안에서 중복 키 확인 → 개인 활성·시간창 → 기존 전체 상한 → 작업·영수증 동시 저장을 연결한다. 현재 적용 중인 용량 제한은 기존 전체 대기 상한이다. 실운영 DB 전환과 구 DB 보존 종료일은 별도 결정이다.
+
 ## 백로그 14 계정·자격 증명 1단계 (2026-11-19)
 
 - `design/auth-rate-limit`, 기준 커밋 `a19aa20`. 사용자 승인으로 DESIGN §9·12.2·14.1·15.3에 전환 후 계약, 인증·제한 초기값과 보존 결정을 반영했다. 아래 검토 대기 기록의 세 결정은 승인됐다.

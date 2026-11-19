@@ -1,14 +1,13 @@
 """jobs.run_info_json: API가 읽지 않는 실행 기록(축별 장치·열 상태). 시도 번호별로 쌓인다."""
-import hashlib
 import json
 import sqlite3
 
 from server.jobs import worker
 from server.jobs.queue import JobQueue
 from server.schemas import AnalysisResult, dump
-from tests.conftest import REGISTERED_ID, TOKEN
+from tests.conftest import REGISTERED_ID
 
-OWNER = hashlib.sha256(TOKEN.encode()).hexdigest()
+OWNER = "test-user"
 AXES_1 = {"signal": {"device_used": "mps", "thermal_state_start": "nominal", "thermal_state_end": "fair"}}
 AXES_2 = {"signal": {"device_used": "cpu", "thermal_state_start": "fair", "thermal_state_end": "fair"}}
 
@@ -92,7 +91,8 @@ def _finish(queue, aid, worker_id):
     assert queue.finish(aid, worker_id, result, ["validating"])
 
 
-def test_api_responses_never_include_run_info(client, queue):
+def test_api_responses_never_include_run_info(client):
+    queue = client.app.state.queue
     with_record = client.post("/api/v1/analyses", json={"url": f"https://youtu.be/{REGISTERED_ID}"}).json()["analysis_id"]
     queue.claim("w1", 30, 2)
     queue.save_run_info(with_record, "w1", 1, AXES_1)

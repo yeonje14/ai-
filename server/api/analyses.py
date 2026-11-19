@@ -1,17 +1,22 @@
 """분석 작업 등록·조회 (docs/DESIGN.md §9). 핸들러는 큐에 넣고 읽기만 한다. 분석하지 않는다."""
 
-from __future__ import annotations
-
-import hashlib
+import math
+import re
+import sqlite3
+from contextlib import contextmanager
+from uuid import UUID
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.security import HTTPBearer
 from fastapi.responses import JSONResponse
 
+from server import accounts
 from server.ingest.youtube_url import InvalidYouTubeUrl, parse_youtube_url
-from server.jobs.queue import Job, JobQueue, QueueFull, PreconditionFailed, lifecycle_etag
+from server.jobs.queue import Job, QueueFull, PreconditionFailed, lifecycle_etag
 from server.jobs.runtime import remove_job_dir
 from server.schemas import (
+    AnalysisListResponse,
     AnalysisResult,
     AnalysisStatusResponse,
     CreateAnalysisRequest,
@@ -20,28 +25,46 @@ from server.schemas import (
     dump,
 )
 
+
+def unauthorized() -> HTTPException:
+    return HTTPException(401, detail={"reason_code": "authentication_required"},
+                         headers={"WWW-Authenticate": "Bearer"})
+
+
+class AccountBearer(HTTPBearer):
+    def __call__(self, request: Request) -> str:
+        values = request.headers.getlist("authorization")
+        if "x-client-token" in request.headers or len(values) != 1:
+            raise unauthorized()
+        match = re.fullmatch(r"Bearer +([A-Za-z0-9_-]{43})", values[0], re.IGNORECASE | re.ASCII)
+        if not match:
+            raise unauthorized()
+        return match[1]
+
+
+bearer_key = AccountBearer()
 router = APIRouter(prefix="/api/v1/analyses", tags=["analyses"])
 
-_TOKEN_MIN, _TOKEN_MAX = 16, 256
+
+@contextmanager
+def authorized(request: Request, key: str, *, write: bool = False):
+    try:
+        with accounts.connection(request.app.state.settings.db_path, write=write) as conn:
+            conn.row_factory = sqlite3.Row
+            owner = accounts.identify_in(conn, key)
+            if owner is None:
+                raise unauthorized()
+            yield conn, owner
+    except sqlite3.OperationalError as exc:
+        primary_code = getattr(exc, "sqlite_errorcode", 0) & 0xff
+        if primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            raise HTTPException(503, detail={"reason_code": "temporarily_unavailable"}) from None
+        raise
 
 
-def owner_hash(x_client_token: Optional[str] = Header(default=None)) -> str:
-    """최소한의 작업 소유권 확인. 정식 인증은 백로그 14번에서 바꾼다.
-
-    토큰 원문은 저장하거나 로그에 남기지 않고 해시만 쓴다.
-    """
-    if x_client_token is None or not (_TOKEN_MIN <= len(x_client_token) <= _TOKEN_MAX):
-        raise HTTPException(status_code=401, detail={"reason_code": "client_token_required"})
-    return hashlib.sha256(x_client_token.encode("utf-8")).hexdigest()
-
-
-def _queue(request: Request) -> JobQueue:
-    return request.app.state.queue
-
-
-def _owned_job(analysis_id: str, queue: JobQueue, owner: str) -> Job:
-    # 다른 사용자의 작업은 없는 작업과 구별되지 않게 404로 답한다.
-    job = queue.get(analysis_id, owner)
+def _owned_job(request: Request, analysis_id: str, key: str) -> Job:
+    with authorized(request, key) as (conn, owner):
+        job = request.app.state.queue.get_in(conn, analysis_id, owner)
     if job is None:
         raise HTTPException(status_code=404, detail={"reason_code": "analysis_not_found"})
     return job
@@ -51,29 +74,57 @@ def _owned_job(analysis_id: str, queue: JobQueue, owner: str) -> Job:
 def create_analysis(
     body: CreateAnalysisRequest,
     request: Request,
-    owner: str = Depends(owner_hash),
+    key: str = Depends(bearer_key),
 ) -> CreateAnalysisResponse:
-    try:
-        parsed = parse_youtube_url(body.url)
-    except InvalidYouTubeUrl:
-        # 입력 URL을 응답이나 로그에 되돌려 쓰지 않는다.
-        raise HTTPException(status_code=422, detail={"reason_code": "invalid_youtube_url"})
-    try:
-        analysis_id = _queue(request).enqueue(
-            parsed.video_id, owner, request.app.state.settings.max_queued
-        )
-    except QueueFull:
-        raise HTTPException(status_code=429, detail={"reason_code": "queue_full"})
+    with authorized(request, key, write=True) as (conn, owner):
+        try:
+            parsed = parse_youtube_url(body.url)
+        except InvalidYouTubeUrl:
+            raise HTTPException(422, detail={"reason_code": "invalid_youtube_url"}) from None
+        try:
+            analysis_id = request.app.state.queue.enqueue_in(
+                conn, parsed.video_id, owner, request.app.state.settings.max_queued
+            )
+        except QueueFull:
+            raise HTTPException(429, detail={"reason_code": "queue_full"}) from None
     return CreateAnalysisResponse(
         analysis_id=analysis_id, youtube_video_id=parsed.video_id, job_status="queued"
     )
 
 
+@router.get("", response_model=AnalysisListResponse)
+def list_analyses(request: Request, limit: int = Query(20, ge=1, le=20),
+                  cursor: Optional[str] = None, key: str = Depends(bearer_key)):
+    with authorized(request, key) as (conn, owner):
+        params = [owner]
+        boundary = ""
+        if cursor is not None:
+            try:
+                stamp, aid = cursor.split("~")
+                created = float(stamp)
+                if not math.isfinite(created) or str(UUID(aid)) != aid:
+                    raise ValueError
+            except ValueError:
+                raise HTTPException(422, detail={"reason_code": "invalid_cursor"}) from None
+            boundary = " AND (created_at, analysis_id) < (?, ?)"
+            params.extend((created, aid))
+        rows = conn.execute(
+            "SELECT analysis_id, created_at, job_status FROM jobs WHERE user_id=?" + boundary
+            + " ORDER BY created_at DESC, analysis_id DESC LIMIT ?", (*params, limit + 1)
+        ).fetchall()
+    items = [dict(row) for row in rows[:limit]]
+    next_cursor = None
+    if len(rows) > limit:
+        last = items[-1]
+        next_cursor = f"{last['created_at']}~{last['analysis_id']}"
+    return {"items": items, "next_cursor": next_cursor}
+
+
 @router.get("/{analysis_id}", response_model=AnalysisStatusResponse)
 def get_analysis(
-    analysis_id: str, request: Request, response: Response, owner: str = Depends(owner_hash)
+    analysis_id: str, request: Request, response: Response, key: str = Depends(bearer_key)
 ) -> AnalysisStatusResponse:
-    job = _owned_job(analysis_id, _queue(request), owner)
+    job = _owned_job(request, analysis_id, key)
     response.headers["ETag"] = lifecycle_etag(job)
     response.headers["Cache-Control"] = "no-store"
     return AnalysisStatusResponse(
@@ -90,9 +141,9 @@ def get_analysis(
     responses={202: {"model": PendingResultResponse, "description": "작업이 아직 끝나지 않음"}},
 )
 def get_analysis_result(
-    analysis_id: str, request: Request, owner: str = Depends(owner_hash)
+    analysis_id: str, request: Request, key: str = Depends(bearer_key)
 ):
-    job = _owned_job(analysis_id, _queue(request), owner)
+    job = _owned_job(request, analysis_id, key)
     if job.job_status == "finished" and job.result is not None:
         return AnalysisResult.model_validate(job.result)
     if job.job_status in ("queued", "processing"):
@@ -113,14 +164,15 @@ def get_analysis_result(
     responses={204: {"description": "종료 작업 삭제"}, 412: {"description": "수명주기 조건 불일치"}},
 )
 def delete_analysis(
-    analysis_id: str, request: Request, owner: str = Depends(owner_hash),
-    if_match: Optional[str] = Header(default=None),
+    analysis_id: str, request: Request,
+    if_match: Optional[str] = Header(default=None), key: str = Depends(bearer_key),
 ):
     try:
-        code, job = _queue(request).cancel_or_delete(
-            analysis_id, owner, if_match,
-            lambda aid: remove_job_dir(request.app.state.settings.runtime_dir, aid),
-        )
+        with authorized(request, key, write=True) as (conn, owner):
+            code, job = request.app.state.queue.cancel_or_delete(
+                conn, analysis_id, owner, if_match,
+                lambda aid: remove_job_dir(request.app.state.settings.runtime_dir, aid),
+            )
     except PreconditionFailed:
         return Response(status_code=412, headers={"Cache-Control": "no-store"})
     except OSError:

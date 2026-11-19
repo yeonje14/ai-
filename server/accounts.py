@@ -127,12 +127,17 @@ def revoke(path: Path, user_id: str, *, suspend: bool = False) -> None:
 
 def identify(path: Path, key: str) -> str | None:
     with connection(path, write=False) as conn:
-        row = conn.execute(
-            "SELECT c.user_id FROM credentials c JOIN users u ON u.user_id=c.user_id "
-            "WHERE c.digest=? AND c.revoked_at IS NULL AND u.disabled_at IS NULL AND c.expires_at>?",
-            (_digest(key), time.time()),
-        ).fetchone()
-        return row[0] if row else None
+        return identify_in(conn, key)
+
+
+def identify_in(conn: sqlite3.Connection, key: str) -> str | None:
+    """호출자의 읽기 스냅샷 또는 쓰기 잠금 안에서 현재 자격을 확인한다."""
+    row = conn.execute(
+        "SELECT c.user_id FROM credentials c JOIN users u ON u.user_id=c.user_id "
+        "WHERE c.digest=? AND c.revoked_at IS NULL AND u.disabled_at IS NULL AND c.expires_at>?",
+        (_digest(key), time.time()),
+    ).fetchone()
+    return row[0] if row else None
 
 
 def main(argv=None) -> int:

@@ -1,5 +1,4 @@
 """종료 상태는 자식 종료·임시 폴더 정리가 완료됐다는 뜻이어야 한다."""
-import hashlib
 import sqlite3
 import subprocess
 import sys
@@ -10,9 +9,9 @@ from dataclasses import replace
 import pytest
 
 from server.jobs import worker, runtime
-from tests.conftest import REGISTERED_ID, TOKEN
+from tests.conftest import REGISTERED_ID
 
-OWNER = hashlib.sha256(TOKEN.encode()).hexdigest()
+OWNER = "test-user"
 
 
 def seed_folder(settings, aid):
@@ -179,8 +178,9 @@ main([])
 
 @pytest.mark.parametrize('engine', ['gate', 'model'])
 def test_api_cancel_stops_child_and_descendant_before_cancelled(
-    client, queue, registry, settings, monkeypatch, tmp_path, engine,
+    client, registry, settings, monkeypatch, tmp_path, engine,
 ):
+    queue = client.app.state.queue
     import json
     from server.gate import runner
     from server.axes.signal import waverep

@@ -120,13 +120,13 @@ def test_unknown_job_is_404(client):
 
 def test_other_owner_gets_404(client):
     aid = _submit(client, REGISTERED_ID)["analysis_id"]
-    other = {"X-Client-Token": OTHER_TOKEN}
+    other = {"Authorization": f"Bearer {OTHER_TOKEN}"}
     assert client.get(f"/api/v1/analyses/{aid}", headers=other).status_code == 404
     assert client.get(f"/api/v1/analyses/{aid}/result", headers=other).status_code == 404
 
 
 def test_missing_token_is_401(client):
-    client.headers.pop("X-Client-Token")
+    client.headers.pop("Authorization")
     r = client.post(
         "/api/v1/analyses", json={"url": f"https://youtu.be/{REGISTERED_ID}"}
     )

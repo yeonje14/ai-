@@ -66,8 +66,9 @@ def _to_job(row: sqlite3.Row) -> Job:
 
 
 class JobQueue:
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, *, registered_users: bool = False):
         self.db_path = Path(db_path)
+        self.owner_column = "user_id" if registered_users else "owner_hash"
 
     def init_schema(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,27 +100,33 @@ class JobQueue:
     # ---- API 쪽 -------------------------------------------------------
 
     def enqueue(self, youtube_video_id: str, owner_hash: str, max_queued: int) -> str:
-        analysis_id = str(uuid.uuid4())
         with self._tx() as conn:
-            (queued,) = conn.execute(
-                "SELECT COUNT(*) FROM jobs WHERE job_status = 'queued'"
-            ).fetchone()
-            if queued >= max_queued:
-                raise QueueFull()
-            conn.execute(
-                "INSERT INTO jobs (analysis_id, owner_hash, youtube_video_id,"
-                " job_status, created_at) VALUES (?, ?, ?, 'queued', ?)",
-                (analysis_id, owner_hash, youtube_video_id, time.time()),
-            )
+            return self.enqueue_in(conn, youtube_video_id, owner_hash, max_queued)
+
+    def enqueue_in(self, conn: sqlite3.Connection, youtube_video_id: str, owner: str, max_queued: int) -> str:
+        analysis_id = str(uuid.uuid4())
+        (queued,) = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE job_status = 'queued'"
+        ).fetchone()
+        if queued >= max_queued:
+            raise QueueFull()
+        conn.execute(
+            f"INSERT INTO jobs (analysis_id, {self.owner_column}, youtube_video_id,"
+            " job_status, created_at) VALUES (?, ?, ?, 'queued', ?)",
+            (analysis_id, owner, youtube_video_id, time.time()),
+        )
         return analysis_id
 
     def get(self, analysis_id: str, owner_hash: str) -> Optional[Job]:
         """소유자가 다르면 없는 작업과 똑같이 None이다."""
         with self._tx() as conn:
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE analysis_id = ? AND owner_hash = ?",
-                (analysis_id, owner_hash),
-            ).fetchone()
+            return self.get_in(conn, analysis_id, owner_hash)
+
+    def get_in(self, conn: sqlite3.Connection, analysis_id: str, owner: str) -> Optional[Job]:
+        row = conn.execute(
+            f"SELECT * FROM jobs WHERE analysis_id = ? AND {self.owner_column} = ?",
+            (analysis_id, owner),
+        ).fetchone()
         return _to_job(row) if row else None
 
     def request_cancel(self, analysis_id: str, owner_hash: str) -> bool:
@@ -127,41 +134,40 @@ class JobQueue:
         with self._tx() as conn:
             cur = conn.execute(
                 "UPDATE jobs SET cancel_requested = 1"
-                " WHERE analysis_id = ? AND owner_hash = ?"
+                f" WHERE analysis_id = ? AND {self.owner_column} = ?"
                 " AND job_status IN ('queued', 'processing')",
                 (analysis_id, owner_hash),
             )
             return cur.rowcount == 1
 
     def cancel_or_delete(
-        self, analysis_id: str, owner_hash: str, if_match: Optional[str],
+        self, conn: sqlite3.Connection, analysis_id: str, owner_hash: str, if_match: Optional[str],
         cleanup: Callable[[str], None],
     ) -> tuple[int, Optional[Job]]:
         """권한·조건·상태 분기와 쓰기를 하나의 트랜잭션으로 처리한다.
 
         폴더 정리가 실패하면 행을 지우지 않는다. 다음 DELETE에서 재시도할 수 있다.
         """
-        with self._tx() as conn:
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE analysis_id = ? AND owner_hash = ?",
-                (analysis_id, owner_hash),
-            ).fetchone()
-            if row is None:
-                return 404, None
-            job = _to_job(row)
-            if if_match is not None and if_match.strip() != "*":
-                # 생성한 ETag에는 쉼표가 없고 weak tag는 strong 비교에 일치하지 않는다.
-                if lifecycle_etag(job) not in [tag.strip() for tag in if_match.split(",")]:
-                    raise PreconditionFailed()
-            if job.job_status in ("queued", "processing"):
-                conn.execute(
-                    "UPDATE jobs SET cancel_requested = 1 WHERE analysis_id = ? AND cancel_requested = 0",
-                    (analysis_id,),
-                )
-                return 202, job
-            cleanup(analysis_id)
-            conn.execute("DELETE FROM jobs WHERE analysis_id = ?", (analysis_id,))
-            return 204, None
+        row = conn.execute(
+            f"SELECT * FROM jobs WHERE analysis_id = ? AND {self.owner_column} = ?",
+            (analysis_id, owner_hash),
+        ).fetchone()
+        if row is None:
+            return 404, None
+        job = _to_job(row)
+        if if_match is not None and if_match.strip() != "*":
+            # 생성한 ETag에는 쉼표가 없고 weak tag는 strong 비교에 일치하지 않는다.
+            if lifecycle_etag(job) not in [tag.strip() for tag in if_match.split(",")]:
+                raise PreconditionFailed()
+        if job.job_status in ("queued", "processing"):
+            conn.execute(
+                "UPDATE jobs SET cancel_requested = 1 WHERE analysis_id = ? AND cancel_requested = 0",
+                (analysis_id,),
+            )
+            return 202, job
+        cleanup(analysis_id)
+        conn.execute("DELETE FROM jobs WHERE analysis_id = ?", (analysis_id,))
+        return 204, None
 
     # ---- Worker 쪽 ----------------------------------------------------
 
