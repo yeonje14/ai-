@@ -324,3 +324,66 @@ Gate 적합 구간은 0.867–5.100, 5.790–9.734, 22.110–29.940,
 
 재현할 때는 위 파일을 Git 밖 레지스트리에 등록하고 확인된 경로를
 `python scripts/run_gate.py <허가 영상 경로>`에 넘긴다.
+
+## 오디오 트랙 선택 확인 (2026-11-19, 브랜치 `chore/small-checks`)
+
+원본 MOV A~E는 오디오 트랙이 두 개다. Gate(webrtcvad)와 SyncNet이 어느 트랙을 읽는지, 압축 에뮬레이터(첫 AAC 트랙 선택, `training/emulator/video.py::select_audio_stream`)와 같은지 코드와 ffprobe로 확인했다. **코드 변경 없음.** FFmpeg 8.0.1(Homebrew).
+
+**A~E의 트랙 구성 (ffprobe, 다섯 파일 모두 같은 구성)**
+
+| index | 종류 | 코덱(태그) | 채널 | default |
+|---:|---|---|---:|---:|
+| 0 | video | hevc (hvc1) | — | 1 |
+| 1 | audio | aac (mp4a) | 2 | 1 |
+| 2 | audio | unknown (apac) | 4 | 0 |
+| 3~8 | data | mebx(메타데이터) | — | 1 |
+
+apac은 이 FFmpeg에 디코더가 없다(`-map 0:2`로 디코딩하면 "no decoder found", 종료 코드 234).
+
+**각 경로가 트랙을 고르는 방식 (코드)**
+
+| 경로 | 위치 | 트랙 지정 |
+|---|---|---|
+| Gate VAD | `server/gate/vad.py::decode_pcm` | `-map` 없음 → FFmpeg 자동 선택 |
+| Gate 오디오 유무 | `server/gate/probe.py::parse_probe` | 오디오 스트림이 하나라도 있으면 `has_audio` (디코딩 가능 여부는 안 봄) |
+| SyncNet 구간 절단 | `research/syncnet/infer_segments.py::cut_segment` | `-map 0:a:0`(첫 오디오 스트림) → 클립에는 오디오 1개만 남고, upstream `_extract_audio_from_video`는 그 하나를 읽는다 |
+| 압축 에뮬레이터 | `training/emulator/video.py::select_audio_stream` | 첫 `aac` 트랙을 `-map 0:<index>`로 복사(`-c:a copy`), 결과 mp4에는 오디오 1개 |
+
+Gate와 SyncNet은 Worker가 작업 폴더에 복사한 같은 파일(`server/jobs/worker.py`의 `media_path`)을 받는다. WaveRep·MotionPhys는 오디오를 읽지 않는다.
+
+**A~E 실측: 세 경로 모두 index 1(AAC 스테레오)을 읽는다.**
+
+- Gate 명령 그대로(`-v info`)의 Stream mapping: 다섯 파일 모두 `Stream #0:1 -> #0:0 (aac (native) -> pcm_s16le (native))`.
+- 16kHz 모노 PCM 전체의 sha256: Gate 명령(자동 선택) = `-map 0:a:0` = `-map 0:1`, 다섯 파일 모두 같다.
+- SyncNet: `cut_segment`를 SyncNet venv에서 그대로 불러 10~14초를 자른 클립은 ffv1 영상 + pcm_s16le 16kHz 모노 1개다. upstream 추출 명령으로 읽은 PCM이 원본 index 1의 같은 시간 창과 sha256까지 같다(다섯 파일). 클립은 확인 뒤 지웠다.
+- 에뮬레이터: 저장된 A·B·E 변형 36개(`data/research/robustness-selfvideo/variants/`, 프로파일 12개씩)가 모두 오디오 1개(aac)이고, AAC 패킷(`-c copy -f data`) sha256이 원본 index 1과 같다. 사이드카 JSON의 `audio.selected.index`도 1이다. C·D 변형은 저장된 것이 없어 확인하지 않았다(같은 트랙 구성이라 같은 결과로 예상하나 미확인).
+- 로컬 MAVOS-DD 표본 2,160개는 모두 오디오가 AAC 1개다(ffprobe로 스트림 수만 셈). 다른 데이터셋은 로컬 파일이 없어 확인 필요.
+
+**트랙 구성이 다르면 어긋난다 (합성 사인파 영상, 실제 미디어 아님)**
+
+트랙마다 다른 주파수(440Hz·880Hz)를 넣은 3초 MOV를 만들어 같은 방식(PCM 해시)으로 어느 트랙을 읽는지 봤다. 스크립트는 세션 임시 폴더에서만 썼다.
+
+| 경우 | 트랙 1 | 트랙 2 | Gate | SyncNet | 에뮬레이터 |
+|---|---|---|---|---|---|
+| c1 (A~E와 같은 모양) | aac 2ch, default | aac 4ch | 1 | 1 | 1 |
+| c2 | aac 2ch | aac 4ch, default | **2** | 1 | 1 |
+| c3 | pcm 2ch, default | aac 2ch | 1 | 1 | **2** |
+| c5 | pcm 2ch | aac 4ch, default | 2 | **1** | 2 |
+| c4 (둘 다 default 아님으로 만듦) | aac 2ch | aac 2ch | 1 | 1 | 1 |
+
+c4는 MOV muxer가 첫 트랙을 default로 표시했다. 관찰상 FFmpeg 자동 선택은 default 표시를 채널 수보다 앞세웠다(c1에서 4ch가 아닌 default 2ch를 고름). FFmpeg 문서의 "채널이 가장 많은 스트림" 설명만으로는 이 결과가 나오지 않는다. 내부 우선순위는 소스를 보지 않아 **확인 필요**.
+
+디코딩할 수 없는 오디오(apac)만 있는 파일(A에서 2초 영상 + index 2만 복사해 만든 임시 파일, 확인 뒤 삭제)은 `has_audio=True`인데 `decode_pcm`이 `AudioDecodeError`(ffmpeg 234)를 내 Gate가 `media_unreadable`로 끝난다. 영상은 읽을 수 있는데 "미디어를 읽을 수 없음"으로 보고되는 셈이다.
+
+**영향 (A~E와 로컬 MAVOS-DD에는 해당 없음)**
+
+1. Gate와 SyncNet이 다른 트랙을 읽으면(c2·c5) Gate가 한 트랙의 발화로 고른 구간을 SyncNet이 다른 트랙(해설·더빙·무음 트랙 등)으로 잰다. 동기 지표가 원래 음성과 무관해지고, 축 상태는 `completed`로 남을 수 있다.
+2. 에뮬레이터가 다른 트랙을 고르면(c3·c5) 원본 행과 압축 파생 행의 오디오가 달라진다. 변형 mp4에는 오디오가 하나뿐이라 그 안에서는 세 경로가 같지만, 원본과 변형의 SyncNet·Gate 차이에 압축 말고 트랙 차이가 섞인다.
+3. 디코딩할 수 없는 오디오만 있으면 `media_unreadable`이다(위 문단).
+
+**고치는 방안 (제안만, 제품 동작이 바뀌므로 구현하지 않음)**
+
+- 권장: 오디오 트랙을 **한 번, 한 함수로** 고른다. 예: `server/gate/probe.py`가 "디코딩할 수 있는 오디오 중 default 표시가 있는 첫 트랙, 없으면 첫 디코딩 가능 트랙"의 입력 내 index를 `MediaInfo`(내부)에 담고, Gate VAD는 `-map 0:<index>`, SyncNet 요청 JSON에 같은 index를 넘겨 `cut_segment`가 `-map 0:<index>`를 쓴다. 에뮬레이터는 같은 함수로 고르고, 고른 트랙이 AAC가 아니면 지금처럼 버리지 말고 오류로 남긴다(오디오 재인코딩은 별도 실험 축, docs/DESIGN.md §6.2). 테스트는 위 c2·c3·c5 모양의 합성 파일로 세 경로가 같은 index를 쓰는지 본다.
+- 대안: Worker가 작업 폴더에 복사할 때 고른 오디오 1개만 남긴 파일로 다시 담는다(`-c copy`). 아래 단계가 모두 오디오 1개를 보게 되지만, 영상 컨테이너가 바뀌어 회전 정보 등 WaveRep·MotionPhys 입력이 달라지지 않는지 따로 확인해야 한다.
+- `has_audio`를 "디코딩할 수 있는 오디오가 있음"으로 바꾸면 apac만 있는 파일은 `media_unreadable` 대신 오디오 없음 경로로 간다. 어느 원인 코드가 맞는지는 docs/DESIGN.md §10 기준으로 결정이 필요하다.
+- 실제 서비스 입력(허가 미디어)의 트랙 구성은 아직 모른다(확인 필요). 다중 오디오 입력이 없다고 확인되면 우선순위를 낮춰도 된다.
