@@ -155,7 +155,6 @@ flowchart TD
 - HiDF 호환성 점검 (진짜 10 + 가짜 10: 해상도·오디오·Gate·WaveRep)
 
 **결정 대기**
-- 오디오 트랙 선택을 Gate·SyncNet·압축 에뮬레이터에서 한 함수로 통일할지(제안, `docs/gate.md` "오디오 트랙 선택 확인")
 - 이 저장소 자체의 라이선스(`docs/licenses.md`)
 - 시연 방식: 테스트 URL(권장) vs 비공개 YouTube 업로드
 - Deepfake-Eval-2024 재신청
