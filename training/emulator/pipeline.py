@@ -7,19 +7,24 @@
 파생 행은 부모의 분할·라벨·원본 계보·인물을 그대로 물려받고 parent_video_id로 부모와 이어지므로
 기존 누수 검사(training/hygiene.py)가 그대로 적용된다.
 out-manifest에는 원본 행과 파생 행이 함께 들어간다. 이미 있는 파일은 덮어쓰지 않는다.
+실행 요약(상태별 개수, error 파일의 개수·이유)은 화면에 내고 `<out-manifest 이름>.summary.json`에도 쓴다.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Optional
 
 from training.datasets.manifest import ManifestError, Record, read_manifest, write_manifest
 from training.emulator.profiles import ProfileError, get_profile
-from training.emulator.video import STATUS_COMPLETED, EmulatorError, emulate
+from training.emulator.video import STATUS_COMPLETED, STATUS_ERROR, EmulatorError, emulate
+
+SUMMARY_SCHEMA_VERSION = 1
 
 
 def derived_video_id(parent_video_id: str, profile_id: str) -> str:
@@ -87,6 +92,33 @@ def apply_profiles(
     return derived, results
 
 
+def summarize(results: Iterable[dict]) -> dict:
+    """영상×프로파일 실행 기록의 요약. error는 개수와 이유(reason_code)별 개수, 파일 목록을 남긴다.
+
+    error 파일에는 파생 행이 없다(apply_profiles). 오디오 때문에 만들지 않은 파일
+    (audio_not_decodable, audio_not_copyable)도 여기서 센다(2026-11-19 사용자 결정 D2).
+    """
+    results = list(results)
+    errors = [r for r in results if r["status"] == STATUS_ERROR]
+    return {
+        "schema_version": SUMMARY_SCHEMA_VERSION,
+        "runs": len(results),
+        "by_status": dict(sorted(Counter(r["status"] for r in results).items())),
+        "errors": {
+            "count": len(errors),
+            "by_reason_code": dict(sorted(Counter(r.get("reason_code") or "unknown" for r in errors).items())),
+            "files": [{"dataset_id": r["lineage"]["dataset_id"], "video_id": r["lineage"]["video_id"],
+                       "input": r["input"]["name"], "profile_id": r["profile_id"],
+                       "reason_code": r.get("reason_code") or "unknown", "reason": r.get("reason")}
+                      for r in errors],
+        },
+    }
+
+
+def summary_path(out_manifest: Path) -> Path:
+    return Path(out_manifest).with_name(Path(out_manifest).stem + ".summary.json")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="manifest의 영상에 압축 프로파일을 적용한다")
     p.add_argument("--manifest", type=Path, required=True)
@@ -96,18 +128,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out-manifest", type=Path, required=True)
     opt = p.parse_args(argv)
     try:
-        if opt.out_manifest.exists():
-            raise EmulatorError(f"이미 있는 파일은 덮어쓰지 않는다: {opt.out_manifest}")
+        for path in (opt.out_manifest, summary_path(opt.out_manifest)):
+            if path.exists():
+                raise EmulatorError(f"이미 있는 파일은 덮어쓰지 않는다: {path}")
         records = read_manifest(opt.manifest)
         derived, results = apply_profiles(records, opt.profile, opt.out_dir, opt.media_root)
         write_manifest(opt.out_manifest, records + derived)
+        summary = summarize(results)
+        summary_path(opt.out_manifest).write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except (EmulatorError, ProfileError, ManifestError, OSError) as err:
         print(f"오류: {err}", file=sys.stderr)
         return 1
-    counts: dict[str, int] = {}
-    for r in results:
-        counts[r["status"]] = counts.get(r["status"], 0) + 1
-    print(f"원본 {len(records)}행, 파생 {len(derived)}행, 실행 결과 {counts} → {opt.out_manifest}")
+    print(f"원본 {len(records)}행, 파생 {len(derived)}행, 실행 결과 {summary['by_status']}, "
+          f"error {summary['errors']['count']}건 {summary['errors']['by_reason_code']} → {opt.out_manifest}")
     return 0
 
 

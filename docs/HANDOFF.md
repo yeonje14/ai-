@@ -1,5 +1,23 @@
 # HANDOFF
 
+## 오디오 트랙 선택 통일 (2026-11-19, 브랜치 `fix/audio-track-select`)
+
+- 한 일: Gate VAD·SyncNet 구간 절단·압축 에뮬레이터가 **같은 함수**(`server/gate/audio_track.py`)로 오디오 트랙을 고르고 `-map 0:<index>`로 명시해 쓴다. 규칙(사용자 지시): 디코딩 가능한 오디오 중 default 표시가 있는 것(여럿이면 index가 작은 것), 없으면 첫 번째 디코딩 가능한 것. 디코딩 가능 = ffprobe `codec_name`이 `ffmpeg -codecs`에서 D 표시인 오디오 코덱(태그로 판단하지 않음).
+- 사용자 결정(D1~D4 모두 권장안): D1 세 경로가 같은 함수를 각자 부름(SyncNet 요청 형식·어댑터 그대로), D2 에뮬레이터는 고른 트랙이 AAC가 아니면 `error` / `audio_not_copyable`(2026-11-16 "첫 AAC" 결정 대체) + 에뮬레이션 요약에 개수·이유 집계, D3 Gate·SyncNet 특징 버전에 `audio_track_rule`, D4 docs/DESIGN.md §15.3 "결정 2·7 보완(오디오 트랙 선택)"(문안은 PR에서 확인 받기로 함).
+- **바꾸지 않은 것:** `has_audio`, 원인 코드(고를 트랙이 없으면 Gate는 지금처럼 `media_unreadable`, SyncNet 구간은 `error` / `inference_error`), API 필드·상태 값, 연구용 스크립트(`scripts/diagnose_syncnet_offset.py`, `research/gate/compare_vad.py`).
+- 동작 변화(합성 영상): c2(default가 두 번째)·c5에서 SyncNet이 1→2, c2에서 에뮬레이터 1→2, c3(default가 pcm)에서 에뮬레이터가 AAC 트랙 복사 → `error`, c6(MKV, default 없음)에서 Gate가 2(FFmpeg는 채널 수로 고름)→1. 이제 다섯 사례 모두 세 경로의 index가 같다. 표는 `docs/gate.md` "구현 (2026-11-19)".
+- 원본 A~E: 고른 트랙이 예전과 같은 index 1이고 Gate PCM이 예전 명령과 바이트 단위로 같다(테스트). 에뮬레이터 출력 바이트도 같은 트랙이라 그대로다.
+- **학습 특징 캐시 키:** 코드만 바꾸면 키가 안 바뀌어(키 = 입력 sha256·축·특징 버전·구간·schema) 선택이 바뀌는 다중 오디오 파일에서 옛 Gate·SyncNet 캐시를 잘못 다시 쓸 수 있었다. D3로 두 축의 키와 묶음 특징 버전이 한 번 바뀐다. WaveRep·MotionPhys 키는 그대로(오디오를 안 읽고, 키의 Gate 구간을 따라감). 변경 시점에 특징 캐시·묶음이 없어 다시 계산할 것은 없었다.
+- 에뮬레이터 기록 `schema_version` 3(`audio.rule`, 트랙별 `default`·`decodable`, `reason_code`). 요약은 화면과 `<out-manifest 이름>.summary.json`(덮어쓰지 않음).
+- 실제 확인(A, 실제 API 서버 + 별도 Worker, 기본 설정, 임시 레지스트리·DB): finished / completed / abstained, 세 축 completed, 적합 구간 37.021초, 설명 항목 목록이 2026-11-19 SIGKILL 확인 때(기본 설정)와 같다. 단계 Gate 12.3·WaveRep 18.6·MotionPhys 38.0·SyncNet 149.1초, 전체 219.1초. 장치 mps / cpu / mps. 남은 프로세스·작업 폴더 없음. SyncNet 실행기(research venv)가 새 공용 함수를 import해 정상 동작했다.
+- 테스트: `tests/test_audio_track.py`(26개, 새 파일), `tests/test_syncnet_runner.py`(+3), `tests/test_emulator.py`(오디오 테스트를 새 규칙·요약으로 교체, 32개), `tests/test_feature_extract.py`(+1).
+- `pytest -q`: **895 passed, 1 skipped**(main 864 + 새 테스트 31, 건너뜀은 trinity에 LightGBM 없음).
+- 문서: docs/DESIGN.md §15.3, `docs/gate.md`, `docs/syncnet-adapter.md`, `docs/compression-emulator.md`, `docs/training-pipeline.md`.
+- **남은 일:**
+  1. 본인 영상 YouTube 일부 공개 업로드 → Studio 다운로드 처리본으로 축별 점수 변화 측정(시연 방식 (b)와 함께 결정).
+  2. 실제 서비스 입력(허가 미디어)과 DeepSpeak의 오디오 트랙 구성 확인(다중 오디오가 있으면 이번 규칙이 실제로 갈리는 경우가 생긴다).
+- 막힌 점: 없음. PR은 이 브랜치로 생성, merge는 사용자 지시 후.
+
 ## 작은 확인 3건 (2026-11-19, 브랜치 `chore/small-checks`)
 
 **제품 코드 변경 없음.** 커밋 3개(확인별 하나씩).
