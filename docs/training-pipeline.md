@@ -38,6 +38,7 @@ docs/DESIGN.md §14.1 백로그 8번·12번. 작성일: 2026-11-16. 브랜치 `f
 | 계산하지 못한 점수는 null이다 | 특징·점수 파일의 빈칸, `Candidate.score`가 입력 결측이면 None |
 | 설정한 장치(특징 버전)와 다른 장치로 대체된 값은 쓰지 않는다 | 추출: WaveRep·SyncNet이 `device_used`가 설정과 다르면 `error`/`device_mismatch`(캐시하지 않음). 서버: 같은 경우 결합 입력을 넘기지 않아 보류(축 상태는 그대로, 감사 A4) |
 | 서버와 학습은 같은 함수로 결합 입력을 만든다 | WaveRep 집계 `waverep.aggregate_logits`(중앙값·평균·q75), SyncNet `report.fusion_features`. SyncNet 상태 규칙의 판(`report.STATUS_RULE`)이 특징 버전·캐시 키에 들어간다(감사 A13·A14) |
+| Gate·SyncNet·압축 에뮬레이터는 같은 오디오 트랙을 읽는다 | 공용 규칙 `server/gate/audio_track.py`. 규칙 이름(`audio_track.RULE`)이 Gate·SyncNet의 특징 버전(`audio_track_rule`)에 들어가 규칙이 바뀌면 그 두 축의 캐시 키와 묶음 특징 버전이 바뀐다. WaveRep·MotionPhys는 오디오를 읽지 않고, 키에 든 Gate 구간을 따라 바뀐다(2026-11-19, docs/DESIGN.md §15.3 "결정 2·7 보완(오디오 트랙 선택)") |
 | 외부 평가 자료는 쓰지 않는다 | 추출·학습·리포트 모두 `external` 분할을 읽지 않는다. 잠금(`configs/external_eval_lock.json`)과 `--final-external` 절차는 그대로다(`docs/evaluation-pipeline.md`) |
 | 사전 고정 설정으로 학습한 결과만 서버에 간다 | 리포트는 학습 설정이 커밋된 `configs/training.json`과 다르면 맨 위에 적는다(`training_config_matches_committed`). 묶음은 같을 때만 만들고, 서버도 묶음의 설정이 지금 커밋된 설정과 같을 때만 쓴다. 설정을 바꾸면 다시 학습·검증해야 한다(감사 A2) |
 | 3축을 강제로 채택하지 않는다 | 아래 채택 판단 |

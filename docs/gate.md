@@ -388,3 +388,39 @@ c4는 MOV muxer가 첫 트랙을 default로 표시했다. 관찰상 FFmpeg 자�
 - 대안: Worker가 작업 폴더에 복사할 때 고른 오디오 1개만 남긴 파일로 다시 담는다(`-c copy`). 아래 단계가 모두 오디오 1개를 보게 되지만, 영상 컨테이너가 바뀌어 회전 정보 등 WaveRep·MotionPhys 입력이 달라지지 않는지 따로 확인해야 한다.
 - `has_audio`를 "디코딩할 수 있는 오디오가 있음"으로 바꾸면 apac만 있는 파일은 `media_unreadable` 대신 오디오 없음 경로로 간다. 어느 원인 코드가 맞는지는 docs/DESIGN.md §10 기준으로 결정이 필요하다.
 - 실제 서비스 입력(허가 미디어)의 트랙 구성은 아직 모른다(확인 필요). 다중 오디오 입력이 없다고 확인되면 우선순위를 낮춰도 된다.
+
+### 구현 (2026-11-19, 브랜치 `fix/audio-track-select`)
+
+위 "고치는 방안"의 권장안을 사용자 결정(D1~D4)대로 구현했다. 결정 문안은 docs/DESIGN.md §15.3 "결정 2·7 보완(오디오 트랙 선택)".
+
+- **공용 함수** `server/gate/audio_track.py`(표준 라이브러리만): 규칙은 "디코딩할 수 있는 오디오 중 default 표시가 있는 것(여럿이면 index가 가장 작은 것), 없으면 디코딩할 수 있는 것 중 index가 가장 작은 것". 디코딩 가능 여부는 ffprobe `codec_name`이 `ffmpeg -codecs`에서 D 표시가 있는 오디오 코덱인지로 본다(프로세스마다 한 번 읽음). 태그로 판단하지 않는다. `-codecs` 목록의 `apac`은 Apple APAC이 아니라 Marian's A-pac이다.
+- **Gate VAD**(`server/gate/vad.py`): `select_audio_index`로 고른 트랙을 `decode_pcm`이 `-map 0:<index>`로 읽는다. 고를 트랙이 없거나 ffprobe가 실패하면 `AudioDecodeError` → 지금처럼 `media_unreadable`. `has_audio`(`probe.py`)와 원인 코드는 그대로다. Apple APAC만 있는 파일(A에서 만든 2초 임시 파일)도 예전과 같이 `has_audio=True`, `media_unreadable`(테스트로 확인).
+- **SyncNet**(`research/syncnet/infer_segments.py`): 요청마다 한 번 골라 `cut_segment(..., audio_index)`가 `-map 0:<index>`를 쓴다. 고르지 못하면 구간마다 지금처럼 `error` / `inference_error`(절단하지 않음).
+- **압축 에뮬레이터**: 같은 함수로 고른다. 고른 트랙이 AAC가 아니면 `error` / `audio_not_copyable`, 요약에 집계(`docs/compression-emulator.md` §3).
+
+**바꾼 뒤 동작 (합성 사인파 영상, 숫자는 stream index, 화살표는 바꾸기 전 → 뒤)**
+
+| 사례 | 트랙 1 | 트랙 2 | Gate | SyncNet | 에뮬레이터 |
+|---|---|---|---|---|---|
+| c1 (A~E 모양) | aac 2ch, default | aac 4ch | 1 → 1 | 1 → 1 | 1 → 1 |
+| c2 | aac 2ch | aac 4ch, default | 2 → 2 | **1 → 2** | **1 → 2** |
+| c3 | pcm 2ch, default | aac 2ch | 1 → 1 | 1 → 1 | **2 → error**(`audio_not_copyable`, 고른 트랙 1) |
+| c5 | pcm 2ch | aac 4ch, default | 2 → 2 | **1 → 2** | 2 → 2 |
+| c6 (MKV, default 없음) | aac 2ch | aac 4ch | **2 → 1** | 1 → 1 | 1 → 1 |
+
+c6에서 FFmpeg 자동 선택은 채널이 많은 4ch를 골랐다(2026-11-19 확인). 이제 세 경로 모두 규칙이 고른 트랙을 읽는다.
+
+**테스트** `tests/test_audio_track.py`(26개):
+- 규칙 10가지(단위). `-codecs` 출력 해석, Apple APAC 함정. ffprobe·ffmpeg 실행 실패.
+- c1·c2·c3·c5·c6마다 세 가지를 실제 FFmpeg로 확인하고, **세 index가 모두 같고 규칙의 기대값과 같은지** 본다.
+  - Gate: `detect_speech`가 webrtcvad에 넘긴 PCM이 어느 트랙인가.
+  - SyncNet: 실행기가 자른 클립의 오디오가 어느 트랙의 같은 시간 창인가.
+  - 에뮬레이터: 출력 AAC 패킷이 어느 트랙인가. c3는 `error`.
+- 원본 A~E: 고른 트랙이 index 1이다(트랙 1 aac default·디코딩 가능, 트랙 2 APAC 디코딩 불가). Gate·SyncNet 쪽 함수도 1이다. Gate의 새 PCM이 예전 명령(`-map` 없음)의 PCM과 **바이트 단위로 같다**(전체 길이).
+- Gate가 고를 트랙이 없을 때 `AudioDecodeError`. APAC만 있는 실제 파일은 `media_unreadable`.
+
+기존 테스트도 바꿨다. `tests/test_syncnet_runner.py`는 `-map 0:<index>` 단언, 요청당 한 번 선택, 선택 실패 시 모든 구간 오류를 본다. `tests/test_emulator.py`는 공용 규칙, `audio_not_copyable`, 요약을 본다.
+
+**학습 특징 캐시 키** (D3): Gate·SyncNet의 특징 버전에 `audio_track_rule`(`decodable-default-first-v1`)을 넣었다. 그래서 두 축의 캐시 키와 묶음 특징 버전이 한 번 바뀐다. WaveRep·MotionPhys 키는 그대로다(오디오를 읽지 않음. 키에 든 Gate 구간이 바뀔 때만 따라 바뀜). 에뮬레이터 파생본은 출력 바이트가 같으면 sha256도 같다(A~E는 같은 트랙이라 같음). 변경 시점에 디스크에 특징 캐시와 묶음이 없어(`data/` 아래 cache 폴더 없음, `configs/fusion_bundle.json` digest null) 다시 계산할 것이 없었다.
+
+**그대로 둔 것**: `scripts/diagnose_syncnet_offset.py`(A 오프셋 진단, `-map 0:a:0`)와 `research/gate/compare_vad.py`(VAD 후보 비교)는 제품 경로가 아니라 바꾸지 않았다. A~E에서는 같은 트랙을 읽는다.

@@ -75,7 +75,7 @@ docs/DESIGN.md §14.1 백로그 9번(P1-4). 작성일: 2026-11-14.
 | CRF | 20, 28, 34 |
 | 해상도 | `source`(그대로), `1080p`, `720p`, `480p`. 숫자는 **짧은 변**의 픽셀 수(세로 영상은 너비) |
 | ID | `x264-crf<CRF>-<source\|1080p\|720p\|480p>` 12개 |
-| 그 밖의 설정 | preset `medium`, `yuv420p`, 축소 필터 bicubic, 스레드 4개 고정, 오디오는 **첫 번째 AAC 트랙 하나만** 복사(2026-11-16, 아래 "오디오 트랙") |
+| 그 밖의 설정 | preset `medium`, `yuv420p`, 축소 필터 bicubic, 스레드 4개 고정, 오디오는 Gate·SyncNet과 **같은 규칙으로 고른 트랙 하나만** 복사(2026-11-19, 아래 "오디오 트랙". 2026-11-16의 "첫 번째 AAC 트랙"을 대신함) |
 
 - 이 값들은 docs/DESIGN.md §6.2의 초기 실험값이다. **YouTube 내부 설정이 아니다.**
 - 업스케일은 하지 않는다. 목표가 원본의 짧은 변보다 크면 파일을 만들지 않고 `skipped_upscale`로 기록한다. 목표가 원본과 같으면 `source`와 같은 출력이 나온다.
@@ -102,7 +102,7 @@ result = emulate(Path("in.mp4"), "x264-crf28-720p", Path("out_dir"),
 
 ```
 ffmpeg -nostdin -hide_banner -loglevel error -n -i <입력>
-  -map 0:v:0 -map 0:<첫 AAC 트랙의 index> -sn -dn -map_metadata -1 -map_chapters -1
+  -map 0:v:0 -map 0:<규칙이 고른 오디오 트랙의 index> -sn -dn -map_metadata -1 -map_chapters -1
   -vf "scale=w='if(lt(iw,ih),720,-2)':h='if(lt(iw,ih),-2,720)':flags=bicubic" -filter_threads 1
   -c:v libx264 -preset medium -crf 28 -pix_fmt yuv420p -threads 4 -c:a copy
   -fflags +bitexact -flags:v +bitexact -flags:a +bitexact -movflags +faststart -f mp4 <출력>
@@ -111,9 +111,11 @@ ffmpeg -nostdin -hide_banner -loglevel error -n -i <입력>
 - **출력**: `<out_dir>/<입력 이름>__<프로파일 ID>.mp4`와 그 옆의 `.json` 기록.
 - **같은 입력이면 같은 출력**: 스레드 수 고정, bitexact, 컨테이너 메타데이터 제거. 기록에도 시각과 로컬 경로를 넣지 않아 기록 파일까지 같다. 같은 기기·같은 FFmpeg 빌드에서 확인한 것이다. **다른 기기나 다른 FFmpeg/x264 버전에서 같은 바이트가 나오는지는 미검증**이다. 그래서 기록에 FFmpeg 버전을 남긴다.
 - **원본 보존**: 입력을 열어 읽기만 한다. 출력 이름이 입력과 달라 덮어쓸 수 없고, 이미 있는 출력도 덮어쓰지 않는다. 임시 파일(`.partial`)에 쓴 뒤 이름을 바꾼다.
-- **기록**(docs/DESIGN.md §6.2 "품질 및 재현성"): `profile_id`, 프로파일 설정 전체, `ffmpeg_version`, `ffmpeg_args`, 입력·출력의 sha256과 코덱·해상도·프레임 수·비트레이트·크기, `lineage`(`dataset_id`, `video_id`, `source_recording_id`, `derivation_group_id`, `split`), `status`, `reason`.
+- **기록**(docs/DESIGN.md §6.2 "품질 및 재현성"): `profile_id`, 프로파일 설정 전체, `ffmpeg_version`, `ffmpeg_args`, 입력·출력의 sha256과 코덱·해상도·프레임 수·비트레이트·크기, `lineage`(`dataset_id`, `video_id`, `source_recording_id`, `derivation_group_id`, `split`), `status`, `reason`, `reason_code`(2026-11-19 추가).
 - **상태**: `completed`, `skipped_upscale`, `error`. 인코딩이 실패하면 출력 없이 `error`와 이유를 돌려준다. 모르는 값은 `null`이다.
-- **오디오 트랙**(2026-11-16, 사용자 결정): 입력의 오디오 트랙 가운데 **첫 번째 AAC 트랙 하나만** `-c:a copy`로 복사하고 나머지 오디오 트랙은 버린다. 재인코딩하지 않는다(영상 압축의 영향만 보기 위해서다). 오디오가 있는데 AAC 트랙이 없으면 파일을 만들지 않고 `error`로 기록한다. 오디오가 아예 없는 입력은 전과 같이 영상만 내보낸다. 기록의 `audio`에 입력 트랙 목록(`index`, `codec_name`, `codec_tag_string`, `channels`, `sample_rate`)과 복사한 트랙(`selected`, 없으면 `null`)을 남긴다. 기록 `schema_version`은 2가 됐다.
+- **오디오 트랙**(2026-11-19, 사용자 결정 D1·D2, docs/DESIGN.md §15.3 "결정 2·7 보완(오디오 트랙 선택)"): Gate VAD·SyncNet 구간 절단과 **같은 함수**(`server/gate/audio_track.py`)로 트랙 하나를 고른다. 규칙은 "디코딩할 수 있는 오디오 중 default 표시가 있는 것(여럿이면 index가 가장 작은 것), 없으면 디코딩할 수 있는 것 중 index가 가장 작은 것"이다. 고른 트랙이 AAC면 그 트랙만 `-c:a copy`로 복사한다. **AAC가 아니면 다른 AAC 트랙으로 대신하지 않고** 파일을 만들지 않으며 `error` / `audio_not_copyable`로 남긴다(mp4에 복사할 수 없고, 재인코딩은 별도 실험 축). 오디오가 있는데 디코딩할 수 있는 트랙이 없으면 `error` / `audio_not_decodable`. 오디오가 아예 없는 입력은 전과 같이 영상만 내보낸다. 기록의 `audio`에 `rule`(규칙 이름), 입력 트랙 목록(`index`, `codec_name`, `codec_tag_string`, `channels`, `sample_rate`, `default`, `decodable`)과 고른 트랙(`selected`, 없으면 `null`)을 남긴다. 기록 `schema_version`은 3이 됐다. `reason_code`는 `upscale`, `audio_not_decodable`, `audio_not_copyable`, `encode_failed`, `encode_timeout` 가운데 하나다(`completed`는 `null`).
+- **에뮬레이션 요약**(2026-11-19): `python -m training.emulator.pipeline`은 상태별 개수와 **`error`의 개수·이유(`reason_code`)별 개수·파일 목록**(`dataset_id`, `video_id`, 입력 이름, 프로파일, 이유)을 화면에 내고 `<out-manifest 이름>.summary.json`에도 쓴다. 이 파일도 이미 있으면 덮어쓰지 않는다. `error` 파일에는 파생 행이 없다.
+- ~~**오디오 트랙**(2026-11-16, 사용자 결정)~~ 2026-11-19에 위 규칙으로 바뀜. 옛 기록: 입력의 오디오 트랙 가운데 **첫 번째 AAC 트랙 하나만** `-c:a copy`로 복사하고 나머지 오디오 트랙은 버린다. 재인코딩하지 않는다(영상 압축의 영향만 보기 위해서다). 오디오가 있는데 AAC 트랙이 없으면 파일을 만들지 않고 `error`로 기록한다. 오디오가 아예 없는 입력은 전과 같이 영상만 내보낸다. 기록의 `audio`에 입력 트랙 목록(`index`, `codec_name`, `codec_tag_string`, `channels`, `sample_rate`)과 복사한 트랙(`selected`, 없으면 `null`)을 남긴다. 기록 `schema_version`은 2가 됐다.
 - libx264의 버전은 따로 기록하지 않는다(FFmpeg 버전 줄만 남긴다). x264 빌드 번호 기록은 남은 일이다.
 
 ## 4. manifest와 평가 리포트 연결
@@ -163,7 +165,7 @@ python -m training.emulator.pipeline --manifest <m.csv> --media-root <영상 폴
 
 ## 6. 테스트
 
-`tests/test_emulator.py`(31개, 2026-11-16에 오디오 트랙 선택 6개 추가). 영상은 FFmpeg의 합성 무늬, 점수는 가짜 값이다. FFmpeg가 없으면 인코딩 테스트는 건너뛴다.
+`tests/test_emulator.py`(31개, 2026-11-16에 오디오 트랙 선택 6개 추가. 2026-11-19에 공용 규칙·요약 테스트로 바꿔 32개). 세 경로가 같은 트랙을 읽는지는 `tests/test_audio_track.py`. 영상은 FFmpeg의 합성 무늬, 점수는 가짜 값이다. FFmpeg가 없으면 인코딩 테스트는 건너뛴다.
 
 - 프로파일 12개, 없는 ID 거부, 하드웨어·다른 인코더 거부, 명령이 인자 리스트이고 libx264인지.
 - 설정·해시·계보 기록, 로컬 경로가 기록에 없는지, 같은 입력의 출력과 기록이 같은지.
