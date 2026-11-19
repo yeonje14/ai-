@@ -20,28 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS jobs (
-    analysis_id       TEXT PRIMARY KEY,
-    owner_hash        TEXT NOT NULL,
-    youtube_video_id  TEXT NOT NULL,
-    job_status        TEXT NOT NULL,
-    stage             TEXT,
-    completed_stages  TEXT NOT NULL DEFAULT '[]',
-    result_json       TEXT,
-    failure_reason    TEXT,
-    attempts          INTEGER NOT NULL DEFAULT 0,
-    lease_owner       TEXT,
-    lease_expires_at  REAL,
-    cancel_requested  INTEGER NOT NULL DEFAULT 0,
-    created_at        REAL NOT NULL,
-    started_at        REAL,
-    finished_at       REAL,
-    -- 내부 실행 기록(축별 장치·열 상태, 시도별 누적). API·_to_job은 읽지 않는다
-    run_info_json     TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs (job_status, created_at);
-"""
+from server.jobs.schema import jobs_schema
 
 LEASE_OK = "ok"
 LEASE_LOST = "lost"
@@ -95,7 +74,7 @@ class JobQueue:
         conn = sqlite3.connect(self.db_path, timeout=5)
         try:
             conn.execute("PRAGMA journal_mode=WAL")
-            conn.executescript(_SCHEMA)
+            conn.executescript(jobs_schema(registered_users=False))
             # 열이 생기기 전에 만든 DB에는 열만 더한다(기존 행은 그대로)
             if "run_info_json" not in {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}:
                 conn.execute("ALTER TABLE jobs ADD COLUMN run_info_json TEXT")
