@@ -549,7 +549,7 @@ TRINITY_SYNCNET_DEVICE=mps python -m server.jobs.worker   # 서버에서 MPS를 
 
 Worker 프로세스 트리 최대 RSS 1.55 GiB(`/usr/bin/time -l`, 후손 중 하나의 최대값).
 
-**SyncNet `device_used`: 기록되지 않아 직접 확인하지 못했다.** 어댑터가 `device_used`를 내부 결과에만 두고 API 결과·Worker 로그·DB에 남기지 않으며, 작업 폴더는 끝나면 지워진다. 간접 근거만 있다: 요청 장치는 기본값 `mps`, SyncNet venv에서 `torch.backends.mps.is_available()=True`(torch 2.15.0), 단계 시간이 바로 뒤 MPS 단독 실행과 1% 차이. 그래서 MPS였을 것으로 보지만 **확인 필요**다. 다음에 Worker 안 장치를 확인하려면 측정 스크립트에서 어댑터 반환값을 남기는 부트스트랩이 필요하다(제품 코드 변경 없이).
+**SyncNet `device_used`: 기록되지 않아 직접 확인하지 못했다.** 어댑터가 `device_used`를 내부 결과에만 두고 API 결과·Worker 로그·DB에 남기지 않으며, 작업 폴더는 끝나면 지워진다. 간접 근거만 있다: 요청 장치는 기본값 `mps`, SyncNet venv에서 `torch.backends.mps.is_available()=True`(torch 2.15.0), 단계 시간이 바로 뒤 MPS 단독 실행과 1% 차이. 그래서 MPS였을 것으로 보지만 **확인 필요**다. 다음에 Worker 안 장치를 확인하려면 측정 스크립트에서 어댑터 반환값을 남기는 부트스트랩이 필요하다(제품 코드 변경 없이). (2026-11-19부터 Worker 로그와 jobs의 내부 기록 `run_info_json`에 남는다 — 맨 아래 "Worker 장치·열 상태 기록" 절.)
 
 **같은 세션의 A 단독 실행(MPS) 1건과 비교** — `profile_syncnet_baseline.py --one A original standalone 3 guard-mps`, Worker 종료 15초 뒤 시작.
 
@@ -635,6 +635,8 @@ SyncNet 단계 제한이 끝난 뒤 작업 deadline을 마지막으로 확인하
 | (3) fusion·finalizing | 2026-11-18 A Worker 실측 로그(syncnet 끝 → finalizing 진입) | 0.002초 |
 | 합 | | 약 5.1초 → **10초**(약 2배 여유) |
 
+(2026-11-19 "Worker 장치·열 상태 기록"이 이 구간에 축 끝 thermalState 프로브(제한 1초)와 실행 기록 저장(DB 잠금 대기 1초)을 더한다. 합 약 7.1초로 여전히 10초 안이다.)
+
 | 장치 | 단계 제한 | 결과 | 걸린 시간 | 초과분 |
 |---|---|---|---|---|
 | MPS | 20초 | error / timeout | 20.043초 | 0.043초 |
@@ -719,7 +721,7 @@ SyncNet 단계 제한이 끝난 뒤 작업 deadline을 마지막으로 확인하
 
 1. **Worker 코드 변경은 필요 없다.** 차이를 만든 것은 Worker 경로가 아니라 기기 상태다.
 2. 작업 제한(`180 + 20 ×`)·SyncNet 단계 제한(`60 + 16 ×`)은 이 영향을 덮는다. 이번 CPU 최댓값 305.3초 = 적합 구간 1초당 8.2초로 SyncNet 계수 16 안이다. 바꿀 필요 없다.
-3. (관측 개선, 결정 필요) 서버 Worker 로그에 SyncNet `device_used`와 작업 시작 때 thermalState를 남기면 느린 작업의 원인을 사후에 가를 수 있다. 로그 항목 추가라 API는 그대로지만 로그 규칙(§12)에 맞는지 확인이 필요하다. 이번에는 구현하지 않았다.
+3. (관측 개선, 결정 필요) 서버 Worker 로그에 SyncNet `device_used`와 작업 시작 때 thermalState를 남기면 느린 작업의 원인을 사후에 가를 수 있다. 로그 항목 추가라 API는 그대로지만 로그 규칙(§12)에 맞는지 확인이 필요하다. 이번에는 구현하지 않았다. → 2026-11-19 구현: 세 실행기의 `device_used`와 실행 시작·끝 thermalState를 Worker 로그와 jobs의 내부 기록에 남긴다(맨 아래 "Worker 장치·열 상태 기록" 절).
 4. (측정 규칙) 이 기기에서 시간을 비교할 때는 같은 세션에서 번갈아 재고, 실행 전 열 상태를 맞추고(쿨다운 + thermalState), 다른 프로세스 CPU를 함께 기록한다. 앞 단계가 있는 측정과 없는 측정을 바로 견주지 않는다.
 
 **재현**
@@ -791,7 +793,7 @@ python scripts/measure_syncnet_worker_gap.py --plan a1,b1,c1,d1,e1 --dry   # 하
 
 - MotionPhys·Gate·WaveRep 실행 중의 Worker SIGKILL(이번에는 SyncNet만). MotionPhys 실행 중 취소.
 - MPS를 쓸 수 없어 CPU로 대체되는 경우의 같은 경로, B·E 영상, 반복 안정성(SIGKILL 2회, 나머지 1회).
-- "MPS 근거"는 스택 표본의 Metal/MPS 프레임 수다. 실행기의 `device_used`는 Worker 결과·로그에 남지 않아 직접 보지 못했다(2026-11-18과 같은 한계).
+- "MPS 근거"는 스택 표본의 Metal/MPS 프레임 수다. 실행기의 `device_used`는 Worker 결과·로그에 남지 않아 직접 보지 못했다(2026-11-18과 같은 한계). 2026-11-19부터는 기록된다(맨 아래 절).
 
 **재현**
 
@@ -800,3 +802,46 @@ conda activate trinity
 python scripts/verify_real_worker_lifecycle.py            # 다섯 시나리오(된 것은 건너뜀)
 python scripts/verify_real_worker_lifecycle.py --report   # 요약
 ```
+
+## Worker 장치·열 상태 기록 (2026-11-19, 브랜치 `feat/worker-device-log`)
+
+위 "Worker 안 대 단독" 절의 제안 3을 구현했다. 사용자 결정: 결과 JSON에는 API 계약을 바꾸지 않는 내부 자리가 없어(축 모델은 Pydantic 기본이라 추가 키가 `dump`에서 버려지고, DB `result_json`은 API 응답 본문 그대로다) **jobs 테이블의 내부 열**에 남긴다(D1=B). 재선점 때 지우지 않고 **시도 번호별로 쌓는다.** API 필드·상태 값 변경 없음. 계획 `docs/superpowers/plans/2026-11-19-worker-device-log.md`.
+
+**무엇을 남기나.** WaveRep·MotionPhys·SyncNet 실행기마다 실제로 쓴 장치(`device_used`)와 실행 시작·끝의 macOS `ProcessInfo.thermalState`.
+
+- 장치: WaveRep·SyncNet은 실행기가 보고하는 실제 장치(MPS를 못 쓰면 `cpu`). MotionPhys는 실행기가 `cpu`를 보고한다. 근거는 `research/motionphys/faces.py`의 MediaPipe `BaseOptions`가 delegate를 지정하지 않고, mediapipe 1.2.3 `base_options.py`가 delegate가 없으면 CPU를 쓰는 것이다. 광학 흐름(OpenCV)·LightGBM도 CPU다. delegate를 지정하면 `tests/test_axis_device_used.py`가 실패한다. 값은 `cpu`·`mps`·`gpu`만 받고 그 밖은 `null`이다(로그·기록에 원문을 남기지 않는다). 실행기를 부르지 않은 축(구간 없음, 개발용 수동 구간의 SyncNet 등)은 `null`.
+- 열 상태: `nominal`·`fair`·`serious`·`critical`(ProcessInfo 0~3). Worker 프로세스 안에서 Objective-C 런타임을 부르지 않고, 같은 Python의 짧은 격리 프로세스(`python -I -c`, 표준 라이브러리 ctypes)에서 읽는다(`server/jobs/device_state.py`). 잘못돼도 Worker가 죽지 않게 하려는 것이다. 한 번에 약 20~90ms, 작업당 6회. macOS가 아니거나 실패·1초 초과면 `null`(로그에는 `unknown`). 작업에는 영향이 없다.
+- 마무리 여유: 축이 받는 남은 시간은 시작 프로브 **뒤에** 잰다. SyncNet이 끝난 뒤 `enter("fusion")` 전에 끼는 끝 프로브(제한 1초)와 기록 저장(DB 잠금 대기 1초)을 더해도, 위 "SyncNet 단계 제한 보완"의 근거 약 5.1초 + 2초 = 약 7.1초로 마무리 여유 10초 안이다(`tests/test_worker_device_log.py::test_axis_time_budget_is_taken_after_the_start_probe`, `tests/test_run_info_record.py::test_save_gives_up_on_a_locked_db_quickly`).
+
+**Worker 로그** (logger `trinity.worker`, INFO, 축이 끝날 때마다 한 줄. 취소·timeout으로 멈춘 축도 남는다):
+
+```text
+job <analysis_id> axis <signal|physics|alignment> device=<cpu|mps|gpu|unknown> thermal_start=<nominal|fair|serious|critical|unknown> thermal_end=<…>
+```
+
+**내부 기록** `jobs.run_info_json`(API·`_to_job`은 읽지 않는다. 작업 삭제 때 행과 함께 지워진다):
+
+```json
+{"attempts": [{"attempt": 1, "axes": {"signal": {"device_used": "mps", "thermal_state_start": "fair", "thermal_state_end": "fair"},
+                                      "physics": {...}, "alignment": {...}}},
+              {"attempt": 2, "axes": {...}}]}
+```
+
+- 축이 끝날 때마다 그 시도의 항목만 갱신한다(`JobQueue.save_run_info`, lease를 가진 Worker가 처리 중일 때만 쓴다). 다른 시도의 기록은 그대로다. 기존 값을 읽을 수 없으면 새 목록으로 시작한다. 기록에 실패해도 작업은 계속된다(경고 로그 한 줄, 내용 없음).
+- 이 열이 생기기 전의 DB는 Worker·API가 시작할 때(`init_schema`) 열만 더한다. 기존 행은 그대로다.
+- 읽는 법(연구·운영용): `sqlite3 data/runtime/trinity.sqlite3 "SELECT analysis_id, attempts, run_info_json FROM jobs WHERE analysis_id = '<id>'"`.
+
+**실제 확인 (2026-11-19, A, 실제 API 서버 + 별도 Worker, 임시 레지스트리·DB, 기본 설정 외 바꾼 것만 표시)**
+
+| 설정 | 작업 | 로그·기록의 장치(signal / physics / alignment) | thermalState(시작·끝, 세 축) | API |
+|---|---|---|---|---|
+| 기본(SyncNet·WaveRep MPS) | finished / completed / abstained, 시도 1 | mps / cpu / mps | 모두 fair | 결과·축 키가 스키마와 같음, 응답에 `run_info`·`thermal`·`device_used` 문자열 없음 |
+| `TRINITY_SYNCNET_DEVICE=cpu` | finished / completed / abstained, 시도 1 | mps / cpu / **cpu** | 모두 fair | 같음 |
+| 기본(재실행) | 같음 | mps / cpu / mps | 모두 fair | 같음 |
+
+- 위 세 실행 뒤 최종 리뷰에서 마무리 여유 수정(축 제한을 시작 프로브 뒤에 계산, 프로브·기록 저장 제한 1초)을 넣고, 고친 코드로 기본 설정을 한 번 더 돌렸다: finished / completed / abstained, `mps / cpu / mps`, 모두 `fair`, API 키 그대로, 남은 것 없음.
+- 세 실행 모두 로그 세 줄과 `run_info_json`의 값이 같았다. 작업 폴더·모델 프로세스는 남지 않았다. 첫 실행은 출력 앞부분(작업 상태·로그 줄)을 잘라 저장하지 못해 같은 설정으로 다시 돌렸다(기록 값은 첫 실행도 같다).
+- 이 시각 내내 기기는 `fair`였다(앞선 측정으로 데워진 상태, 전원 연결·충전 완료 100%). 같은 시각 Swift로 직접 읽은 `ProcessInfo.thermalState`도 1(`fair`)로 프로브와 같았다. 상태가 바뀌는 경우는 실제로 보지 못했고 가짜 프로브 테스트로만 확인했다.
+- 시도별 누적(재선점 뒤 2차 기록)은 실제 SIGKILL로 확인하지 않았다. 테스트(`tests/test_run_info_record.py`)로 확인했다.
+
+**테스트:** `tests/test_device_state.py`(6, 실제 프로브 1 포함), `tests/test_axis_device_used.py`(8), `tests/test_run_info_record.py`(7), `tests/test_worker_device_log.py`(8). 실제 영상 MotionPhys 테스트에 `device_used == "cpu"` 단언을 더했다. `tests/conftest.py`가 Worker 테스트에서 프로브 자식 프로세스를 띄우지 않게 바꾼다.

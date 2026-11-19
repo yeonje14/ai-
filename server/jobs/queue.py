@@ -36,7 +36,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     cancel_requested  INTEGER NOT NULL DEFAULT 0,
     created_at        REAL NOT NULL,
     started_at        REAL,
-    finished_at       REAL
+    finished_at       REAL,
+    -- 내부 실행 기록(축별 장치·열 상태, 시도별 누적). API·_to_job은 읽지 않는다
+    run_info_json     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs (job_status, created_at);
 """
@@ -94,12 +96,15 @@ class JobQueue:
         try:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_SCHEMA)
+            # 열이 생기기 전에 만든 DB에는 열만 더한다(기존 행은 그대로)
+            if "run_info_json" not in {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}:
+                conn.execute("ALTER TABLE jobs ADD COLUMN run_info_json TEXT")
         finally:
             conn.close()
 
     @contextmanager
-    def _tx(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path, timeout=5, isolation_level=None)
+    def _tx(self, timeout: float = 5) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(self.db_path, timeout=timeout, isolation_level=None)
         conn.row_factory = sqlite3.Row
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -281,6 +286,37 @@ class JobQueue:
                 (analysis_id,),
             ).fetchone()
         return LEASE_CANCEL if cancel else LEASE_OK
+
+    def save_run_info(
+        self, analysis_id: str, worker_id: str, attempt: int,
+        axes: dict[str, dict[str, Optional[str]]],
+    ) -> bool:
+        """이 시도의 축별 실행 기록을 저장한다. 다른 시도의 기록은 그대로 둔다(내부 기록, API는 읽지 않는다).
+
+        lease를 가진 Worker가 처리 중일 때만 쓴다. 기존 값을 읽을 수 없으면 새 목록으로 시작한다.
+        진단용 기록이라 DB 잠금은 1초만 기다린다(SyncNet 마무리 여유 10초 안, docs/syncnet-adapter.md).
+        """
+        with self._tx(timeout=1.0) as conn:
+            row = conn.execute(
+                "SELECT run_info_json FROM jobs WHERE analysis_id = ? AND lease_owner = ?"
+                " AND job_status = 'processing'",
+                (analysis_id, worker_id),
+            ).fetchone()
+            if row is None:
+                return False
+            try:
+                entries = json.loads(row["run_info_json"] or '{"attempts": []}')["attempts"]
+                if not isinstance(entries, list) or not all(isinstance(e, dict) and type(e.get("attempt")) is int for e in entries):
+                    raise ValueError("invalid run info")
+            except (ValueError, TypeError, KeyError):
+                entries = []
+            entries = [e for e in entries if e["attempt"] != attempt] + [{"attempt": attempt, "axes": axes}]
+            entries.sort(key=lambda e: e["attempt"])
+            conn.execute(
+                "UPDATE jobs SET run_info_json = ? WHERE analysis_id = ?",
+                (json.dumps({"attempts": entries}, ensure_ascii=False), analysis_id),
+            )
+        return True
 
     def heartbeat(self, analysis_id: str, worker_id: str, lease_seconds: float) -> str:
         """단계를 바꾸지 않고 lease만 연장한다. 긴 추론 중에 주기적으로 부른다."""

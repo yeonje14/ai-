@@ -30,3 +30,6 @@ class AxisContext:
     fusion_inputs: dict[str, float] = field(default_factory=dict)
     # 축이 덧붙이는 설명(template_id, reason_code, message). 결과의 기존 explanations에 이어 붙인다.
     explanations: list[dict[str, str]] = field(default_factory=list)
+    # 이 축의 실행기가 실제로 쓴 장치(cpu·mps·gpu). 실행기를 부르지 않았거나 보고가 없으면 None.
+    # Worker 로그와 jobs의 내부 기록에만 쓴다(API 결과 아님). Worker가 축마다 None으로 되돌린다.
+    device_used: Optional[str] = None

@@ -1,5 +1,6 @@
 """Gate 적합 구간의 SyncNet 실행. 대표값 집계와 진위 판정은 하지 않는다."""
 from server.axes import AxisContext
+from server.axes.device import clean_device
 from . import syncnet
 from .report import MODEL_VERSION, SEGMENT_TOO_SHORT, excluded_short, fusion_features
 
@@ -41,6 +42,7 @@ def run(ctx: AxisContext) -> dict:
         return result
     raw = syncnet.run_syncnet(ctx.media_path, ctx.segments, ctx.job_dir, config,
                              on_tick=ctx.heartbeat, tick_sec=ctx.settings.heartbeat_interval_seconds)
+    ctx.device_used = clean_device(raw.get('device_used'))
     result.update(status=raw['status'], reason_code=raw['reason_code'])
     short = excluded_short(raw)
     if short:

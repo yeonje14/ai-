@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from server.axes.device import clean_device
 from server.jobs.child_process import start_process, stop_process
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -39,7 +40,8 @@ class MotionPhysConfig:
 
 def failure(status: str, reason: str | None) -> dict:
     return {'status': status, 'reason_code': reason, 'raw_score': None,
-            'model_version': MODEL_VERSION, 'variants': None, 'margin': None, 'margin_variant': None}
+            'model_version': MODEL_VERSION, 'variants': None, 'margin': None, 'margin_variant': None,
+            'device_used': None}
 
 
 def _finite(value: Any) -> bool:
@@ -126,6 +128,8 @@ def parse_result(raw: Any, with_features: bool = False, margin_variant: str | No
     primary = clean[PRIMARY]
     result = failure(primary['status'], primary['reason_code'])
     result['variants'] = clean
+    # 실행기가 보고한 장치(내부 기록용). 정해진 이름이 아니면 None
+    result['device_used'] = clean_device(raw.get('device_used'))
     if margin_variant is not None:
         # 분류기의 원시 margin(확률 아님). 그 후보의 추출이 실패했거나 값이 이상하면 null이다
         margin = variants[margin_variant].get('margin') if isinstance(variants.get(margin_variant), dict) else None

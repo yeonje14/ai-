@@ -80,7 +80,10 @@ def run(req: dict) -> dict:
     segments = req["segments"]
     variants = req.get("variants") or list(extract.VARIANTS)
     include = bool(req.get("include_features", False))
-    out = {"schema_version": SCHEMA_VERSION, "variants": {}}
+    # 장치(내부 기록용): faces.py의 MediaPipe BaseOptions는 delegate를 지정하지 않아 CPU를 쓰고
+    # (mediapipe 1.2.3 base_options.py), 광학 흐름(OpenCV)·LightGBM도 CPU다. delegate를 지정하면 이 값도 바꿔야 한다
+    # (tests/test_axis_device_used.py가 확인한다).
+    out = {"schema_version": SCHEMA_VERSION, "device_used": "cpu", "variants": {}}
     margin_model = req.get("margin_model")  # {"variant", "path"}: 검증된 묶음의 분류기. 서버만 넘긴다
     for variant in variants:
         try:

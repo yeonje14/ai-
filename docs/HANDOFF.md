@@ -1,5 +1,18 @@
 # HANDOFF
 
+## Worker 장치·열 상태 기록 (2026-11-19, 브랜치 `feat/worker-device-log`)
+
+- 한 일: WaveRep·MotionPhys·SyncNet 실행기마다 실제 장치(`device_used`)와 실행 시작·끝의 macOS thermalState를 Worker 로그 한 줄과 jobs 테이블의 내부 열 `run_info_json`에 남긴다. **API 필드·상태 값 변경 없음**(결과·축 키 집합이 스키마와 같은 것을 테스트·실제 실행으로 확인).
+- 사용자 결정: 결과 JSON에는 API 계약을 바꾸지 않는 내부 자리가 없어 jobs 내부 열에 둔다(D1=B). 재선점 때 지우지 않고 **시도 번호별로 쌓는다.** 실행은 Native.
+- 형식·근거: `docs/syncnet-adapter.md` "Worker 장치·열 상태 기록". 계획 `docs/superpowers/plans/2026-11-19-worker-device-log.md`. 요약: MotionPhys는 MediaPipe 기본 delegate(CPU)라 실행기가 `cpu`를 보고하고, thermalState는 Worker 밖의 짧은 프로세스(ctypes)로 읽는다(실패하면 `null`/`unknown`, 작업에 영향 없음).
+- 실제 확인(A, 실제 API 서버 + Worker): 기본 설정 2회 `mps / cpu / mps`, `TRINITY_SYNCNET_DEVICE=cpu` 1회 `mps / cpu / cpu`. 리뷰 수정 뒤 코드로 기본 설정 1회 더(같은 결과). 세 번 모두 finished / completed / abstained, 로그와 기록 값 일치, thermalState 내내 `fair`(Swift로 직접 읽은 값과 같음), 작업 폴더·프로세스 남지 않음.
+- 실제로 보지 못한 것: thermalState가 실행 중 바뀌는 경우, 실제 SIGKILL 뒤 2차 시도 기록(둘 다 테스트로만 확인).
+- 최종 리뷰(작성자 자체 검토)에서 고친 것: 프로브·기록이 SyncNet 마무리 여유 10초를 최악의 경우 넘길 수 있었다(축 제한을 시작 프로브 전에 계산, 프로브 2초, 기록 잠금 대기 5초). 축 제한을 시작 프로브 뒤에 재고, 프로브 제한 1초, 기록 잠금 대기 1초로 줄였다(최악 약 7.1초 < 10초). 테스트 3개 추가.
+- 바뀐 파일: `server/jobs/device_state.py`(새), `server/axes/device.py`(새), `server/axes/__init__.py`·`signal`·`physics`·`alignment`, `server/axes/physics/motionphys.py`, `research/motionphys/infer_axis.py`(`device_used: "cpu"`), `server/jobs/queue.py`(열·이전 DB에 열 추가·`save_run_info`), `server/jobs/worker.py`, `tests/conftest.py`(프로브 스텁), 새 테스트 4개 파일(29개).
+- 실행 방법: 평소대로 `python -m server.jobs.worker`. 기록 읽기는 문서의 SQL 예시.
+- `pytest -q`: **859 passed, 1 skipped**(main 830 + 새 테스트 29, 건너뜀은 LightGBM 없음).
+- 막힌 점: 없음. PR은 이 브랜치로 생성, merge는 사용자 지시 후.
+
 ## 우연 채택률 1,000명 재측정 (2026-11-19, 브랜치 `audit/null-rerun-1000`)
 
 - 한 일: `scripts/audit_null_adoption.py --identities 1000 --seeds 100`(커밋된 설정, dev 조건만 `["original"]`)을 main `5aa7acf` 기준으로 끝까지 돌렸다(02:04~02:30, 시드당 약 16초, 중단 없음). `docs/audit-training-pipeline.md` 표에 "결정 반영 후 1,000명" 행과 "W의 FPR 관문 통과" 열을 더했다.

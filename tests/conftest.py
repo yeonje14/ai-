@@ -25,6 +25,16 @@ OTHER_TOKEN = "test-client-token-0002"
 
 
 @pytest.fixture(autouse=True)
+def _no_real_thermal_probe(monkeypatch):
+    """Worker 테스트마다 thermalState 프로브 자식 프로세스(축마다 2개)가 뜨지 않게 한다.
+
+    프로브 자체는 tests/test_device_state.py가 server.jobs.device_state를 직접 불러 확인한다.
+    값을 보는 Worker 테스트는 이 이름을 다시 바꾼다.
+    """
+    monkeypatch.setattr("server.jobs.worker.thermal_state", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_motionphys(tmp_path: Path, monkeypatch):
     """테스트가 이 기기의 research/motionphys/.venv를 몰래 실행하지 않게 한다.
 

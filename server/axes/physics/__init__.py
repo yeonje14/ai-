@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from server.axes import AxisContext
+from server.axes.device import clean_device
 from server.axes.physics import motionphys
 from server.axes.physics.motionphys import MODEL_VERSION, MotionPhysConfig
 
@@ -89,6 +90,7 @@ def run(ctx: AxisContext) -> dict[str, Any]:
         ctx.media_path, ctx.segments, ctx.job_dir, build_config(ctx),
         on_tick=ctx.heartbeat, tick_sec=ctx.settings.heartbeat_interval_seconds,
     )
+    ctx.device_used = clean_device(out.get("device_used"))
     # 로그에는 상태와 원인 코드만 남긴다. 영상 내용과 경로는 남기지 않는다.
     log.info("motionphys %s reason=%s", out["status"], out["reason_code"])
     if out["reason_code"] != "aborted":
