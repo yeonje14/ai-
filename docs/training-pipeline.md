@@ -139,5 +139,6 @@ docs/DESIGN.md §14.1 백로그 8번·12번. 작성일: 2026-11-16. 브랜치 `f
 
 - 실제 데이터의 학습·평가, 실제 성능 수치, 임계값의 실제 FPR.
 - 실제 MotionPhys venv에서 묶음의 LightGBM 모델로 margin을 계산하는 경로와, 실제 축이 결합 입력을 넘기는 경로(가짜 축·대역 프로세스로만 확인).
+  → 2026-11-19 margin 경로는 실제 두 venv로 확인(학습 쪽 `predict(raw_score=True)`와 비트 단위로 같음, `docs/motionphys-adapter.md` "LightGBM margin 일치 확인"). 실제 축이 결합 입력을 넘기는 Worker 종단은 여전히 미검증.
 - 대량 추출의 시간·디스크, HiDF, 유형별 표본이 적을 때의 보고 규칙, latency·메모리 집계(docs/DESIGN.md §13.1).
 - 앱에서의 라벨 표시(G4 뒤 별도 결정).

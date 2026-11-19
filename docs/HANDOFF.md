@@ -267,6 +267,7 @@
   특징 버전 불일치, 폴더 없음, 경로 벗어난 ID, 관문을 넘지 않은 후보 끼워 넣기) → 전부 null/abstained/no_valid_fusion_model.
 - `pytest -q` **690 passed, 1 skipped**(LightGBM 없음). `flutter test` 203개 통과(앱 변경 없음).
 - **미검증:** 실제 MotionPhys venv에서 묶음 모델로 margin을 계산하는 경로(`infer_axis.py`의 `_margin`)는 대역 프로세스로만 확인했다.
+  → 2026-11-19 실제 두 venv로 확인: 학습 쪽 `predict(raw_score=True)`와 비트 단위로 같다(`docs/motionphys-adapter.md` "LightGBM margin 일치 확인"). 실제 데이터 모델·실제 묶음 종단은 여전히 미검증.
   실제 영상 + 실제 LightGBM 모델의 종단 실행, 서버 Worker의 signal·alignment 입력 전달(가짜 축으로만 확인), 실제 데이터의 묶음.
 - 앱은 실제 서버 모드에서 라벨을 숨기는 현재 동작 그대로다(G4 뒤 별도 결정).
 
@@ -277,6 +278,7 @@ PR은 만들지 않았다(사용자 지시). main 병합 없음.
 
 1. DeepSpeak v2 승인 후 `docs/training-pipeline.md`의 체크리스트 1번부터.
 2. 실제 MotionPhys venv + 실제 LightGBM 모델로 margin 경로 종단 확인(지금은 대역 프로세스로만 확인).
+   → 2026-11-19 합성 특징으로 학습한 실제 LightGBM 모델로 확인(위 줄). 실제 데이터 모델은 승인 뒤.
 3. 이전 브랜치에서 넘어온 일: 압축 견고성 실측 재개(실패 캐시 삭제 후), `docs/robustness-selfvideo.md`, SyncNet 성능(`feat/syncnet-perf`, 보류).
 
 ## MotionPhys 축·견고성 진행 (2026-11-16~, 브랜치 `feat/motionphys-axis`)

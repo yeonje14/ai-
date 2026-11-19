@@ -74,7 +74,7 @@ docs/DESIGN.md §14.1 백로그 10번의 서버 연결 부분. 작성일: 2026-1
 
 ## 테스트
 
-`tests/test_motionphys_adapter.py`, `tests/test_motionphys_worker.py` (conda `trinity`).
+`tests/test_motionphys_adapter.py`, `tests/test_motionphys_worker.py` (conda `trinity`). margin 일치는 `tests/test_motionphys_margin_parity.py`(아래 "LightGBM margin 일치 확인").
 
 - 가짜 프로세스: 성공, 후보 A의 움직임 부족·추적 실패·짧은 구간, B·C만 실패, A 오류, 비정상 종료·깨진 JSON·잘못된 수치 17가지, 구간 없음·잘못된 구간(실행 안 함), 작업 폴더 밖 경로·심볼릭 링크, 실행 환경 없음, 인자 리스트, 타임아웃과 취소 시 후손 프로세스까지 종료, 시작 전 취소, 대기 중 tick 호출.
 - Worker: 축 결과가 스키마의 네 필드뿐인지, 설명 항목의 키가 세 개뿐인지, 세 축 완료 시 `completed`/`abstained`, 실패 4종의 격리(`partial`), lease 연장, 실행 중 취소, **Worker SIGKILL 뒤 그룹 종료와 재시도·재시도 상한·취소 복구**.
@@ -84,11 +84,23 @@ docs/DESIGN.md §14.1 백로그 10번의 서버 연결 부분. 작성일: 2026-1
 ## 하지 않은 것과 한계
 
 - 분류기 학습, AUC·TPR 비교, 축 유지/제거 결정(백로그 10번의 완료 조건). 임계값 결정.
+- ~~묶음의 LightGBM 모델로 margin을 내는 경로(`infer_axis.py`의 `_margin`)는 대역 프로세스로만 확인~~ → 2026-11-19 실제 두 venv로 확인: 서버 경로 margin이 학습 쪽 `predict(raw_score=True)`와 비트 단위로 같다(아래 "LightGBM margin 일치 확인"). 여전히 미검증: 실제 데이터로 학습한 모델, 실제 영상의 `face_motion`(1512차원) margin, 실제 묶음을 불러 Worker가 판정까지 가는 종단 실행.
 - B·E의 Worker 종단 실행, 실제 모델 실행 중의 취소와 Worker SIGKILL(대역 프로세스로만 확인했다), 실제 YouTube ID.
   (2026-11-19: 같은 Worker 경로의 SyncNet 실행 중 SIGKILL·취소와 WaveRep MPS 실행 중 취소는 실제 모델로 확인했다 —
   `docs/syncnet-adapter.md` "실제 Worker 수명주기 확인". **MotionPhys 실행 중의 취소·SIGKILL은 여전히 대역 프로세스로만 확인했다.**)
 - 앱의 판단 근거 화면이 새 설명 항목을 어떻게 보여 주는지는 확인하지 않았다(앱 코드 변경 없음).
 - MediaPipe 모델 파일의 이용 조건은 여전히 **확인 필요**다(`docs/motionphys-spec.md` §7).
+
+## LightGBM margin 일치 확인 (2026-11-19, 브랜치 `chore/small-checks`)
+
+서버 경로(`research/motionphys/infer_axis.py`의 `_margin`, `research/motionphys/.venv`)가 내는 margin이 학습 쪽(`research/training/train.py`의 `final.predict(..., raw_score=True)`, `research/training/.venv`)과 같은 입력에서 같은 값인지 실제 두 venv로 확인했다. **제품 코드 변경 없음.** 테스트 `tests/test_motionphys_margin_parity.py`(5개, 두 venv가 없으면 건너뜀, 약 7초).
+
+- 환경: 두 venv 모두 lightgbm 4.7.0, numpy 2.4.6(lockfile과 실제 import 값이 같음).
+- 학습: `training.synth`의 합성 특징(인물 60명, 특징 504차원 = 실제 `full`·`face_roi` 차원)으로 `train.py`를 그대로 돌렸다(커밋된 `configs/training.json`, dev 조건만 `original`). 학습 쪽 값은 `train.py`가 **메모리의 최종 모델**로 dev·test에 낸 점수(`scores/M-<후보>.csv`, `repr`)다. 서버는 그 모델을 **파일에서 다시 읽어** 한 영상씩 계산하므로, 저장·불러오기와 일괄·단건 예측 차이도 함께 본다.
+- 결과 1 — 함수 경로, dev·test 전체: 255행(후보 `full`·`face_roi`·`face_motion` 각 85행, margin 범위 −5.15~5.36). 합성 특징을 `infer_axis.run`에 넣고(특징 추출만 대체) 나온 JSON을 서버의 `parse_result`로 읽은 margin이 **255행 모두 학습 쪽 값과 비트 단위로 같다**(허용 오차 없이 `==`).
+- 결과 2 — 어댑터 프로세스 경로: 서버 `run_motionphys`가 요청 JSON에 `margin_model`을 넣어 실제 venv의 실행기 프로세스를 띄우고 결과를 읽는 경로에서, 후보 셋 모두 학습 쪽 값과 같다. `raw_score`는 그대로 `null`(API 점수는 fusion만 채운다), 작업 폴더에 남은 파일 없음.
+- 결과 3 — 실제 영상: A(2~6초)에서 서버 어댑터가 실제로 추출한 `full` 특징(504차원)과 margin(2.701591943937307)이, 같은 특징을 학습 venv에서 같은 모델 파일로 `predict(raw_score=True)` 한 값과 같다. 모델은 합성 특징으로 학습했으므로 이 값은 의미 없는 점수다(경로 확인용).
+- 확인하지 않은 것: 실제 데이터로 학습한 모델(DeepSpeak v2 승인 대기), 실제 영상의 `face_motion` margin(합성 모델이 504차원이라 1512차원 실제 특징과 맞지 않음. `_margin`은 차원이 다르면 `null`), 묶음(`training/bundle.py`)으로 복사한 모델을 Worker가 불러 판정까지 가는 종단 실행(묶음 검증은 합성 묶음을 거부하므로 테스트 설정에서만 가능).
 
 ## 재현 방법
 
