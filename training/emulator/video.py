@@ -20,13 +20,23 @@ import subprocess
 from pathlib import Path
 from typing import Mapping, Optional
 
+from server.gate.audio_track import RULE as AUDIO_TRACK_RULE
+from server.gate.audio_track import AudioTrackError, probe_audio_streams, select_audio_stream
 from training.datasets.manifest import sha256_file
 from training.emulator.profiles import ALLOWED_ENCODERS, Profile, ProfileError, get_profile
 
-METADATA_SCHEMA_VERSION = 2  # 2: audio(입력 트랙 목록, 복사한 트랙) 추가
+# 2: audio(입력 트랙 목록, 복사한 트랙) 추가
+# 3: 오디오 트랙을 Gate·SyncNet과 같은 규칙으로 고른다(audio.rule, 트랙별 default·decodable), reason_code 추가
+METADATA_SCHEMA_VERSION = 3
 STATUS_COMPLETED = "completed"
 STATUS_SKIPPED_UPSCALE = "skipped_upscale"
 STATUS_ERROR = "error"
+# reason_code: 요약에서 실패·건너뜀을 이유별로 센다(training/emulator/pipeline.py summarize)
+REASON_UPSCALE = "upscale"
+REASON_AUDIO_NOT_DECODABLE = "audio_not_decodable"  # 오디오가 있는데 디코딩할 수 있는 트랙이 없다
+REASON_AUDIO_NOT_COPYABLE = "audio_not_copyable"    # 규칙이 고른 트랙이 mp4에 복사할 수 있는 AAC가 아니다
+REASON_ENCODE_FAILED = "encode_failed"
+REASON_ENCODE_TIMEOUT = "encode_timeout"
 LINEAGE_FIELDS = ("dataset_id", "video_id", "source_recording_id", "derivation_group_id", "split")
 DEFAULT_TIMEOUT_SEC = 1800.0
 DISCLAIMER = "범용 압축 강건성 시험용 변형이다. 실제 YouTube 재인코딩과 같다고 주장하지 않는다."
@@ -48,7 +58,7 @@ def scale_filter(profile: Profile) -> str:
     return f"scale=w='if(lt(iw,ih),{t},-2)':h='if(lt(iw,ih),-2,{t})':flags={profile.scale_flags}"
 
 
-AUDIO_CODEC = "aac"  # 복사할 오디오 트랙의 코덱. 재인코딩하지 않는다(영상 압축의 영향만 본다)
+AUDIO_CODEC = "aac"  # 복사할 수 있는 오디오 코덱. 재인코딩하지 않는다(영상 압축의 영향만 본다)
 
 
 def build_args(ffmpeg: str, input_path: Path, output_path: Path, profile: Profile,
@@ -84,28 +94,6 @@ def ffmpeg_version(ffmpeg: str = "ffmpeg") -> str:
     if proc.returncode != 0 or not proc.stdout:
         raise EmulatorError("ffmpeg 버전을 읽지 못했다")
     return proc.stdout.splitlines()[0].strip()
-
-
-def probe_audio_streams(path: Path, ffprobe: str = "ffprobe") -> list[dict]:
-    """오디오 스트림 목록. ffprobe가 준 값을 그대로 적는다(모르는 코덱은 "unknown"으로 온다)."""
-    proc = _run([
-        ffprobe, "-v", "error", "-select_streams", "a",
-        "-show_entries", "stream=index,codec_name,codec_tag_string,channels,sample_rate",
-        "-of", "json", str(path),
-    ], 120)
-    if proc.returncode != 0:
-        raise EmulatorError(f"ffprobe 실패: {proc.stderr.strip()[:300]}")
-    return [
-        {"index": int(st["index"]), "codec_name": st.get("codec_name"),
-         "codec_tag_string": st.get("codec_tag_string"), "channels": st.get("channels"),
-         "sample_rate": st.get("sample_rate")}
-        for st in json.loads(proc.stdout).get("streams", [])
-    ]
-
-
-def select_audio_stream(streams: list[dict]) -> Optional[dict]:
-    """첫 번째 AAC 트랙 하나. 없으면 None. 다른 오디오 트랙(mp4에 복사할 수 없는 것 포함)은 버린다."""
-    return next((st for st in streams if st["codec_name"] == AUDIO_CODEC), None)
 
 
 def probe_video(path: Path, ffprobe: str = "ffprobe") -> dict:
@@ -177,14 +165,20 @@ def emulate(
         raise EmulatorError(f"출력이 이미 있다. 덮어쓰지 않는다: {output_path.name}")
 
     source = probe_video(input_path, ffprobe)
-    audio_streams = probe_audio_streams(input_path, ffprobe)
-    audio = select_audio_stream(audio_streams)
+    # Gate VAD·SyncNet과 같은 규칙으로 고른 트랙만 복사한다(docs/DESIGN.md §15.3 2026-11-19)
+    try:
+        selection = select_audio_stream(input_path, ffmpeg=ffmpeg, ffprobe=ffprobe)
+    except AudioTrackError as e:
+        raise EmulatorError(f"오디오 트랙을 확인하지 못했다: {e}") from e
+    audio = selection.selected
+    copyable = audio is not None and audio["codec_name"] == AUDIO_CODEC
     tmp_path = output_path.with_name(output_path.name + ".partial")
-    args = build_args(ffmpeg, input_path, tmp_path, profile, None if audio is None else audio["index"])
+    args = build_args(ffmpeg, input_path, tmp_path, profile, audio["index"] if copyable else None)
     result: dict = {
         "schema_version": METADATA_SCHEMA_VERSION,
         "status": STATUS_COMPLETED,
         "reason": None,
+        "reason_code": None,
         "profile_id": profile.profile_id,
         "profile": profile.to_dict(),
         "ffmpeg_version": ffmpeg_version(ffmpeg),
@@ -193,33 +187,41 @@ def emulate(
                         for a in args[1:]],
         "input": {"name": input_path.name, "sha256": sha256_file(input_path), **source},
         "output": None,
-        # 입력의 오디오 트랙 전부와, 그중 복사한 하나(없으면 null). 나머지 트랙은 출력에 없다
-        "audio": {"input_streams": audio_streams, "selected": audio, "codec": profile.audio},
+        # 입력의 오디오 트랙 전부와 규칙이 고른 하나(없으면 null). 고른 트랙만 출력에 들어간다
+        "audio": {"rule": AUDIO_TRACK_RULE, "input_streams": list(selection.streams), "selected": audio,
+                  "codec": profile.audio},
         "lineage": {k: (lineage or {}).get(k, "") for k in LINEAGE_FIELDS},
         "note": DISCLAIMER,
     }
 
     short = min(source["width"], source["height"])
-    if audio_streams and audio is None:
-        # 오디오가 있는데 AAC 트랙이 없다. 재인코딩하지 않으므로 만들지 않고 넘어간다
-        result["status"] = STATUS_ERROR
-        result["reason"] = f"복사할 {AUDIO_CODEC} 오디오 트랙이 없다: " + ", ".join(
-            str(st["codec_name"]) for st in audio_streams)
+    if selection.streams and audio is None:
+        # 오디오가 있는데 디코딩할 수 있는 트랙이 없다. Gate·SyncNet도 읽지 못하므로 만들지 않는다
+        result["status"], result["reason_code"] = STATUS_ERROR, REASON_AUDIO_NOT_DECODABLE
+        result["reason"] = "디코딩할 수 있는 오디오 트랙이 없다: " + ", ".join(
+            f"{st['codec_name'] or st['codec_tag_string']}" for st in selection.streams)
+    elif selection.streams and not copyable:
+        # 규칙이 고른 트랙이 AAC가 아니다. 다른 트랙을 대신 넣으면 Gate·SyncNet과 어긋나고,
+        # 재인코딩은 별도 실험 축이라 하지 않는다. 만들지 않고 넘어간다(2026-11-19 사용자 결정 D2)
+        result["status"], result["reason_code"] = STATUS_ERROR, REASON_AUDIO_NOT_COPYABLE
+        result["reason"] = (f"규칙이 고른 오디오 트랙(index {audio['index']}, {audio['codec_name']})이 "
+                            f"{AUDIO_CODEC}가 아니라 mp4에 복사할 수 없다")
     elif profile.short_side is not None and profile.short_side > short:
-        result["status"] = STATUS_SKIPPED_UPSCALE
+        result["status"], result["reason_code"] = STATUS_SKIPPED_UPSCALE, REASON_UPSCALE
         result["reason"] = f"목표 짧은 변 {profile.short_side}px가 원본 {short}px보다 크다"
     else:
         tmp_path.unlink(missing_ok=True)
         try:
             proc = _run(args, timeout_sec)
             failure = None if proc.returncode == 0 else (proc.stderr.strip()[-500:] or f"종료 코드 {proc.returncode}")
+            reason_code = REASON_ENCODE_FAILED
         except subprocess.TimeoutExpired:
-            failure = f"시간 초과({timeout_sec}초)"
+            failure, reason_code = f"시간 초과({timeout_sec}초)", REASON_ENCODE_TIMEOUT
         if failure is None and not tmp_path.is_file():
-            failure = "출력 파일이 생기지 않았다"
+            failure, reason_code = "출력 파일이 생기지 않았다", REASON_ENCODE_FAILED
         if failure is not None:
             tmp_path.unlink(missing_ok=True)
-            result["status"] = STATUS_ERROR
+            result["status"], result["reason_code"] = STATUS_ERROR, reason_code
             result["reason"] = failure
         else:
             os.replace(tmp_path, output_path)

@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT))
 
 from server.axes.alignment.report import (SEGMENT_TOO_SHORT, metrics_null, segment_failure, validate_segments,
                                          validate_tracks)
+# Gate VAD·압축 에뮬레이터와 같은 오디오 트랙 규칙(표준 라이브러리만, docs/DESIGN.md §15.3 2026-11-19)
+from server.gate.audio_track import select_audio_stream
 
 
 def verify_weights(weights_dir: Path) -> None:
@@ -126,24 +128,37 @@ def tracks_from_output(output) -> list[dict]:
         for i, (offset, conf, dist) in enumerate(zip(offsets, confidences, distances))])
 
 
-def cut_segment(video: Path, start: float, end: float, dest: Path) -> None:
+def cut_segment(video: Path, start: float, end: float, dest: Path, audio_index: int) -> None:
     # 같은 입력의 비디오/오디오를 동일 시간 창으로 절단한다. 하드웨어 인코더는 쓰지 않는다.
+    # 오디오는 규칙이 고른 트랙(audio_index, 입력 전체의 스트림 번호)만 명시해 쓴다.
     cmd = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(video),
-           '-ss', str(start), '-t', str(end - start), '-map', '0:v:0', '-map', '0:a:0',
+           '-ss', str(start), '-t', str(end - start), '-map', '0:v:0', '-map', f'0:{int(audio_index)}',
            '-c:v', 'ffv1', '-c:a', 'pcm_s16le', '-ar', '16000', '-ac', '1', str(dest)]
     subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def audio_index_of(video: Path) -> int | None:
+    """규칙이 고른 오디오 트랙 번호. 고를 트랙이 없거나 확인하지 못하면 None(그 요청의 구간은 모두 오류)."""
+    try:
+        return select_audio_stream(video).index
+    except Exception:
+        return None
+
+
 def infer_segments(request: dict, work: Path, pipeline) -> dict:
     rows = []
     guard = install_guard(pipeline)
+    audio_index = audio_index_of(Path(request['video']))  # 요청마다 한 번 고른다
     for start, end in validate_segments(request['segments']):
         try:
+            if audio_index is None:
+                # 예전에 0:a:0 절단이 실패하던 경우와 같은 결과(error/inference_error)다
+                raise ValueError('no decodable audio stream')
             with tempfile.TemporaryDirectory(prefix='segment-', dir=work) as tmp:
                 segment_dir = Path(tmp)
                 clip = segment_dir / 'clip.avi'
-                cut_segment(Path(request['video']), start, end, clip)
+                cut_segment(Path(request['video']), start, end, clip, audio_index)
                 if guard is not None:
                     guard.start(segment_dir / 'cache')
                 output = pipeline.inference(str(clip), cache_dir=str(segment_dir / 'cache'))

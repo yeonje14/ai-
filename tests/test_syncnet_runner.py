@@ -15,6 +15,12 @@ def runner():
     return importlib.import_module(name)
 
 
+@pytest.fixture(autouse=True)
+def fixed_audio_track(monkeypatch):
+    """가짜 영상 파일에는 ffprobe를 돌리지 않는다. 트랙 선택 자체는 tests/test_audio_track.py가 본다."""
+    monkeypatch.setattr(runner(), 'audio_index_of', lambda video: 1)
+
+
 def output(offsets=None, confs=None, dists=None, has_face=True):
     return (offsets if offsets is not None else [-2, 3],
             confs if confs is not None else [8.0, 2.0],
@@ -56,8 +62,9 @@ def test_segment_failure_does_not_prevent_next_segment_and_cleans(tmp_path, runn
     mod = runner()
     work, req = runner_request
     calls = []
-    def cut(video, start, end, dest):
+    def cut(video, start, end, dest, audio_index):
         calls.append((start, end))
+        assert audio_index == 1
         dest.write_bytes(b'clip')
     monkeypatch.setattr(mod, 'cut_segment', cut)
     class Pipeline:
@@ -92,17 +99,53 @@ def test_no_tracks_are_insufficient_input(runner_request, monkeypatch):
                for row in result['segments'])
 
 
+def test_no_decodable_audio_fails_every_segment_without_cutting(runner_request, monkeypatch):
+    mod = runner()
+    work, req = runner_request
+    monkeypatch.setattr(mod, 'audio_index_of', lambda video: None)
+    cuts = []
+    monkeypatch.setattr(mod, 'cut_segment', lambda *a: cuts.append(a))
+    class Pipeline:
+        def inference(self, *args, **kwargs):
+            raise AssertionError('not reached')
+    result = mod.infer_segments(req, work, Pipeline())
+    assert cuts == []
+    assert [(r['status'], r['reason_code']) for r in result['segments']] == [('error', 'inference_error')] * 2
+    assert list(work.iterdir()) == []
+
+
+def test_audio_index_is_chosen_once_per_request(runner_request, monkeypatch):
+    mod = runner()
+    work, req = runner_request
+    seen, picks = [], []
+    monkeypatch.setattr(mod, 'audio_index_of', lambda video: picks.append(video) or 3)
+    monkeypatch.setattr(mod, 'cut_segment', lambda video, s, e, dest, index: seen.append(index))
+    class Pipeline:
+        def inference(self, *args, **kwargs):
+            return output()
+    mod.infer_segments(req, work, Pipeline())
+    assert picks == [Path(req['video'])] and seen == [3, 3]
+
+
+def test_audio_index_of_returns_none_when_probe_fails(tmp_path, monkeypatch):
+    mod = runner()
+    monkeypatch.undo()  # 자동 고정을 풀고 실제 함수를 본다
+    missing = tmp_path / 'none.mov'
+    assert mod.audio_index_of(missing) is None
+
+
 def test_cut_command_has_shared_av_time_window_and_argument_list(tmp_path, monkeypatch):
     mod = runner()
     calls = []
     monkeypatch.setattr(mod.subprocess, 'run', lambda cmd, **kwargs: calls.append((cmd, kwargs)))
     source, dest = tmp_path / 'a b.mp4', tmp_path / 'clip.avi'
-    mod.cut_segment(source, 1.25, 4.75, dest)
+    mod.cut_segment(source, 1.25, 4.75, dest, 2)
     cmd, kwargs = calls[0]
     assert isinstance(cmd, list) and kwargs.get('shell', False) is False
     assert cmd[cmd.index('-i') + 1] == str(source)
     assert cmd[cmd.index('-ss') + 1] == '1.25' and cmd[cmd.index('-t') + 1] == '3.5'
-    assert [cmd[i + 1] for i, token in enumerate(cmd) if token == '-map'] == ['0:v:0', '0:a:0']
+    # 오디오는 규칙이 고른 트랙만 명시한다(0:a:0 같은 FFmpeg 쪽 선택에 맡기지 않는다)
+    assert [cmd[i + 1] for i, token in enumerate(cmd) if token == '-map'] == ['0:v:0', '0:2']
     assert cmd[cmd.index('-c:a') + 1] == 'pcm_s16le'
     assert 'videotoolbox' not in ' '.join(cmd).lower()
     assert kwargs['check'] is True
