@@ -167,6 +167,20 @@ def test_feature_version_excludes_timeouts():
     assert all("timeout_sec" not in cfg and "version" in cfg for cfg in v.values())
 
 
+def test_audio_track_rule_is_in_gate_and_syncnet_keys_only():
+    """오디오를 읽는 축(Gate·SyncNet)만 트랙 선택 규칙을 키에 넣는다(docs/DESIGN.md §15.3 2026-11-19 D3)."""
+    from server.gate import audio_track
+
+    settings = extract.default_settings()
+    v = extract.feature_version(settings)
+    assert v["gate"]["audio_track_rule"] == v["syncnet"]["audio_track_rule"] == audio_track.RULE
+    assert "audio_track_rule" not in v["waverep"] and "audio_track_rule" not in v["motionphys"]
+    changed = json.loads(json.dumps(settings))
+    for axis in ("gate", "syncnet"):
+        changed[axis]["audio_track_rule"] = "other-rule"
+        assert extract.cache_key("h", axis, settings, [[0, 1]]) != extract.cache_key("h", axis, changed, [[0, 1]])
+
+
 def test_motionphys_adapter_returns_features_only_when_asked(tmp_path):
     work = tmp_path / "job"
     work.mkdir()

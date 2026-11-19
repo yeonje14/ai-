@@ -37,6 +37,7 @@ from server.axes.physics.motionphys import MotionPhysConfig, run_motionphys
 from server.axes.signal import waverep
 from server.axes.signal.waverep import WaveRepConfig, run_waverep
 from server.config import Settings
+from server.gate import audio_track
 from server.gate.runner import run_gate_process
 from training import hygiene
 from training.datasets.manifest import ManifestError, Record, read_manifest, sha256_file
@@ -60,13 +61,16 @@ def default_settings(s: Optional[Settings] = None) -> dict:
     """
     s = s or Settings()
     return {
-        "gate": {"version": GATE_VERSION, "timeout_sec": s.gate_timeout_seconds},
+        # 오디오를 읽는 두 축은 트랙 선택 규칙도 키에 넣는다. 규칙이 바뀌면 옛 캐시·묶음을 쓰지 않는다
+        # (docs/DESIGN.md §15.3 2026-11-19 D3). WaveRep·MotionPhys는 오디오를 읽지 않고, 키의 Gate 구간으로 따라 바뀐다
+        "gate": {"version": GATE_VERSION, "audio_track_rule": audio_track.RULE, "timeout_sec": s.gate_timeout_seconds},
         "waverep": {"version": waverep.MODEL_VERSION, "device": s.waverep_device,
                     "sample_fps": s.waverep_sample_fps, "batch_size": s.waverep_batch_size,
                     "timeout_sec": s.waverep_timeout_seconds},
         "motionphys": {"version": motionphys.MODEL_VERSION, "timeout_sec": s.motionphys_timeout_seconds},
         "syncnet": {"version": syncnet_report.MODEL_VERSION, "device": s.syncnet_device,
-                    "status_rule": syncnet_report.STATUS_RULE, "timeout_sec": 600.0},
+                    "status_rule": syncnet_report.STATUS_RULE, "audio_track_rule": audio_track.RULE,
+                    "timeout_sec": 600.0},
     }
 
 
