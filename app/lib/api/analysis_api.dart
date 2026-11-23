@@ -67,6 +67,10 @@ class HttpAnalysisApi implements AnalysisApi {
   DateTime? _submitAt;
 
   void setCredential(String? value) {
+    if (_token != value) {
+      _retryAt = null;
+      _submitAt = null;
+    }
     _session++;
     _token = value;
     clearSubmission();

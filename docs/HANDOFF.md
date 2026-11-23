@@ -1,5 +1,11 @@
 # HANDOFF
 
+## PR #31 후속 리뷰 6 · Flutter 세션별 Retry-After
+
+- PR #31 병합 커밋 `872a3e8`에서 `fix/flutter-retry-after-session`을 생성했다. `HttpAnalysisApi`는 전체 요청 대기와 제출 전용 대기 기한을 보관한다. 로그인은 `setCredential(key)`, 401 및 세션 화면 폐기는 `setCredential(null)`을 호출한다. 자격 값이 바뀔 때 두 기한을 함께 비우고 같은 자격에서는 유지하도록 수정했다.
+- 수정 전 위젯 테스트에서 A가 429를 받으면 B의 제출 또는 첫 작업 목록 조회가 차단되는 두 경우를 재현했다. 수정 후 같은 A 세션의 재시도는 HTTP POST를 추가로 보내지 않고, B는 즉시 목록을 열고 제출한다. 서버 요청 제한 코드는 변경하지 않았다.
+- `app/`에서 `flutter test test/session_flow_test.dart test/api_test.dart` 19개 통과, `flutter analyze` 지적 없음, `flutter test` 전체 208개 통과. 다음 단계는 변경 검토 후 커밋 여부 결정이다.
+
 ## PR #31 리뷰 3·14 승인 반영과 리뷰 4 실행 확인 (2026-11-23, 브리즈번)
 
 - `design/auth-rate-limit`에서 §15.3에 승인 결정을 먼저 기록한 뒤 §9에 인증·목록 정렬과 페이지 응답·HTTP 오류·접수 재전송 계약을 반영했다. §14.1, 결정 요약표와 README에 계정 인증·요청 제한 구현 상태를 갱신했다.
