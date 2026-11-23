@@ -192,7 +192,7 @@ class HttpAnalysisApi implements AnalysisApi {
       if (detail is Map && detail['reason_code'] is String) reason = detail['reason_code'] as String;
     } catch (_) {}
     final kind = switch (res.statusCode) {
-      422 => ApiErrorKind.invalidUrl,
+      422 when reason == 'invalid_youtube_url' => ApiErrorKind.invalidUrl,
       429 => ApiErrorKind.queueFull,
       401 || 403 => ApiErrorKind.unauthorized,
       404 => ApiErrorKind.notFound,

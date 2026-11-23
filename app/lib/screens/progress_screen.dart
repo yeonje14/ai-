@@ -12,7 +12,7 @@ class ProgressScreen extends StatelessWidget {
   const ProgressScreen({
     super.key,
     required this.state,
-    this.connectionLost = false,
+    this.pollWarning,
     this.failureReasonCode,
     this.onCancel,
     this.cancelRequested = false,
@@ -23,7 +23,7 @@ class ProgressScreen extends StatelessWidget {
   final JobState state;
 
   /// 상태 조회가 실패해 다시 시도하는 중인지.
-  final bool connectionLost;
+  final String? pollWarning;
   final String? failureReasonCode;
   final VoidCallback onRestart;
   final VoidCallback? onCancel;
@@ -70,10 +70,10 @@ class ProgressScreen extends StatelessWidget {
             tone: StatusTone.warning,
           ),
         ],
-        if (connectionLost && !stopped) ...[
+        if (pollWarning != null && !stopped) ...[
           const SizedBox(height: TSpace.x3),
-          const InfoBox(
-            title: '연결이 끊겼어요',
+          InfoBox(
+            title: pollWarning!,
             body: '상태를 다시 확인하고 있습니다. 분석은 서버에서 계속됩니다.',
             tone: StatusTone.warning,
           ),
