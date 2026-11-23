@@ -1,5 +1,11 @@
 # HANDOFF
 
+## PR #35 마감 · 리뷰 6·7·9 통합
+
+- PR #32(`eddd0f0`), #33(`2ba4268`), #34(`63b07bf`)를 통합한 PR #35가 `76a455f`로 병합됐다. 세 리뷰 커밋 모두 `origin/main`의 조상임을 확인했다.
+- 통합 커밋 `d1a3804`의 `app/`에서 `flutter analyze` 지적 없음, `flutter test` 220개 통과. 병합 커밋 `76a455f`에서는 재실행하지 않았다. Git으로 확인한 두 커밋의 루트 트리는 모두 `1ded8fde5fa9ca3687a34a994e40d70b4f1c0103`이다.
+- 다음 작업 후보는 리뷰 10이다. 레거시 DB 거부 테스트가 파일 권한 검사를 통과한 뒤 의도한 `application_id` 검사에서 실패하는지 확인한다.
+
 ## PR #31 후속 리뷰 9 · Flutter API 오류 안내
 
 - 작업 시작 시 리뷰 6 PR #32와 리뷰 7 PR #33은 모두 OPEN이었다. 최신 `origin/main`에서 `fix/flutter-api-error-messages` 브랜치를 만들었다.
