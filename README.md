@@ -188,7 +188,7 @@ export TRINITY_RUNTIME_DIR="$(pwd -P)/data/runtime/accounts-demo/jobs"
 ```
 
 ```bash
-uvicorn server.main:app --reload     # API (http://127.0.0.1:8000)
+uvicorn server.main:app --reload --no-access-log     # API (http://127.0.0.1:8000)
 python -m server.jobs.worker         # 분석은 Worker에서만 실행
 ```
 

@@ -1,5 +1,12 @@
 # HANDOFF
 
+## PR #31 후속 리뷰 7 · Uvicorn 접근 로그
+
+- 확인 당시 리뷰 6 PR #32는 OPEN이었다. 깨끗한 `docs/disable-uvicorn-access-log` 브랜치에서 독립적으로 진행했다.
+- README.md, app/README.md, AGENTS.md, DESIGN.md의 API 서버 실행 예시 5곳에 `--no-access-log`를 추가하고 기존 `--reload`와 `--port 8000` 옵션을 유지했다.
+- `trinity` 환경에서 임시 계정 DB에 같은 소유자의 작업 2건을 준비하고 루프백 Uvicorn을 실행했다. 인증된 목록 GET에 `limit=1`을 주어 최신 작업과 다음 커서를 받았다. 반환된 커서로 다음 페이지를 요청해 이전 작업과 `next_cursor=null`을 확인했다. 두 응답 모두 HTTP 200이었다.
+- 서버 종료 후 표준 출력·오류를 함께 검사했다. 시작·종료 로그가 기록됐고, 목록 경로·커서 쿼리·커서 값·인증 키는 발견되지 않았다. 임시 DB와 로그를 정리했다.
+
 ## PR #31 후속 리뷰 6 · Flutter 세션별 Retry-After
 
 - PR #31 병합 커밋 `872a3e8`에서 `fix/flutter-retry-after-session`을 생성했다. `HttpAnalysisApi`는 전체 요청 대기와 제출 전용 대기 기한을 보관한다. 로그인은 `setCredential(key)`, 401 및 세션 화면 폐기는 `setCredential(null)`을 호출한다. 자격 값이 바뀔 때 두 기한을 함께 비우고 같은 자격에서는 유지하도록 수정했다.

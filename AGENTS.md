@@ -25,7 +25,7 @@
 - 환경: `conda activate trinity` (없으면 `conda create -n trinity python=3.11 -y && pip install -r requirements.txt`)
 - Gate 의존성(선택): `pip install -r requirements-gate.txt` (torch 없음. 없으면 실제 미디어 Gate 테스트는 건너뛴다. 모델 파일은 `docs/gate.md`)
 - 테스트: `pytest -q`
-- API 서버: `uvicorn server.main:app --reload`
+- API 서버: `uvicorn server.main:app --reload --no-access-log`
 - Worker: `python -m server.jobs.worker` (`--drain`: 대기열이 비면 종료)
 - 실행 확인: `python scripts/smoke_slice.py` (서버와 Worker가 떠 있을 때)
 
