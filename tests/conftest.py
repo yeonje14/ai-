@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import sys
+import uuid
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from server import accounts
 from server.api import create_app
 from server.config import Settings
 from server.ingest.media_resolver import AuthorizedMediaRegistry
@@ -20,8 +23,8 @@ REGISTERED_ID = "TRINITYtest"   # 가짜 ID. 실제 영상이 아니다.
 REGISTERED_MEDIA = "registered.mp4"
 REGISTERED_NO_MEDIA_ID = "TRINITYnone"  # 등록됐지만 미디어 파일이 연결되지 않은 가짜 ID
 UNREGISTERED_ID = "dQw4w9WgXcQ"  # docs/DESIGN.md §9의 형식 설명용 예시 ID
-TOKEN = "test-client-token-0001"
-OTHER_TOKEN = "test-client-token-0002"
+TOKEN = "A" * 43
+OTHER_TOKEN = "B" * 43
 
 
 @pytest.fixture(autouse=True)
@@ -86,8 +89,24 @@ def queue(settings: Settings) -> JobQueue:
 
 
 @pytest.fixture
-def client(settings: Settings) -> TestClient:
-    return TestClient(create_app(settings), headers={"X-Client-Token": TOKEN})
+def account_db(settings: Settings):
+    accounts.initialize(settings.db_path)
+    with accounts.connection(settings.db_path, write=True) as conn:
+        for uid, key in (("test-user", TOKEN), ("other-user", OTHER_TOKEN)):
+            conn.execute("INSERT INTO users(user_id) VALUES (?)", (uid,))
+            conn.execute("INSERT INTO credentials(digest,user_id,expires_at) VALUES (?,?,?)",
+                         (hashlib.sha256(key.encode()).digest(), uid, 4102444800))
+    return settings.db_path
+
+
+@pytest.fixture
+def account_queue(account_db) -> JobQueue:
+    return JobQueue.open_registered(account_db)
+
+
+@pytest.fixture
+def client(settings: Settings, account_db) -> TestClient:
+    return TestClient(create_app(settings), headers={"Authorization": f"Bearer {TOKEN}", "Idempotency-Key": str(uuid.uuid4())})
 
 
 @pytest.fixture

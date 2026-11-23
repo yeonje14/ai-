@@ -126,7 +126,14 @@ const analysisStatusText = <AnalysisStatus, String>{
 };
 
 /// 요청 실패(HTTP)의 안내 문구. 분석 결과가 아니다.
-String apiErrorText(ApiException e) => switch (e.kind) {
+String apiErrorText(ApiException e) {
+  if (e.retryAt case final deadline?) {
+    final seconds = (deadline.difference(DateTime.now()).inMilliseconds / 1000).ceil();
+    return '$seconds초 뒤에 다시 요청해 주세요.';
+  }
+  if (e.reasonCode == 'user_active_limit') return '진행 중인 작업이 있습니다. 내 작업에서 확인해 주세요.';
+  if (e.reasonCode == 'retry_expired') return '재시도 기한이 지났습니다. 내 작업을 확인한 뒤 새 분석을 요청해 주세요.';
+  return switch (e.kind) {
       ApiErrorKind.invalidUrl => 'YouTube 영상 주소가 아닙니다. youtube.com 또는 youtu.be 주소를 넣어 주세요.',
       ApiErrorKind.queueFull => '지금은 대기 중인 분석이 많습니다. 잠시 뒤에 다시 요청해 주세요.',
       ApiErrorKind.unauthorized => '요청을 확인할 수 없습니다. 앱을 다시 열고 시도해 주세요.',
@@ -134,6 +141,7 @@ String apiErrorText(ApiException e) => switch (e.kind) {
       ApiErrorKind.network => '서버에 연결하지 못했습니다. 연결 상태를 확인해 주세요.',
       ApiErrorKind.server => '서버에서 요청을 처리하지 못했습니다.',
     };
+}
 
 /// 초 → "1분 5초". 소수점 아래는 버린다.
 String formatDuration(double seconds) {

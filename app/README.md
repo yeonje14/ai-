@@ -31,14 +31,14 @@ flutter run -d chrome --web-port 8080 --no-web-resources-cdn
 
 ### 실제 서버 모드
 
-터미널 두 개에서 서버와 Worker를 띄운다(저장소 루트, conda `trinity`).
+[서버 실행 방법](../docs/DESIGN.md#서버-실행-방법-백로그-47번)의 3단계에 따라 운영자 전용 디렉터리(0700)에 새 계정 DB(0600)를 초기화하고 대화형 터미널에서 개인 키를 발급한다. 4단계대로 저장소 루트의 두 터미널에서 conda `trinity`를 활성화하고 같은 `TRINITY_DB_PATH`와 `TRINITY_RUNTIME_DIR`를 설정한 뒤 각각 실행한다.
 
 ```bash
 uvicorn server.main:app --port 8000
 TRINITY_STUB_STAGE_DELAY_SECONDS=1 python -m server.jobs.worker   # 단계가 바뀌는 것을 보려면 지연을 준다
 ```
 
-앱을 실행한다.
+앱을 실행하고 세션 화면의 키 입력란에 발급받은 개인 키를 넣어 **인증**을 누른다.
 
 ```bash
 cd app
@@ -67,10 +67,9 @@ flutter run -d chrome --web-port 8080 --no-web-resources-cdn \
 flutter analyze
 flutter test
 flutter build web --no-web-resources-cdn
-
-# 브라우저 없이 앱의 API 클라이언트로 실제 서버를 불러 본다 (서버와 Worker가 떠 있어야 한다)
-dart run tool/smoke_server.dart http://localhost:8000 'https://www.youtube.com/watch?v=TRINITYtest'
 ```
+
+브라우저 없이 실행 중인 API와 Worker를 확인하려면 저장소 루트에서 `python scripts/smoke_slice.py`를 실행하고 개인 키를 숨김 입력한다.
 
 ## 구조
 
@@ -82,13 +81,12 @@ dart run tool/smoke_server.dart http://localhost:8000 'https://www.youtube.com/w
 | `lib/screens/` | 홈(웹형·앱형), 분석 중, 결과(발견·낮음·보류·접근 불가·대상 아님), 판단 근거 상세, 이용 안내 |
 | `lib/app.dart` | 화면 흐름과 상태 조회 반복 |
 | `assets/fonts/` | 글꼴 5개와 OFL 라이선스 |
-| `tool/smoke_server.dart` | 실제 서버 연결 확인 |
 
 ## 서버와 주고받는 것
 
 - `POST /api/v1/analyses` (`{"url": ...}`), `GET /api/v1/analyses/{id}`, `GET /api/v1/analyses/{id}/result`, `DELETE /api/v1/analyses/{id}`(취소).
 - 분석 중 화면의 취소 버튼은 상태 조회에서 받은 `ETag`를 `If-Match`에 넣어 DELETE를 보낸다. `202`면 상태를 다시 조회해 "취소됨"을 보여 주고, 먼저 끝나 `412`가 오면 오류 없이 이미 나온 결과를 보여 준다(저장소 `docs/DESIGN.md` §9). 끝난 결과를 지우는 기능은 앱에 없다.
-- `X-Client-Token`: 앱을 열 때 무작위로 만들어 메모리에만 둔다. 새로고침하면 진행 중이던 분석을 다시 볼 수 없다(정식 인증은 백로그 14번).
+- 실제 서버 모드에서는 입력한 개인 키를 메모리에 보관한다. 새로고침 후에는 다시 인증해 본인 작업 목록을 연다. 앱이 접수용 UUID를 생성하므로 사용자가 직접 입력할 값은 개인 키와 YouTube 주소다.
 - 주소 검증은 서버가 한다. 앱은 빈 입력만 막는다.
 - 상태는 1초마다 다시 조회한다. 조회가 실패하면 알리고 계속 다시 조회한다.
 

@@ -5,7 +5,7 @@
 - 긴 추론 중에는 heartbeat()로 lease를 주기적으로 연장한다.
 - lease가 만료된 processing 작업은 재시도 상한 안에서 queued로 되돌린다(재시작 복구).
 - 상태를 바꾸는 쓰기는 lease_owner가 일치할 때만 적용한다(중복 실행 방지).
-- URL 원문은 저장하지 않는다. video ID와 소유자 토큰의 해시만 저장한다.
+- 등록 계정 큐에는 video ID와 소유자 user_id를 저장한다.
 """
 
 from __future__ import annotations
@@ -20,28 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS jobs (
-    analysis_id       TEXT PRIMARY KEY,
-    owner_hash        TEXT NOT NULL,
-    youtube_video_id  TEXT NOT NULL,
-    job_status        TEXT NOT NULL,
-    stage             TEXT,
-    completed_stages  TEXT NOT NULL DEFAULT '[]',
-    result_json       TEXT,
-    failure_reason    TEXT,
-    attempts          INTEGER NOT NULL DEFAULT 0,
-    lease_owner       TEXT,
-    lease_expires_at  REAL,
-    cancel_requested  INTEGER NOT NULL DEFAULT 0,
-    created_at        REAL NOT NULL,
-    started_at        REAL,
-    finished_at       REAL,
-    -- 내부 실행 기록(축별 장치·열 상태, 시도별 누적). API·_to_job은 읽지 않는다
-    run_info_json     TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs (job_status, created_at);
-"""
+from server import accounts
+from server.jobs.schema import jobs_schema
 
 LEASE_OK = "ok"
 LEASE_LOST = "lost"
@@ -87,15 +67,31 @@ def _to_job(row: sqlite3.Row) -> Job:
 
 
 class JobQueue:
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, *, registered_users: bool = False):
         self.db_path = Path(db_path)
+        self.registered_users = registered_users
+        self.owner_column = "user_id" if registered_users else "owner_hash"
+
+    @classmethod
+    def open_registered(
+        cls, db_path: Path, *, prepare: Optional[Callable[[sqlite3.Connection], None]] = None,
+    ) -> JobQueue:
+        """서비스를 시작할 때 기존 계정 DB와 작업 소유권 열을 검사한다."""
+        queue = cls(db_path, registered_users=True)
+        with queue._tx() as conn:
+            conn.execute("SELECT user_id FROM jobs LIMIT 0")
+            if prepare is not None:
+                prepare(conn)
+        return queue
 
     def init_schema(self) -> None:
+        if self.registered_users:
+            raise ValueError("계정 DB는 server.accounts init으로 초기화하세요.")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=5)
         try:
             conn.execute("PRAGMA journal_mode=WAL")
-            conn.executescript(_SCHEMA)
+            conn.executescript(jobs_schema(registered_users=False))
             # 열이 생기기 전에 만든 DB에는 열만 더한다(기존 행은 그대로)
             if "run_info_json" not in {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}:
                 conn.execute("ALTER TABLE jobs ADD COLUMN run_info_json TEXT")
@@ -104,6 +100,11 @@ class JobQueue:
 
     @contextmanager
     def _tx(self, timeout: float = 5) -> Iterator[sqlite3.Connection]:
+        if self.registered_users:
+            with accounts.connection(self.db_path, write=True, timeout=timeout) as conn:
+                conn.row_factory = sqlite3.Row
+                yield conn
+            return
         conn = sqlite3.connect(self.db_path, timeout=timeout, isolation_level=None)
         conn.row_factory = sqlite3.Row
         try:
@@ -120,27 +121,33 @@ class JobQueue:
     # ---- API 쪽 -------------------------------------------------------
 
     def enqueue(self, youtube_video_id: str, owner_hash: str, max_queued: int) -> str:
-        analysis_id = str(uuid.uuid4())
         with self._tx() as conn:
-            (queued,) = conn.execute(
-                "SELECT COUNT(*) FROM jobs WHERE job_status = 'queued'"
-            ).fetchone()
-            if queued >= max_queued:
-                raise QueueFull()
-            conn.execute(
-                "INSERT INTO jobs (analysis_id, owner_hash, youtube_video_id,"
-                " job_status, created_at) VALUES (?, ?, ?, 'queued', ?)",
-                (analysis_id, owner_hash, youtube_video_id, time.time()),
-            )
+            return self.enqueue_in(conn, youtube_video_id, owner_hash, max_queued)
+
+    def enqueue_in(self, conn: sqlite3.Connection, youtube_video_id: str, owner: str, max_queued: int) -> str:
+        analysis_id = str(uuid.uuid4())
+        (queued,) = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE job_status = 'queued'"
+        ).fetchone()
+        if queued >= max_queued:
+            raise QueueFull()
+        conn.execute(
+            f"INSERT INTO jobs (analysis_id, {self.owner_column}, youtube_video_id,"
+            " job_status, created_at) VALUES (?, ?, ?, 'queued', ?)",
+            (analysis_id, owner, youtube_video_id, time.time()),
+        )
         return analysis_id
 
     def get(self, analysis_id: str, owner_hash: str) -> Optional[Job]:
         """소유자가 다르면 없는 작업과 똑같이 None이다."""
         with self._tx() as conn:
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE analysis_id = ? AND owner_hash = ?",
-                (analysis_id, owner_hash),
-            ).fetchone()
+            return self.get_in(conn, analysis_id, owner_hash)
+
+    def get_in(self, conn: sqlite3.Connection, analysis_id: str, owner: str) -> Optional[Job]:
+        row = conn.execute(
+            f"SELECT * FROM jobs WHERE analysis_id = ? AND {self.owner_column} = ?",
+            (analysis_id, owner),
+        ).fetchone()
         return _to_job(row) if row else None
 
     def request_cancel(self, analysis_id: str, owner_hash: str) -> bool:
@@ -148,41 +155,40 @@ class JobQueue:
         with self._tx() as conn:
             cur = conn.execute(
                 "UPDATE jobs SET cancel_requested = 1"
-                " WHERE analysis_id = ? AND owner_hash = ?"
+                f" WHERE analysis_id = ? AND {self.owner_column} = ?"
                 " AND job_status IN ('queued', 'processing')",
                 (analysis_id, owner_hash),
             )
             return cur.rowcount == 1
 
     def cancel_or_delete(
-        self, analysis_id: str, owner_hash: str, if_match: Optional[str],
+        self, conn: sqlite3.Connection, analysis_id: str, owner_hash: str, if_match: Optional[str],
         cleanup: Callable[[str], None],
     ) -> tuple[int, Optional[Job]]:
         """권한·조건·상태 분기와 쓰기를 하나의 트랜잭션으로 처리한다.
 
         폴더 정리가 실패하면 행을 지우지 않는다. 다음 DELETE에서 재시도할 수 있다.
         """
-        with self._tx() as conn:
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE analysis_id = ? AND owner_hash = ?",
-                (analysis_id, owner_hash),
-            ).fetchone()
-            if row is None:
-                return 404, None
-            job = _to_job(row)
-            if if_match is not None and if_match.strip() != "*":
-                # 생성한 ETag에는 쉼표가 없고 weak tag는 strong 비교에 일치하지 않는다.
-                if lifecycle_etag(job) not in [tag.strip() for tag in if_match.split(",")]:
-                    raise PreconditionFailed()
-            if job.job_status in ("queued", "processing"):
-                conn.execute(
-                    "UPDATE jobs SET cancel_requested = 1 WHERE analysis_id = ? AND cancel_requested = 0",
-                    (analysis_id,),
-                )
-                return 202, job
-            cleanup(analysis_id)
-            conn.execute("DELETE FROM jobs WHERE analysis_id = ?", (analysis_id,))
-            return 204, None
+        row = conn.execute(
+            f"SELECT * FROM jobs WHERE analysis_id = ? AND {self.owner_column} = ?",
+            (analysis_id, owner_hash),
+        ).fetchone()
+        if row is None:
+            return 404, None
+        job = _to_job(row)
+        if if_match is not None and if_match.strip() != "*":
+            # 생성한 ETag에는 쉼표가 없고 weak tag는 strong 비교에 일치하지 않는다.
+            if lifecycle_etag(job) not in [tag.strip() for tag in if_match.split(",")]:
+                raise PreconditionFailed()
+        if job.job_status in ("queued", "processing"):
+            conn.execute(
+                "UPDATE jobs SET cancel_requested = 1 WHERE analysis_id = ? AND cancel_requested = 0",
+                (analysis_id,),
+            )
+            return 202, job
+        cleanup(analysis_id)
+        conn.execute("DELETE FROM jobs WHERE analysis_id = ?", (analysis_id,))
+        return 204, None
 
     # ---- Worker 쪽 ----------------------------------------------------
 

@@ -493,8 +493,7 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     settings = Settings.from_env()
-    queue = JobQueue(settings.db_path)
-    queue.init_schema()
+    queue = JobQueue.open_registered(settings.db_path)
     registry = AuthorizedMediaRegistry.from_file(
         settings.authorized_media_path, settings.authorized_media_root
     )

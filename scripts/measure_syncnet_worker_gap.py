@@ -55,7 +55,6 @@ VENV_PY = REPO_ROOT / "research/syncnet/.venv/bin/python"
 SHIM = REPO_ROOT / "research/syncnet/profile_adapter_shim.py"
 WEIGHTS = REPO_ROOT / "data/models/syncnet"
 TEST_ID = "TRINITYtest"
-OWNER = "measure-syncnet-worker-gap"
 SCHEMA_VERSION = 1
 CONDITIONS = ("a", "b", "c", "d", "e")
 HEAT_LOOP = "import sys, time\nend = time.monotonic() + float(sys.argv[1])\nx = 1\nwhile time.monotonic() < end:\n    x = (x * x + 1) % 1000003\n"
@@ -302,8 +301,8 @@ def worker_bootstrap(cond: str) -> int:
 
 
 def run_worker(cond: str, device: str, dry: bool, tag: str) -> dict:
+    from server import accounts
     from server.jobs.queue import JobQueue
-    import sqlite3
 
     RUNTIME.mkdir(parents=True, exist_ok=True)
     run_dir = Path(tempfile.mkdtemp(prefix=f"{tag}-", dir=RUNTIME))
@@ -312,17 +311,19 @@ def run_worker(cond: str, device: str, dry: bool, tag: str) -> dict:
         (run_dir / "authorized_media.json").write_text(json.dumps({"authorized_media": [{
             "youtube_video_id": TEST_ID, "provenance": "registered_authorized_source",
             "local_path": "research/samples/A.MOV", "note": "본인 촬영 샘플(측정용 임시 레지스트리)"}]}))
-        queue = JobQueue(run_dir / "trinity.sqlite3")
-        queue.init_schema()
-        aid = queue.enqueue(TEST_ID, OWNER, 3)
+        db = run_dir / "trinity.sqlite3"
+        accounts.initialize(db)
+        owner, _ = accounts.issue(db)
+        queue = JobQueue.open_registered(db)
+        aid = queue.enqueue(TEST_ID, owner, 3)
         cmd = [sys.executable, str(Path(__file__).resolve()), "--worker-bootstrap", cond]
         t = time.monotonic()
         with open(run_dir / "worker.log", "wb") as logf:
             code = subprocess.run(cmd, cwd=REPO_ROOT, env=worker_env(run_dir, device, dry), stdin=subprocess.DEVNULL,
                                   stdout=logf, stderr=subprocess.STDOUT).returncode
         wall = time.monotonic() - t
-        job = queue.get(aid, OWNER)
-        with sqlite3.connect(run_dir / "trinity.sqlite3") as conn:
+        job = queue.get(aid, owner)
+        with accounts.connection(db, write=False) as conn:
             started, finished, attempts = conn.execute(
                 "SELECT started_at, finished_at, attempts FROM jobs WHERE analysis_id = ?", (aid,)).fetchone()
         trace = json.loads((run_dir / "worker_trace.json").read_text()) if (run_dir / "worker_trace.json").is_file() else None

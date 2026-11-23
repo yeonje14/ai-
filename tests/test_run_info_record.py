@@ -1,14 +1,14 @@
 """jobs.run_info_json: API가 읽지 않는 실행 기록(축별 장치·열 상태). 시도 번호별로 쌓인다."""
-import hashlib
 import json
+import uuid
 import sqlite3
 
 from server.jobs import worker
 from server.jobs.queue import JobQueue
 from server.schemas import AnalysisResult, dump
-from tests.conftest import REGISTERED_ID, TOKEN
+from tests.conftest import REGISTERED_ID
 
-OWNER = hashlib.sha256(TOKEN.encode()).hexdigest()
+OWNER = "test-user"
 AXES_1 = {"signal": {"device_used": "mps", "thermal_state_start": "nominal", "thermal_state_end": "fair"}}
 AXES_2 = {"signal": {"device_used": "cpu", "thermal_state_start": "fair", "thermal_state_end": "fair"}}
 
@@ -92,12 +92,13 @@ def _finish(queue, aid, worker_id):
     assert queue.finish(aid, worker_id, result, ["validating"])
 
 
-def test_api_responses_never_include_run_info(client, queue):
+def test_api_responses_never_include_run_info(client):
+    queue = client.app.state.queue
     with_record = client.post("/api/v1/analyses", json={"url": f"https://youtu.be/{REGISTERED_ID}"}).json()["analysis_id"]
     queue.claim("w1", 30, 2)
     queue.save_run_info(with_record, "w1", 1, AXES_1)
     _finish(queue, with_record, "w1")
-    control = client.post("/api/v1/analyses", json={"url": f"https://youtu.be/{REGISTERED_ID}"}).json()["analysis_id"]
+    control = client.post("/api/v1/analyses", headers={"Idempotency-Key": str(uuid.uuid4())}, json={"url": f"https://youtu.be/{REGISTERED_ID}"}).json()["analysis_id"]
     queue.claim("w2", 30, 2)
     _finish(queue, control, "w2")
     assert record(queue, with_record) is not None and record(queue, control) is None
@@ -110,18 +111,18 @@ def test_api_responses_never_include_run_info(client, queue):
             assert word not in a.text
 
 
-def test_save_gives_up_on_a_locked_db_quickly(queue):
+def test_save_gives_up_on_a_locked_db_quickly(account_queue):
     # 기록은 진단용이다. 다른 연결이 쓰기 잠금을 쥐고 있으면 오래(기본 5초) 기다리지 않고 포기한다
     # (Worker는 예외를 삼키고 계속한다). 마무리 여유 10초 안에 들어가야 한다.
     import time
-    aid = queue.enqueue(REGISTERED_ID, OWNER, 3)
-    job = queue.claim("w1", 30, 2)
-    holder = sqlite3.connect(queue.db_path, isolation_level=None)
+    aid = account_queue.enqueue(REGISTERED_ID, OWNER, 3)
+    job = account_queue.claim("w1", 30, 2)
+    holder = sqlite3.connect(account_queue.db_path, isolation_level=None)
     holder.execute("BEGIN IMMEDIATE")
     try:
         t = time.monotonic()
         try:
-            queue.save_run_info(aid, "w1", job.attempts, AXES_1)
+            account_queue.save_run_info(aid, "w1", job.attempts, AXES_1)
         except sqlite3.OperationalError:
             pass
         assert time.monotonic() - t < 2.0

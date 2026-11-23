@@ -183,7 +183,8 @@ def test_parse_probe():
     assert probe.parse_probe({"format": {"duration": "3"}, "streams": [{"codec_type": "audio"}]}) is None
 
 
-def test_api_server_does_not_import_gate_dependencies():
+def test_api_server_does_not_import_gate_dependencies(account_db, monkeypatch):
+    monkeypatch.setenv("TRINITY_DB_PATH", str(account_db))
     code = (
         "import sys, server.main; "
         "bad = [m for m in ('cv2', 'mediapipe', 'webrtcvad', 'numpy', 'torch') if m in sys.modules]; "

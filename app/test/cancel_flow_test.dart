@@ -21,14 +21,14 @@ void main() {
     testWidgets('취소 DELETE $code 뒤 조회만 하여 실제 종료 화면을 표시한다', (tester) async {
       final requests = <http.Request>[];
       var ended = false;
-      final api = HttpAnalysisApi(baseUrl: 'http://localhost:8000', client: MockClient((req) async {
+      final api = HttpAnalysisApi(baseUrl: 'http://localhost:8000', bearerKey: "test-key", client: MockClient((req) async {
         requests.add(req);
         if (req.method == 'POST') {
           return response({'analysis_id': 'id', 'job_status': 'queued'}, 202);
         }
         if (req.method == 'DELETE') {
           expect(req.headers['if-match'], '"id:active"');
-          expect(req.headers['x-client-token'], isNotEmpty);
+          expect(req.headers['authorization'], 'Bearer test-key');
           ended = true;
           return response({'analysis_id': 'id', 'job_status': 'processing'}, code);
         }
@@ -67,7 +67,7 @@ void main() {
     final pendingDelete = Completer<http.Response>();
     var deletes = 0;
     var cancelled = false;
-    final api = HttpAnalysisApi(baseUrl: 'http://localhost:8000', client: MockClient((req) async {
+    final api = HttpAnalysisApi(baseUrl: 'http://localhost:8000', bearerKey: "test-key", client: MockClient((req) async {
       if (req.method == 'POST') return response({'analysis_id': 'id', 'job_status': 'queued'}, 202);
       if (req.method == 'DELETE') {
         deletes++;

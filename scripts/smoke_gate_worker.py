@@ -8,18 +8,17 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import socket
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
-import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.worker_smoke_api import start_worker_api
+
 SAMPLE = ROOT / "data/research/samples/KakaoTalk_Video_2026-11-12-14-34-16.mp4"
 
 
@@ -43,37 +42,11 @@ def main() -> int:
             TRINITY_HEARTBEAT_INTERVAL_SECONDS="0.2", TRINITY_LEASE_SECONDS="2",
             TRINITY_GATE_TIMEOUT_SECONDS="30", TRINITY_JOB_TIMEOUT_SECONDS="60",
         )
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", 0))
-            port = sock.getsockname()[1]
-        base = f"http://127.0.0.1:{port}/api/v1"
-        token = uuid.uuid4().hex
-
-        def call(path, body=None):
-            req = urllib.request.Request(
-                base + path, data=None if body is None else json.dumps(body).encode(),
-                headers={"Content-Type": "application/json", "X-Client-Token": token},
-            )
-            with urllib.request.urlopen(req, timeout=3) as response:
-                return response.status, json.load(response)
-
         with (work / "server.log").open("w") as server_log, (work / "worker.log").open("w") as worker_log:
-            server = subprocess.Popen(
-                [sys.executable, "-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", str(port)],
-                cwd=ROOT, env=env, stdout=server_log, stderr=subprocess.STDOUT,
-            )
+            server, api = start_worker_api(ROOT, env, server_log)
             worker = None
             try:
-                deadline = time.monotonic() + 15
-                while True:
-                    try:
-                        assert call("/health")[0] == 200
-                        break
-                    except (urllib.error.URLError, TimeoutError):
-                        if time.monotonic() > deadline or server.poll() is not None:
-                            raise RuntimeError("API 서버 시작 실패") from None
-                        time.sleep(.1)
-                status, created = call("/analyses", {"url": "https://www.youtube.com/watch?v=TRINITYtest"})
+                status, created, _ = api.call("/analyses", "POST", {"url": "https://www.youtube.com/watch?v=TRINITYtest"})
                 assert status == 202
                 aid = created["analysis_id"]
                 worker = subprocess.Popen(
@@ -93,8 +66,8 @@ def main() -> int:
                             leases.add(expiry)
                     time.sleep(.05)
                 assert worker.returncode == 0
-                _, job = call(f"/analyses/{aid}")
-                _, result = call(f"/analyses/{aid}/result")
+                _, job, _ = api.call(f"/analyses/{aid}")
+                _, result, _ = api.call(f"/analyses/{aid}/result")
                 assert (result["job_status"], result["analysis_status"], result["verdict_status"]) == (
                     "finished", "out_of_scope", "not_applicable",
                 )
