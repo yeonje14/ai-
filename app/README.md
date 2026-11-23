@@ -34,7 +34,7 @@ flutter run -d chrome --web-port 8080 --no-web-resources-cdn
 [서버 실행 방법](../docs/DESIGN.md#서버-실행-방법-백로그-47번)의 3단계에 따라 운영자 전용 디렉터리(0700)에 새 계정 DB(0600)를 초기화하고 대화형 터미널에서 개인 키를 발급한다. 4단계대로 저장소 루트의 두 터미널에서 conda `trinity`를 활성화하고 같은 `TRINITY_DB_PATH`와 `TRINITY_RUNTIME_DIR`를 설정한 뒤 각각 실행한다.
 
 ```bash
-uvicorn server.main:app --port 8000
+uvicorn server.main:app --port 8000 --no-access-log
 TRINITY_STUB_STAGE_DELAY_SECONDS=1 python -m server.jobs.worker   # 단계가 바뀌는 것을 보려면 지연을 준다
 ```
 

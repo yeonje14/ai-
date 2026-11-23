@@ -934,7 +934,7 @@ export TRINITY_RUNTIME_DIR="$(pwd -P)/data/runtime/accounts-demo/jobs"
 ```
 
 ```bash
-uvicorn server.main:app --reload      # 터미널 1: API 서버 (http://127.0.0.1:8000)
+uvicorn server.main:app --reload --no-access-log      # 터미널 1: API 서버 (http://127.0.0.1:8000)
 python -m server.jobs.worker          # 터미널 2: Worker (분석은 여기서만 실행)
 ```
 
@@ -960,7 +960,7 @@ python -c 'import getpass; print("Authorization: Bearer " + getpass.getpass("개
 
 ```bash
 export TRINITY_AUTHORIZED_MEDIA=data/runtime/authorized_media.local.json   # 4단계의 두 터미널에 설정
-uvicorn server.main:app                                        # 터미널 1
+uvicorn server.main:app --no-access-log                                        # 터미널 1
 python -m server.jobs.worker                                  # 터미널 2: 기본 Gate 경로
 python scripts/smoke_slice.py                                  # 터미널 3
 ```
