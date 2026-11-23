@@ -57,11 +57,12 @@ class FakeServerApi implements AnalysisApi {
 
 /// 처음 몇 번은 연결이 실패하는 API.
 class FlakyApi extends FakeServerApi {
-  FlakyApi() : super(MockScenario.abstained);
+  FlakyApi(this.error) : super(MockScenario.abstained);
+  final ApiException error;
   int failures = 2;
   @override
   Future<JobState> status(String id) {
-    if (failures-- > 0) throw const ApiException(ApiErrorKind.network);
+    if (failures-- > 0) throw error;
     return super.status(id);
   }
 }
@@ -159,16 +160,21 @@ void main() {
     expect(find.textContaining('YouTube 영상 주소가 아닙니다'), findsOneWidget);
   });
 
-  testWidgets('연결이 끊기면 알리고 다시 조회해 끝까지 간다', (tester) async {
-    await start(tester, FlakyApi(), mode: ApiMode.server);
-    await submit(tester, url);
-    await tester.pump(tick);
-    await tester.pump();
-    expect(find.text('연결이 끊겼어요'), findsOneWidget);
-    await runToEnd(tester);
-    expect(find.text('연결이 끊겼어요'), findsNothing);
-    expect(find.text('판단 보류'), findsOneWidget);
-  });
+  for (final (error, warning) in const [
+    (ApiException(ApiErrorKind.network), '연결이 끊겼어요'),
+    (ApiException(ApiErrorKind.server, statusCode: 503, reasonCode: 'temporarily_unavailable'), '서버가 사용 중입니다'),
+  ]) {
+    testWidgets('$warning 안내 후 다시 조회해 끝까지 간다', (tester) async {
+      await start(tester, FlakyApi(error), mode: ApiMode.server);
+      await submit(tester, url);
+      await tester.pump(tick);
+      await tester.pump();
+      expect(find.text(warning), findsOneWidget);
+      await runToEnd(tester);
+      expect(find.text(warning), findsNothing);
+      expect(find.text('판단 보류'), findsOneWidget);
+    });
+  }
 
   testWidgets('이용 안내는 어느 화면에서든 열리고, 닫으면 보던 화면으로 돌아온다', (tester) async {
     await start(tester, MockAnalysisApi());

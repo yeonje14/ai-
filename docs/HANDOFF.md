@@ -1,5 +1,11 @@
 # HANDOFF
 
+## PR #31 후속 리뷰 9 · Flutter API 오류 안내
+
+- 작업 시작 시 리뷰 6 PR #32와 리뷰 7 PR #33은 모두 OPEN이었다. 최신 `origin/main`에서 `fix/flutter-api-error-messages` 브랜치를 만들었다.
+- DESIGN §9와 서버의 오류 응답을 대조했다. Flutter는 422 중 `invalid_youtube_url`만 주소 오류로 안내한다. 요청 형식·접수 번호·목록 커서 오류, 409 접수 충돌, 410 삭제된 작업, 503 일시적 사용 불가에는 각각 다음 행동을 안내한다. 미등록 코드는 일반 오류 안내를 사용한다. 상태 조회 중 503은 서버 사용 중으로 표시하고 자동 조회를 계속한다.
+- 수정 전 `flutter test test/api_test.dart`에서 기존 422 분류와 잘못된 안내로 8건 실패를 확인했다. 수정 후 `app/`에서 `flutter analyze` 지적 없음, `flutter test` 전체 218개 통과. 401 재인증, 429 Retry-After 대기, 503 이후 상태 조회 복구도 통과했다. `git diff --check` 통과.
+
 ## PR #31 리뷰 3·14 승인 반영과 리뷰 4 실행 확인 (2026-11-23, 브리즈번)
 
 - `design/auth-rate-limit`에서 §15.3에 승인 결정을 먼저 기록한 뒤 §9에 인증·목록 정렬과 페이지 응답·HTTP 오류·접수 재전송 계약을 반영했다. §14.1, 결정 요약표와 README에 계정 인증·요청 제한 구현 상태를 갱신했다.

@@ -26,7 +26,7 @@ Map<String, Widget> screens() => {
       '홈(오류)': InputScreen(onSubmit: (_) {}, errorText: 'YouTube 영상 주소가 아닙니다. youtube.com 또는 youtu.be 주소를 넣어 주세요.'),
       '분석 중': ProgressScreen(
         state: const JobState(jobStatus: JobStatus.processing, stage: 'waverep', completedStages: ['validating', 'access_check', 'preprocessing']),
-        connectionLost: true,
+        pollWarning: '연결이 끊겼어요',
         onRestart: noop,
       ),
       '의심 신호 발견': result(ScreenKind.suspicious, MockScenario.suspicious),
