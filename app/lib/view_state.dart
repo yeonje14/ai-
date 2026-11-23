@@ -133,6 +133,16 @@ String apiErrorText(ApiException e) {
   }
   if (e.reasonCode == 'user_active_limit') return '진행 중인 작업이 있습니다. 내 작업에서 확인해 주세요.';
   if (e.reasonCode == 'retry_expired') return '재시도 기한이 지났습니다. 내 작업을 확인한 뒤 새 분석을 요청해 주세요.';
+  final guidance = switch ((e.statusCode, e.reasonCode)) {
+    (422, 'invalid_request') => '요청 형식에 문제가 있습니다. 입력 내용을 확인하고 다시 시도해 주세요.',
+    (422, 'invalid_idempotency_key') => '접수 번호가 올바르지 않습니다. 내 작업에서 새 분석을 시작해 주세요.',
+    (422, 'invalid_cursor') => '목록의 다음 페이지를 열 수 없습니다. 목록 다시 조회를 눌러 처음부터 확인해 주세요.',
+    (409, 'idempotency_conflict') => '이 접수 번호는 다른 영상에 사용됐습니다. 내 작업을 확인한 뒤 새 분석을 시작해 주세요.',
+    (410, 'analysis_deleted') => '이미 삭제된 작업입니다. 다시 확인하려면 내 작업에서 새 분석을 시작해 주세요.',
+    (503, 'temporarily_unavailable') => '서버가 사용 중입니다. 잠시 뒤 다시 시도해 주세요.',
+    _ => null,
+  };
+  if (guidance != null) return guidance;
   return switch (e.kind) {
       ApiErrorKind.invalidUrl => 'YouTube 영상 주소가 아닙니다. youtube.com 또는 youtu.be 주소를 넣어 주세요.',
       ApiErrorKind.queueFull => '지금은 대기 중인 분석이 많습니다. 잠시 뒤에 다시 요청해 주세요.',

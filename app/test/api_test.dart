@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 import 'package:trinity_app/api/analysis_api.dart';
 import 'package:trinity_app/api/mock_api.dart';
 import 'package:trinity_app/api/models.dart';
+import 'package:trinity_app/view_state.dart';
 
 http.Response jsonRes(Object body, int status) =>
     http.Response.bytes(utf8.encode(jsonEncode(body)), status, headers: {'content-type': 'application/json'});
@@ -66,8 +67,26 @@ void main() {
       expect(res.coverage!.segments, [(5.0, 25.0)]);
     });
 
+    for (final (status, reason, guidance) in [
+      (422, 'invalid_youtube_url', 'YouTube 영상 주소'),
+      (422, 'invalid_idempotency_key', '새 분석'),
+      (422, 'invalid_cursor', '목록 다시 조회'),
+      (422, 'invalid_request', '요청 형식'),
+      (409, 'idempotency_conflict', '다른 영상'),
+      (410, 'analysis_deleted', '삭제된 작업'),
+      (503, 'temporarily_unavailable', '잠시 뒤'),
+      for (final status in [409, 410, 422, 503]) (status, 'unknown', '서버에서 요청을 처리하지 못했습니다'),
+    ]) {
+      test('HTTP $status $reason 안내', () async {
+        final api = HttpAnalysisApi(baseUrl: 'http://localhost', bearerKey: 'test-key',
+            client: MockClient((_) async => jsonRes({'detail': {'reason_code': reason}}, status)));
+        await expectLater(reason == 'invalid_cursor' ? api.jobs('old') : api.create('url'),
+            throwsA(isA<ApiException>().having(apiErrorText, '안내', contains(guidance))));
+      });
+    }
+
     final errors = {
-      422: ApiErrorKind.invalidUrl, 429: ApiErrorKind.queueFull, 503: ApiErrorKind.server,
+      422: ApiErrorKind.server, 429: ApiErrorKind.queueFull, 503: ApiErrorKind.server,
       401: ApiErrorKind.unauthorized, 403: ApiErrorKind.unauthorized, 404: ApiErrorKind.notFound,
       500: ApiErrorKind.server,
     };

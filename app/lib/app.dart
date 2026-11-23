@@ -63,7 +63,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
   String? _inputError;
   String? _analysisId;
   JobState _job = const JobState(jobStatus: JobStatus.queued);
-  bool _connectionLost = false;
+  String? _pollWarning;
   AnalysisResult? _result;
   Timer? _timer;
   bool _polling = false;
@@ -103,7 +103,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
         _busy = false;
         _analysisId = created.analysisId;
         _job = JobState(jobStatus: created.jobStatus);
-        _connectionLost = false;
+        _pollWarning = null;
         _result = null;
         _phase = _Phase.progress;
         _cancelRequested = false;
@@ -132,7 +132,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       if (job.isActive) {
         setState(() {
           _job = job;
-          _connectionLost = false;
+          _pollWarning = null;
         });
         return;
       }
@@ -147,7 +147,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       _timer?.cancel();
       setState(() {
         _job = job;
-        _connectionLost = false;
+        _pollWarning = null;
         _result = result;
         _phase = result.jobStatus == JobStatus.finished ? _Phase.result : _Phase.progress;
       });
@@ -155,7 +155,9 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       if (!mounted || id != _analysisId) return;
       if (e.retryAt != null) return; // API는 기한까지 실제 HTTP 요청을 보내지 않는다.
       if (e.kind == ApiErrorKind.network || e.kind == ApiErrorKind.server) {
-        setState(() => _connectionLost = true); // 다음 주기에 다시 조회한다
+        setState(() => _pollWarning = e.statusCode == 503 && e.reasonCode == 'temporarily_unavailable'
+            ? '서버가 사용 중입니다'
+            : '연결이 끊겼어요'); // 다음 주기에 다시 조회한다
       } else {
         _timer?.cancel();
         setState(() {
@@ -242,7 +244,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       case _Phase.progress:
         return ProgressScreen(
           state: _job,
-          connectionLost: _connectionLost,
+          pollWarning: _pollWarning,
           onCancel: _cancel,
           cancelRequested: _cancelRequested,
           cancelError: _cancelError,
