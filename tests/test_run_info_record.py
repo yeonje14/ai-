@@ -111,18 +111,18 @@ def test_api_responses_never_include_run_info(client):
             assert word not in a.text
 
 
-def test_save_gives_up_on_a_locked_db_quickly(queue):
+def test_save_gives_up_on_a_locked_db_quickly(account_queue):
     # 기록은 진단용이다. 다른 연결이 쓰기 잠금을 쥐고 있으면 오래(기본 5초) 기다리지 않고 포기한다
     # (Worker는 예외를 삼키고 계속한다). 마무리 여유 10초 안에 들어가야 한다.
     import time
-    aid = queue.enqueue(REGISTERED_ID, OWNER, 3)
-    job = queue.claim("w1", 30, 2)
-    holder = sqlite3.connect(queue.db_path, isolation_level=None)
+    aid = account_queue.enqueue(REGISTERED_ID, OWNER, 3)
+    job = account_queue.claim("w1", 30, 2)
+    holder = sqlite3.connect(account_queue.db_path, isolation_level=None)
     holder.execute("BEGIN IMMEDIATE")
     try:
         t = time.monotonic()
         try:
-            queue.save_run_info(aid, "w1", job.attempts, AXES_1)
+            account_queue.save_run_info(aid, "w1", job.attempts, AXES_1)
         except sqlite3.OperationalError:
             pass
         assert time.monotonic() - t < 2.0

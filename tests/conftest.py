@@ -100,6 +100,11 @@ def account_db(settings: Settings):
 
 
 @pytest.fixture
+def account_queue(account_db) -> JobQueue:
+    return JobQueue.open_registered(account_db)
+
+
+@pytest.fixture
 def client(settings: Settings, account_db) -> TestClient:
     return TestClient(create_app(settings), headers={"Authorization": f"Bearer {TOKEN}", "Idempotency-Key": str(uuid.uuid4())})
 

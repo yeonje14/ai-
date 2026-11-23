@@ -7,17 +7,17 @@ from __future__ import annotations
 
 import json
 import os
-import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
-import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.worker_smoke_api import start_worker_api
+
 SAMPLE = ROOT / 'data/research/samples/KakaoTalk_Video_2026-11-12-14-34-16.mp4'
 
 
@@ -45,56 +45,21 @@ def main() -> int:
             TRINITY_HEARTBEAT_INTERVAL_SECONDS='1', TRINITY_LEASE_SECONDS='4',
             TRINITY_GATE_TIMEOUT_SECONDS='30', TRINITY_JOB_TIMEOUT_SECONDS='60',
         )
-        with socket.socket() as sock:
-            sock.bind(('127.0.0.1', 0))
-            port = sock.getsockname()[1]
-        base = f'http://127.0.0.1:{port}/api/v1'
-        token = uuid.uuid4().hex
-
-        def call(path, method='GET', body=None, etag=None):
-            headers = {'Content-Type': 'application/json', 'X-Client-Token': token}
-            if etag is not None:
-                headers['If-Match'] = etag
-            req = urllib.request.Request(base + path, method=method, headers=headers,
-                                         data=None if body is None else json.dumps(body).encode())
-            try:
-                response = urllib.request.urlopen(req, timeout=3)
-            except urllib.error.HTTPError as exc:
-                response = exc
-            with response:
-                raw = response.read()
-                return response.status, json.loads(raw) if raw else None, response.headers
-
         with (work / 'server.log').open('w') as server_log, (work / 'worker.log').open('w') as worker_log:
-            server = subprocess.Popen(
-                [sys.executable, '-m', 'uvicorn', 'server.main:app', '--host', '127.0.0.1',
-                 '--port', str(port), '--no-access-log'],
-                cwd=ROOT, env=env, stdout=server_log, stderr=subprocess.STDOUT,
-            )
+            server, api = start_worker_api(ROOT, env, server_log)
             worker = None
             try:
-                deadline = time.monotonic() + 15
-                while True:
-                    try:
-                        assert call('/health')[0] == 200
-                        break
-                    except (urllib.error.URLError, TimeoutError):
-                        if time.monotonic() >= deadline or server.poll() is not None:
-                            raise RuntimeError('API 서버 시작 실패') from None
-                        time.sleep(.05)
-                code, created, _ = call('/analyses', 'POST', {'url': 'https://youtu.be/TRINITYtest'})
+                code, created, _ = api.call('/analyses', 'POST', {'url': 'https://youtu.be/TRINITYtest'})
                 assert code == 202
                 aid = created['analysis_id']
                 path = f'/analyses/{aid}'
-                active_etag = call(path)[2]['ETag']
+                active_etag = api.call(path)[2]['ETag']
                 worker = subprocess.Popen([sys.executable, '-m', 'server.jobs.worker', '--drain'],
                                           cwd=ROOT, env=env, stdout=worker_log, stderr=subprocess.STDOUT)
                 deadline = time.monotonic() + 15
                 gate_pid = None
                 while gate_pid is None:
-                    _, job, headers = call(path)
-                    assert job['job_status'] in ('queued', 'processing'), '취소 전에 작업이 종료됨: 미검증'
-                    assert headers['ETag'] == active_etag
+                    assert worker.poll() is None, '취소 전에 Worker가 종료됨: 미검증'
                     processes = subprocess.run(['ps', '-axo', 'pid=,ppid=,command='],
                                                capture_output=True, text=True, check=True).stdout
                     for line in processes.splitlines():
@@ -106,28 +71,34 @@ def main() -> int:
                     assert time.monotonic() < deadline, '실제 Gate 자식 실행 확인 실패'
                     if gate_pid is None:
                         time.sleep(.01)
+                status, job, headers = api.call(path)
+                assert status == 200 and job['job_status'] == 'processing'
+                assert headers['ETag'] == active_etag
                 started = time.monotonic()
-                code, pending, _ = call(path, 'DELETE', etag=active_etag)
+                code, pending, _ = api.call(path, 'DELETE', etag=active_etag)
                 assert code == 202 and pending['job_status'] == 'processing'
-                repeat, _, _ = call(path, 'DELETE', etag=active_etag)
+                repeat, _, _ = api.call(path, 'DELETE', etag=active_etag)
                 assert repeat == 202
                 deadline = time.monotonic() + 15
-                while True:
-                    _, job, headers = call(path)
-                    if job['job_status'] == 'cancelled':
-                        break
-                    assert time.monotonic() < deadline and job['job_status'] == 'processing'
-                    time.sleep(.03)
+                with sqlite3.connect(work / 'queue.sqlite3') as db:
+                    while True:
+                        state, = db.execute('SELECT job_status FROM jobs WHERE analysis_id=?', (aid,)).fetchone()
+                        if state == 'cancelled':
+                            break
+                        assert state == 'processing' and time.monotonic() < deadline
+                        time.sleep(.03)
+                status, job, headers = api.call(path)
+                assert status == 200 and job['job_status'] == 'cancelled'
                 assert headers['ETag'] != active_etag
                 assert not process_alive(gate_pid)
                 assert not (work / 'jobs' / aid).exists()
-                _, result, _ = call(path + '/result')
+                _, result, _ = api.call(path + '/result')
                 assert result['job_status'] == 'cancelled' and result['overall_score'] is None
-                assert call(path, 'DELETE', etag=active_etag)[0] == 412
-                assert call(path)[0] == 200
-                assert call(path, 'DELETE')[0] == 204
-                assert call(path)[0] == 404
-                assert call(path, 'DELETE')[0] == 404
+                assert api.call(path, 'DELETE', etag=active_etag)[0] == 412
+                assert api.call(path)[0] == 200
+                assert api.call(path, 'DELETE')[0] == 204
+                assert api.call(path)[0] == 404
+                assert api.call(path, 'DELETE')[0] == 404
                 worker.wait(timeout=5)
                 assert worker.returncode == 0
                 print(json.dumps({

@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -158,22 +159,27 @@ def test_required_key_and_existing_db_prepare(account_db, settings):
     assert totals(account_db) == (1, 1, 3)
 
 
-def test_revoked_between_count_and_enqueue(client, account_db, monkeypatch):
+@pytest.mark.parametrize("change", ["revoke", "expiry"])
+def test_credential_invalidated_between_count_and_enqueue(client, account_db, monkeypatch, change):
     original = accounts.connection
-    transactions = []
+    now = [100.]
+    monkeypatch.setattr(accounts, "time", SimpleNamespace(time=lambda: now[0]))
+    with original(account_db, write=True) as conn:
+        conn.execute("UPDATE credentials SET expires_at=101 WHERE user_id='test-user'")
 
     @contextmanager
-    def revoke_after_first_commit(path, *, write):
+    def invalidate_after_count(path, *, write):
         with original(path, write=write) as conn:
-            transactions.append(write)
             yield conn
-        if len(transactions) == 1:
-            with original(path, write=True) as admin:
-                admin.execute("UPDATE credentials SET revoked_at=0 WHERE user_id='test-user'")
+        if write:
+            if change == "expiry":
+                now[0] = 101.
+            else:
+                with original(path, write=True) as admin:
+                    admin.execute("UPDATE credentials SET revoked_at=100 WHERE user_id='test-user'")
 
     with monkeypatch.context() as patch:
-        patch.setattr(accounts, "connection", revoke_after_first_commit)
+        patch.setattr(accounts, "connection", invalidate_after_count)
         response = submit(client, str(uuid.uuid4()))
-    assert transactions == [True, True]
     assert response.status_code == 401 and response.headers["www-authenticate"] == "Bearer"
     assert totals(account_db) == (0, 0, 1)

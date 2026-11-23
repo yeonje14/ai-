@@ -41,7 +41,7 @@ worker.main(['--drain'])
 
 
 @pytest.mark.parametrize('outcome,max_attempts', [('retry', 2), ('exhausted', 1), ('cancel', 2)])
-def test_syncnet_worker_death_stops_group_and_recovers(queue, registry, settings, tmp_path,
+def test_syncnet_worker_death_stops_group_and_recovers(account_queue, registry, settings, tmp_path,
                                                        outcome, max_attempts):
     marker = tmp_path / 'first-attempt'
     pidfile = tmp_path / 'pids.json'
@@ -62,7 +62,7 @@ if not marker.exists():
 assert not list(Path(a.request).parent.parent.rglob('orphan')), 'stale crop survived retry'
 Path(a.output).write_text(json.dumps(out))
 ''')
-    aid = queue.enqueue(REGISTERED_ID, 'sync-owner', 3)
+    aid = account_queue.enqueue(REGISTERED_ID, 'test-user', 3)
     folder = settings.runtime_dir / aid
     command = [sys.executable, '-c', BOOTSTRAP, str(settings.db_path), str(settings.runtime_dir),
                str(settings.authorized_media_path), str(settings.authorized_media_root),
@@ -78,11 +78,11 @@ Path(a.output).write_text(json.dumps(out))
             time.sleep(.02)
         pids = json.loads(pidfile.read_text())
         assert all(alive(pid) for pid in pids)
-        job = queue.get(aid, 'sync-owner')
+        job = account_queue.get(aid, 'test-user')
         assert job.job_status == 'processing' and job.stage == 'syncnet'
         assert folder.exists()
         if outcome == 'cancel':
-            queue.request_cancel(aid, 'sync-owner')
+            account_queue.request_cancel(aid, 'test-user')
         proc.kill()
         proc.wait(timeout=5)
         deadline = time.monotonic() + 5
@@ -95,7 +95,7 @@ Path(a.output).write_text(json.dumps(out))
         replacement = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
         processes.append(replacement)
         assert replacement.wait(timeout=10) == 0
-        job = queue.get(aid, 'sync-owner')
+        job = account_queue.get(aid, 'test-user')
         assert job.job_status == {'retry':'finished', 'exhausted':'failed', 'cancel':'cancelled'}[outcome]
         if outcome == 'retry':
             assert job.attempts == 2

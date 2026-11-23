@@ -72,7 +72,7 @@ def initialize(path: Path) -> None:
 
 
 @contextmanager
-def connection(path: Path, *, write: bool):
+def connection(path: Path, *, write: bool, timeout: float = 5):
     _check_directory(path)
     _check_private_file(path)
     # 다른 WAL DB에 연결하기만 해도 SQLite가 sidecar를 생성할 수 있다.
@@ -86,7 +86,7 @@ def connection(path: Path, *, write: bool):
         except FileNotFoundError:
             pass  # 다른 정상 연결이 닫히며 WAL/SHM을 정리할 수 있다.
     uri = path.absolute().as_uri() + ("?mode=rw" if write else "?mode=ro")
-    with closing(sqlite3.connect(uri, uri=True)) as conn, conn:
+    with closing(sqlite3.connect(uri, uri=True, timeout=timeout)) as conn, conn:
         if conn.execute("PRAGMA application_id").fetchone()[0] != APP_ID:
             raise ValueError("새 계정 DB만 사용할 수 있습니다.")
         conn.execute("PRAGMA foreign_keys=ON")

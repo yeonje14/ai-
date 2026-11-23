@@ -378,17 +378,17 @@ Flutter — REST Polling으로 상태/결과 표시
 
 ## 9. API 계약
 
-**승인된 인증 전환 계약 (백로그 14).** 아래 계약은 새 계정 DB로 전환할 때 적용한다. 1단계에서는 운영자 도구만 새 DB를 사용하고 실행 중인 v1 API와 Flutter는 기존 X-Client-Token 경로를 사용한다.
+**계정 인증과 소유권 (백로그 14).** 분석 API는 `Authorization: Bearer <개인 키>`로 사용자를 확인한다. 자격 누락·무효·만료·폐기·정지, 구 `X-Client-Token` 단독 사용, 신구 인증 헤더 혼용은 모두 HTTP 401 `authentication_required`와 `WWW-Authenticate: Bearer`를 반환한다. 다른 사용자의 작업과 없는 작업은 같은 HTTP 404 `analysis_not_found`를 반환한다. 키 만료·폐기는 작업을 취소하거나 결과를 변경하지 않는다. 분석 API 응답에는 `Cache-Control: no-store`를 적용한다. 허용 출처의 CORS에서 Authorization·Idempotency-Key를 허용하고 ETag·Retry-After를 노출한다.
 
-- 분석 API는 개인 Bearer 키로 고정 사용자 ID를 확인한다. 무효·만료·폐기·정지 자격은 401, 인증된 타인의 작업은 없는 작업과 같은 404다. health는 기존처럼 생존 여부만 제공한다.
-- 본인 작업 목록 GET /api/v1/analyses를 추가한다. POST는 Idempotency-Key를 요구하고, 24시간 내 같은 사용자·키·영상의 재전송은 최초 202와 작업 ID를 재사용한다. 다른 영상은 409, 이미 삭제한 접수의 재전송은 410이다.
-- 초기 제안값으로 사용자별 활성 1건, 최근 10분 신규 접수 6건, 분당 분석 API 180회를 채택한다. 전체 대기 3건·실행 1건과 함께 적용한다. 제한은 원인을 구분한 429이며 시간 기반 제한에는 Retry-After를 제공한다. Worker 재시도는 신규 접수 횟수에서 제외한다. 활성 상한·시간창 접수·분당 요청·전체 포화의 원인은 각각 `user_active_limit`, `user_submission_limit`, `request_rate_limited`, `queue_full`로 구분한다. DB 잠금 제한시간 초과는 503이다.
-- 인증과 소유권을 확인한 뒤 기존 ETag·If-Match·취소/삭제 계약을 적용한다. 키 만료·폐기는 작업 취소나 분석 결과 변경을 일으키지 않는다. 전환 후 구 인증 헤더 단독 또는 신구 헤더 혼용은 401, 접수 키 누락·형식 오류는 422다. 인증 응답은 no-store이며 허용 출처의 CORS에 Authorization·Idempotency-Key를 허용하고 ETag·Retry-After를 노출한다.
+- 본인 목록 GET은 `items`와 `next_cursor`를 반환한다. 각 항목에는 `analysis_id`, `created_at`, `job_status`가 있다. 생성 시각 내림차순으로 정렬하고 동률이면 ID 내림차순으로 정렬한다. `limit`은 1~20이며 기본값은 20이다. 다음 페이지는 응답의 `next_cursor`를 `cursor`로 전달한다. 마지막 페이지에서는 `next_cursor`가 null이다.
+- POST는 제출마다 UUID v4인 `Idempotency-Key`를 요구한다. 같은 사용자의 같은 키에 접수 후 24시간 미만인 영수증이 있으면 삭제 표식을 먼저 확인한다. 삭제 표식이 있으면 영상 ID가 달라도 HTTP 410 `analysis_deleted`가 409보다 우선한다. 삭제 표식 없이 정규화된 영상 ID가 다르면 HTTP 409 `idempotency_conflict`다. 영상 ID까지 같으면 완료된 작업도 최초 HTTP 202 응답(같은 ID, `job_status=queued`)을 반환한다. 재전송은 API 호출량에 포함되고 신규 접수량은 늘리지 않는다. 상태 GET은 조회 시점의 실제 상태를 반환한다.
+- 사용자별 활성 작업 1건, 최근 10분 신규 접수 6건, 고정 1분 창당 분석 API 호출 180회를 허용한다. Worker 재시도는 신규 접수량에서 제외한다. 동시 실행은 1건이고 전체 대기 한도는 `TRINITY_MAX_QUEUED` 설정의 기본값이 3건이다. 각 제한에 도달해 요청이 거절되면 HTTP 429와 각각 `user_active_limit`, `user_submission_limit`, `request_rate_limited`, `queue_full`을 반환한다. 시간 기반 제한에는 `Retry-After`를 제공한다.
 
 기본 접두어는 `/api/v1`입니다. 아래 JSON은 API 형태를 설명하는 예시이며, 실제 Gate·WaveRep 연결 상태는 §14.1을 따릅니다. 일반 사용자 미디어 파일 업로드 엔드포인트는 없습니다.
 
 | 메서드 | 경로 | 의미 | 접근 |
 |---|---|---|---|
+| `GET` | `/api/v1/analyses` | 본인 작업 목록 조회 | 인증된 사용자 |
 | `POST` | `/api/v1/analyses` | YouTube URL 분석 작업 등록 | 인증된 사용자 |
 | `GET` | `/api/v1/analyses/{id}` | 상태·진행 단계 조회 | 작업 소유자 |
 | `GET` | `/api/v1/analyses/{id}/result` | 결과·보류 사유 조회 | 작업 소유자 |
@@ -451,7 +451,7 @@ Flutter — REST Polling으로 상태/결과 표시
 
 **접근 불가 결과:** `job_status=finished`, `analysis_status=analysis_unavailable`, `verdict_status=abstained`, `verdict_label=null`, `overall_score=null`, `reason_code=video_access_unavailable` 또는 `access_not_authorized`; 모든 축의 점수는 `null`. HTTP 요청 접수 성공과 분석/판정 성공은 다릅니다.
 
-**HTTP 실패:** 잘못된 URL 422, 인증 실패 401/403, 작업 접근권한 없음 403 또는 정책상 404, 대기열 포화 429/503, 없는 작업 404. 결과 대기 중(`queued`, `processing`)에는 완료 결과를 꾸며내지 않고 `GET /result`가 HTTP `202`와 함께 `job_status`·`stage`만 반환.
+**입력·DB 오류 응답.** HTTP 422의 원인은 요청 형식 오류 `invalid_request`, 잘못된 URL `invalid_youtube_url`, 접수 키 누락·형식 오류 `invalid_idempotency_key`, 커서 오류 `invalid_cursor`로 구분한다. SQLite 잠금 대기 시간 초과는 HTTP 503 `temporarily_unavailable`, 그 밖의 SQLite 오류는 HTTP 500 `database_error`로 응답한다. 결과 대기 중(`queued`, `processing`)에는 완료 결과를 꾸며내지 않고 `GET /result`가 HTTP `202`와 함께 `job_status`·`stage`만 반환.
 
 **취소·삭제 및 조건부 요청 (2026-11-15, Codex, GPT-6 Astra 제안, 사용자 승인):**
 
@@ -616,7 +616,7 @@ Python **3.11 ARM64 우선 시험**. 각 모델의 라이브러리 의존성을 
 | **11** | **P2-2 / 연구** | **SyncNet CPU 동기화 검증**: 실제 발화 구간과 인위적 오프셋, A/B/C 비교. | LSE-C/LSE-D/오프셋 산출, 실패 조건, 위조 탐지 추가 기여 판단.<br>**상태(2026-11-19): Worker 연결과 실측. 위조 탐지 추가 기여는 미검증.** 원본 코드를 수정 없이 재현하고 Gate 적합 구간만 실행함. A의 한 구간(26–34초)에서 인위적 오디오 이동(±0.08·0.20초)에 오프셋이 기대한 부호·크기대로 변함(2026-11-15). A·B·E 원본과 압축 변형의 LSE-C·LSE-D·오프셋을 잼(2026-11-16~17). 짧은 구간 규칙과 기본 장치 MPS(2026-11-17), 작업·단계 제한(2026-11-18), 실제 Worker의 단계 제한·SIGKILL 복구·MPS 실행 중 취소(2026-11-19)를 확인함. 가짜 영상이 없어 탐지 추가 기여는 판단하지 못함. 근거: `docs/syncnet-adapter.md`, `docs/syncnet-spike.md`, `docs/robustness-selfvideo.md` | 6·8·9 |
 | **12** | **P2-3 / 연구** | **OOF 기반 Logistic Regression·보정·임계값**: WaveRep 최강 단일 모델과 비교. | 미사용 그룹에서 비교 완료, 조합 채택/보류 결정. 3축 강제 채택 금지.<br>**상태(2026-11-19): 진행 중(절차·관문 구현과 감사 반영, 실제 비교 전).** 그룹 5-fold OOF 로지스틱 결합, OOF sigmoid 보정, dev 임계값 잠금, 사전 고정 채택 조건(`configs/training.json`), 검증된 묶음만 서버가 쓰는 관문을 합성 데이터로 확인함. 2026-11-18 감사 결정(서빙 규칙 A9, FPR 관문 A10 등)을 반영함. 신호 없는 합성 데이터(인물 1,000명·시드 100회)에서 결합·WaveRep 단독 채택 0/100. 실제 데이터의 비교와 채택 결정은 하지 않았고 `configs/fusion_bundle.json`이 비어 있어 서버는 항상 보류함. 근거: `docs/training-pipeline.md`, `docs/audit-training-pipeline.md`, `configs/fusion_bundle.json` | 8·10·11 |
 | **13** | **P3-1 / 제품** | **Flutter YouTube 공유 시트 + URL 붙여넣기 + 상태 Polling + 결과 요약/상세**. | YouTube 앱에서 공유→TRINITY→상태/보류/근거 화면 시연. 파일 업로드 UI 없음.<br>**상태(2026-11-19): 진행 중(웹만).** 디자인 시스템, 화면 8개, mock·실제 서버 모드, 세 엔드포인트 연결, 밝은 테마 개정(2026-11-14). 2026-11-16 Chrome에서 실제 서버 모드로 테스트 ID 한 건(A, WaveRep·SyncNet 실제 실행)을 끝까지 확인함(finished / partial / abstained). 앱 취소·412 재조회는 모의 응답 위젯 테스트로만 확인함. YouTube 공유 시트, iOS·Android 빌드, 실제 YouTube ID 시연, 기기 화면 낭독기 확인은 없음. 근거: `app/README.md`, `docs/design-system.md`, `docs/HANDOFF.md` "Flutter 실제 서버 모드 A 예행" | 4·7 |
-| **14** | **P3-2 / 안정화** | **인증·작업 소유권·취소·중복 방지·재시작 복구·임시 파일 삭제·rate limit**. | 다른 사용자 결과 접근 차단, 작업 복구/취소/정리 통합 테스트.<br>**상태(2026-11-19): 새 DB용 계정·자격 증명 운영 도구와 격리 전환 리허설을 구현했다. 서비스 API의 계정 인증과 rate limit은 후속 단계다.** 클라이언트 토큰 해시로 작업 소유권 확인(조회·취소·삭제), 대기 3건 초과 429, DELETE 취소·삭제, ETag 조건부 취소, Worker 재시작 복구·자식 종료·임시 폴더 정리, 비정상 종료 잔여물 24시간 정리(Worker 실행 중 반복)를 구현함. 실제 모델로 SyncNet 실행 중 Worker SIGKILL 복구, SyncNet·WaveRep MPS 실행 중 취소, 단계·작업 제한을 확인함(2026-11-19). Gate·WaveRep·MotionPhys 실행 중 SIGKILL 복구와 MotionPhys 실행 중 API 취소는 각각 실제 2회 확인했다(커밋 a19aa20의 HANDOFF). 근거: `docs/HANDOFF.md`, `docs/syncnet-adapter.md` "실제 Worker 수명주기 확인" | 4·7·13 (보안 기초는 4부터 적용) |
+| **14** | **P3-2 / 안정화** | **인증·작업 소유권·취소·중복 방지·재시작 복구·임시 파일 삭제·rate limit**. | 다른 사용자 결과 접근 차단, 작업 복구/취소/정리 통합 테스트.<br>**상태(2026-11-23): 계정 DB와 개인 Bearer 인증, 사용자별 작업 소유권·목록·요청 제한, 멱등 접수와 Flutter 인증을 구현했다.** DELETE 취소·삭제, ETag 조건부 취소, Worker 재시작 복구·자식 종료·임시 폴더 정리, 비정상 종료 잔여물 24시간 정리(Worker 실행 중 반복)를 구현함. 실제 모델로 SyncNet 실행 중 Worker SIGKILL 복구, SyncNet·WaveRep MPS 실행 중 취소, 단계·작업 제한을 확인함(2026-11-19). Gate·WaveRep·MotionPhys 실행 중 SIGKILL 복구와 MotionPhys 실행 중 API 취소는 각각 실제 2회 확인했다(커밋 a19aa20의 HANDOFF). 근거: `docs/HANDOFF.md`, `docs/syncnet-adapter.md` "실제 Worker 수명주기 확인" | 4·7·13 (보안 기초는 4부터 적용) |
 | **15** | **P4 / 최종 검증** | **내부 홀드아웃+허가된 외부 벤치마크, 압축 일반화, 맥북 latency·RAM, 결과 해석 검증**. | 모델·임계값 잠금, 실제 FPR/TPR·Coverage·실패율/CI 공개, 범용 YouTube 접근 가능 여부를 별도로 보고.<br>**상태(2026-11-19): 시작 전.** 외부 평가 잠금(`configs/external_eval_lock.json`: MAVOS-DD 표본, TalkingHeadBench, Deepfake-Eval-2024 모두 locked)과 평가 명령은 있으나 모델·임계값을 고정하지 않아 실행하지 않음. 맥북 latency·메모리는 본인 영상 몇 개로 축별 처리 시간을 잰 기록만 있음(평가 아님). 근거: `docs/evaluation-pipeline.md`, `configs/external_eval_lock.json`, `docs/robustness-selfvideo.md` "처리 시간과 메모리", `docs/syncnet-adapter.md` | 8~14 |
 
 **즉시 시작할 작업은 1~3번**입니다. 세 가지는 병렬 조사 가능하지만, **권한 없는 YouTube 미디어를 전제로 전체 시스템을 개발하지는 않습니다.** 가장 먼저 **코드로 완성할 작은 기능은 4번 URL-only 수직 슬라이스**이고, 가장 먼저 **실제 추론으로 검증할 모델은 5번 WaveRep**입니다.
@@ -702,6 +702,8 @@ TRINITY/
 | Mac RAM·긴 추론·보안 | Medium/High | 한 번에 1건, 단일 Worker, timeout/인증/삭제 |
 
 ### 15.3 설계 결정 1~12 요약
+
+**PR #31 리뷰 3·14 보완 (제안자 Codex, 사용자 승인, 2026-11-23 브리즈번).** §9에 현재 Bearer 인증, 본인 목록의 정렬·페이지 응답과 HTTP 오류 계약을 기록한다. 전체 대기 한도의 설정 기본값은 3건이다. 같은 사용자·접수 키에 24시간 미만의 영수증이 있으면 삭제 표식을 영상 ID보다 먼저 확인한다. 삭제한 접수는 영상이 달라도 410, 삭제하지 않은 접수의 영상 불일치는 409다. 일치하는 재전송은 최초 접수 응답(202, 같은 ID, `queued`)을 반환한다. 상태 GET은 실제 작업 상태를 반환한다. 재전송도 API 호출량에 포함하며 신규 접수량은 늘리지 않는다.
 
 **백로그 14 인증·제한·전환 (사용자 승인, 2026-11-19).** §9의 사용자별 제한과 재전송 보호 초기값, §12.2의 운영자 등록 개인 Bearer 키를 채택한다. 구 시스템의 접수를 닫고 작업을 drain한 뒤 API·Worker를 정지하고 구 DB/runtime을 분리 보존한다. 사용자 FK가 있는 새 DB와 별도 runtime으로 전환한다. 기존 소유자 해시를 계정으로 자동 이전하지 않는다. 구 기록의 보존 종료일은 미정이다. 구현 순서는 [단계별 제안서](proposals/auth-rate-limit.md) §6을 따른다. 실제 전환은 별도 운영 작업이다.
 
@@ -836,7 +838,7 @@ Gate의 실행 실패(`gate_error`)와 단계 제한시간 초과(`gate_timeout`
 | 8 | 작업·분석·판정 분리, 실패 `null`, 보류/coverage 필수. 판정 라벨은 `verdict_label`로 서버가 정하고 검증된 결합 모델이 없으면 `null`(2026-11-14 추가) | 계약 확정 / 세 축을 실제로 연결한 뒤에도 상태 분리·실패 `null` 유지, 묶음이 없어 `overall_score`·`verdict_label`은 항상 `null`(2026-11-19). 근거: `docs/HANDOFF.md`, 이 문서 하단 "서버 실행 방법" |
 | 9 | macOS ARM64, MPS/CPU 대체, 순차 실행, 모델별 환경 | 설계 확정 / 기기 실측: WaveRep·SyncNet MPS, MotionPhys CPU, 순차 실행, 모델별 venv, 축별 장치·열 상태 기록. MPS를 쓸 수 없을 때의 CPU 대체는 실제로 미검증(2026-11-19). 근거: `docs/syncnet-adapter.md` "Worker 장치·열 상태 기록", `docs/env-check-waverep.md` |
 | 10 | 규칙 기반 설명, 의심 신호 표현, 분석 타임라인 우선 | 설계 확정 / 서버의 규칙 기반 설명 항목과 앱 판단 근거 화면 구현(웹), 사용자·기기 화면 낭독기 검증 전(2026-11-19). 근거: `docs/design-system.md`, `app/README.md` |
-| 11 | URL-only Flutter → FastAPI → SQLite 단일 Worker + 인증·복구·삭제 | 설계 확정 / Flutter(웹) → FastAPI → SQLite 단일 Worker, 복구·취소·삭제 구현과 실제 모델 검증, 정식 인증·rate limit 미구현(2026-11-19). 근거: `docs/HANDOFF.md`, `app/README.md` |
+| 11 | URL-only Flutter → FastAPI → SQLite 단일 Worker + 인증·복구·삭제 | 설계 확정 / Flutter(웹) → FastAPI → SQLite 단일 Worker, 복구·취소·삭제 구현과 실제 모델 검증, 개인 Bearer 인증·사용자별 요청 제한 구현(2026-11-23). 근거: `docs/HANDOFF.md`, `app/README.md` |
 | 12 | TPR@검증 FPR 5% 목표, 내부/외부·유형/압축·운영 별도 평가 | 프로토콜 확정 / 평가·관문 코드와 외부 평가 잠금을 합성 데이터로 구현, 실제 평가 전(2026-11-19). 근거: `docs/evaluation-pipeline.md`, `docs/training-pipeline.md` |
 
 ### 15.4 향후 범위
@@ -907,24 +909,48 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-**3. API 서버와 Worker 실행** (터미널 두 개, 저장소 루트에서)
+**3. 계정 DB 준비와 키 발급**
+
+저장소 루트에서 새 로컬 시연 환경을 한 번 준비합니다. 아래 경로는 Git에서 제외됩니다. 운영자 소유의 실제 디렉터리(0700)를 사용합니다. `init`은 새 파일(0600)에만 성공하며, 이미 준비한 환경을 다시 시작할 때는 이 단계를 건너뜁니다.
+
+```bash
+mkdir -p data/runtime
+mkdir -m 700 data/runtime/accounts-demo
+export TRINITY_DB_PATH="$(pwd -P)/data/runtime/accounts-demo/accounts.sqlite3"
+python -m server.accounts --db "$TRINITY_DB_PATH" init
+stat -f '%Sp %N' data/runtime/accounts-demo "$TRINITY_DB_PATH"
+python -m server.accounts --db "$TRINITY_DB_PATH" issue
+```
+
+`stat`의 디렉터리는 `drwx------`, DB는 `-rw-------`여야 합니다. `issue`는 녹화하지 않는 대화형 터미널에서 실행합니다. 표시된 `key=` 뒤의 값이 개인 키입니다.
+
+**4. API 서버와 Worker 실행**
+
+두 터미널 모두 저장소 루트에서 `trinity` 환경을 활성화하고 아래 두 경로를 설정합니다. 별도의 허가 미디어 레지스트리를 쓰면 그 경로와 미디어 루트도 두 터미널에 동일하게 설정합니다.
+
+```bash
+export TRINITY_DB_PATH="$(pwd -P)/data/runtime/accounts-demo/accounts.sqlite3"
+export TRINITY_RUNTIME_DIR="$(pwd -P)/data/runtime/accounts-demo/jobs"
+```
 
 ```bash
 uvicorn server.main:app --reload      # 터미널 1: API 서버 (http://127.0.0.1:8000)
 python -m server.jobs.worker          # 터미널 2: Worker (분석은 여기서만 실행)
 ```
 
-**4. 요청해 보기**
+**5. 요청해 보기**
 
 ```bash
-python scripts/smoke_slice.py         # 등록 ID, 미등록 ID, 잘못된 URL, 없는 작업을 차례로 요청
+python scripts/smoke_slice.py         # 개인 키를 숨김 입력한 뒤 실행 중인 서버 확인
 ```
 
-직접 요청할 때는 `X-Client-Token` 헤더(16자 이상)가 필요합니다. 같은 토큰으로만 자기 작업을 조회할 수 있습니다.
+curl로 접수할 때는 새 제출마다 UUID v4를 한 번 생성합니다. 응답을 받지 못해 같은 제출을 다시 보낼 때는 아래 두 번째 명령만 반복해 기존 UUID를 사용합니다. 개인 키는 프롬프트에 입력하고, curl은 헤더를 표준입력으로 받습니다.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/analyses \
-  -H 'Content-Type: application/json' -H 'X-Client-Token: local-dev-token-0001' \
+submission_id=$(python -c 'import uuid; print(uuid.uuid4())')
+python -c 'import getpass; print("Authorization: Bearer " + getpass.getpass("개인 키: "))' | \
+  curl -sS -H @- -H 'Content-Type: application/json' -H "Idempotency-Key: $submission_id" \
+  http://127.0.0.1:8000/api/v1/analyses \
   -d '{"url":"https://www.youtube.com/watch?v=TRINITYtest"}'
 ```
 
@@ -933,7 +959,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyses \
 **Gate → WaveRep 실행:** `research/waverep/.venv`와 가중치가 있어야 합니다(`docs/waverep-spike.md` "재현 방법"). Gate는 기존 conda `trinity`의 Python 자식 프로세스에서 실행합니다. `requirements-gate.txt`와 `data/models/gate/`의 모델 파일이 필요합니다(`docs/gate.md`). torch는 trinity에 설치하지 않습니다. 기본 설정은 Gate가 찾은 구간만 분석합니다. 개발·테스트에서만 `TRINITY_DEV_MANUAL_SEGMENTS=0-10`처럼 수동 구간을 주어 Gate를 건너뛸 수 있습니다. 이 우회 결과에는 `gate_bypassed=true`가 남고 항상 `analysis_status=partial`, `verdict_status=abstained`입니다.
 
 ```bash
-export TRINITY_AUTHORIZED_MEDIA=data/runtime/authorized_media.local.json   # local_path가 있는 레지스트리 (Git 제외)
+export TRINITY_AUTHORIZED_MEDIA=data/runtime/authorized_media.local.json   # 4단계의 두 터미널에 설정
 uvicorn server.main:app                                        # 터미널 1
 python -m server.jobs.worker                                  # 터미널 2: 기본 Gate 경로
 python scripts/smoke_slice.py                                  # 터미널 3

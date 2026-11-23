@@ -1,5 +1,21 @@
 # HANDOFF
 
+## PR #31 리뷰 3·14 승인 반영과 리뷰 4 실행 확인 (2026-11-23, 브리즈번)
+
+- `design/auth-rate-limit`에서 §15.3에 승인 결정을 먼저 기록한 뒤 §9에 인증·목록 정렬과 페이지 응답·HTTP 오류·접수 재전송 계약을 반영했다. §14.1, 결정 요약표와 README에 계정 인증·요청 제한 구현 상태를 갱신했다.
+- `trinity` 환경에서 임시 디렉터리(0700)와 새 DB(0600)를 사용해 실행 문서를 확인했다. 대화형 `python -m server.accounts --db "$TRINITY_DB_PATH" issue`로 키를 발급하고, 임시 루프백 포트에서 문서의 curl 명령으로 접수해 202/queued를 받았다. 같은 DB의 Worker를 `--drain`으로 실행해 종료 코드 0을 확인했다. 소유자 상태 GET은 200/finished, 결과 GET은 200/analysis_unavailable이었다.
+- 완료 후 같은 키·영상 재전송은 최초 접수 응답과 일치했다. 작업 삭제 후 같은 키·다른 영상은 410/analysis_deleted였다. 임시 서버와 DB는 검증 후 정리했다.
+- `python -m pytest -q tests/test_account_api.py tests/test_admission.py` 34개 통과, TestClient 의존성 경고 1개. 이번 단계에서 수정한 파일은 DESIGN.md, README.md, 이 인계 문서다. 리뷰 7은 후속 작업이며 운영 DB 전환과 커밋·푸시·병합은 수행하지 않았다.
+
+## PR #31 승인 리뷰 1·2·4·8 검증 완료 (2026-11-23, 브리즈번)
+
+- `design/auth-rate-limit`의 미스테이징 변경을 이어받았다. 1번은 읽기 전용 사전 인증, 쓰기 잠금 뒤 재인증·요청 집계, 작업 트랜잭션 안의 인증·소유권 검사를 유지한다. 2번은 실측·스모크 3개에서 임시 계정 DB와 부모 메모리의 Bearer 키를 사용한다. 접수 재시도는 같은 UUID를 사용하고 취소는 상태 GET의 ETag를 사용한다. 자식 관찰은 HTTP 요청 횟수와 독립적이다.
+- 4번은 README, app/README와 DESIGN 하단에 계정 DB 준비(0700/0600), 키 발급과 실행 방법을 반영했다. 8번은 Worker 시작과 이후 큐 연결에서 기존 계정 DB만 허용한다. 전환 테스트는 레거시 완료 행을 준비한다. 이번 세션에서는 DB 소실 회귀 테스트를 Worker와 같은 시작 경로로 변경했다.
+- trinity 환경에서 인증·접수·큐·실측 관련 회귀 79개 통과. `python scripts/smoke_slice.py --isolated`, `python scripts/smoke_gate_worker.py`, `python scripts/smoke_cancel_worker.py` 모두 종료 0. Gate 취소 시 이전 ETag로 삭제하면 412, 종료 작업 삭제는 204, 이후 조회는 404였다.
+- `python scripts/verify_real_worker_lifecycle.py --new-run --only sigkill-gate --only sigkill-waverep --only sigkill-motionphys --only cancel-motionphys` 종료 0. 이번 기록은 `data/research/real-lifecycle/run-pqxbsy58/`이다. 세 SIGKILL 모두 2회차에서 finished/completed/abstained, MotionPhys 취소는 1회차에서 1.682초 후 cancelled. 네 건 모두 잔류 프로세스와 임시 작업 디렉터리가 없었다.
+- 최종 `pytest -q` 결과 962 passed, 1 skipped, 1 warning (266.38초). MotionPhys 학습 테스트 모듈은 trinity 환경의 lightgbm 부재로 미검증. 경고는 Starlette TestClient 의존성 폐기 예고다. 이전 세션의 중단된 실행은 집계에서 제외했다.
+- 다음 작업은 3·14번 §15.3 변경안 승인 여부 확인이다. 7번 access log 문서 변경은 후속 작업이다. 커밋·푸시·병합 없이 작업 트리에 보관했다.
+
 ## 백로그 14 4단계 · 시연 SyncNet 시간 초과 원인 조사 (2026-11-19, 코드 변경 없음)
 
 - 대상: 이전 시도 `e51a8e3f-cc9a-462c-887d-bb0dfb05eb00`(finished / partial, SyncNet error / timeout)과 새 시도 `2985b7ed-ce29-444c-9b27-a2317ca992ee`(finished / completed).

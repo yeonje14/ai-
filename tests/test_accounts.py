@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 
 import pytest
 
@@ -67,11 +68,16 @@ def test_cli_refuses_redirected_key_before_writing(db):
         assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
 
 
-def test_transition_rehearsal(tmp_path, queue, settings, run_worker):
-    # 이 fixture가 가리키는 구 DB/runtime도 이번 테스트가 만든 것이다.
+def test_transition_rehearsal(tmp_path, queue, settings):
+    # 이미 구 Worker의 drain이 끝난 체크포인트를 이번 테스트 디렉터리에 준비한다.
     assert settings.db_path.parent == settings.runtime_dir.parent == tmp_path
-    aid = queue.enqueue("TRINITYnone", "legacy-owner", 3)
-    run_worker()
+    aid = "c3fc48fd-f100-43a5-848d-a86a13cc94bb"
+    with closing(sqlite3.connect(queue.db_path)) as conn, conn:
+        conn.execute("INSERT INTO jobs(analysis_id,owner_hash,youtube_video_id,job_status,"
+                     "created_at,started_at,finished_at,attempts) "
+                     "VALUES (?,'legacy-owner','TRINITYnone','finished',1,2,3,1)", (aid,))
+    settings.db_path.chmod(0o600)
+    settings.runtime_dir.mkdir()
     assert queue.get(aid, "legacy-owner").job_status == "finished"
     archive = tmp_path / "archive"
     archive.mkdir(mode=0o700)
@@ -97,7 +103,7 @@ def test_transition_rehearsal(tmp_path, queue, settings, run_worker):
             conn.execute("INSERT INTO jobs(analysis_id,user_id,youtube_video_id,job_status,created_at) "
                          "VALUES ('job','legacy-owner','TRINITYnone','queued',0)")
     assert legacy.read_bytes() == old_bytes
-    with sqlite3.connect(f"{legacy.as_uri()}?mode=ro", uri=True) as conn:
+    with closing(sqlite3.connect(f"{legacy.as_uri()}?mode=ro", uri=True)) as conn:
         assert conn.execute("SELECT job_status FROM jobs WHERE analysis_id=?", (aid,)).fetchone() == ("finished",)
     assert (archive / "runtime").is_dir() and not list((fresh / "runtime").iterdir())
 
@@ -205,8 +211,6 @@ def test_concurrent_reissue_revoke_suspend(db):
 
 
 def test_wrong_database_open_leaves_no_sidecars(tmp_path):
-    from contextlib import closing
-
     path = tmp_path / "other.sqlite"
     path.touch(mode=0o600)
     with closing(sqlite3.connect(path)) as conn:

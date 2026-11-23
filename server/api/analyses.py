@@ -51,6 +51,9 @@ router = APIRouter(prefix="/api/v1/analyses", tags=["analyses"])
 def authorized(request: Request, key: str, *, write: bool = False):
     try:
         path = request.app.state.settings.db_path
+        # 무효 자격은 쓰기 잠금 대기 전에 거절한다. 대기 중 폐기·만료될 수 있어 잠금 뒤 다시 확인한다.
+        if accounts.identify(path, key) is None:
+            raise unauthorized()
         with accounts.connection(path, write=True) as counter:
             caller = accounts.identify_in(counter, key)
             if caller is None:

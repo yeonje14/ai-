@@ -5,7 +5,7 @@
 - 긴 추론 중에는 heartbeat()로 lease를 주기적으로 연장한다.
 - lease가 만료된 processing 작업은 재시도 상한 안에서 queued로 되돌린다(재시작 복구).
 - 상태를 바꾸는 쓰기는 lease_owner가 일치할 때만 적용한다(중복 실행 방지).
-- URL 원문은 저장하지 않는다. video ID와 소유자 토큰의 해시만 저장한다.
+- 등록 계정 큐에는 video ID와 소유자 user_id를 저장한다.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
+from server import accounts
 from server.jobs.schema import jobs_schema
 
 LEASE_OK = "ok"
@@ -68,9 +69,24 @@ def _to_job(row: sqlite3.Row) -> Job:
 class JobQueue:
     def __init__(self, db_path: Path, *, registered_users: bool = False):
         self.db_path = Path(db_path)
+        self.registered_users = registered_users
         self.owner_column = "user_id" if registered_users else "owner_hash"
 
+    @classmethod
+    def open_registered(
+        cls, db_path: Path, *, prepare: Optional[Callable[[sqlite3.Connection], None]] = None,
+    ) -> JobQueue:
+        """서비스를 시작할 때 기존 계정 DB와 작업 소유권 열을 검사한다."""
+        queue = cls(db_path, registered_users=True)
+        with queue._tx() as conn:
+            conn.execute("SELECT user_id FROM jobs LIMIT 0")
+            if prepare is not None:
+                prepare(conn)
+        return queue
+
     def init_schema(self) -> None:
+        if self.registered_users:
+            raise ValueError("계정 DB는 server.accounts init으로 초기화하세요.")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=5)
         try:
@@ -84,6 +100,11 @@ class JobQueue:
 
     @contextmanager
     def _tx(self, timeout: float = 5) -> Iterator[sqlite3.Connection]:
+        if self.registered_users:
+            with accounts.connection(self.db_path, write=True, timeout=timeout) as conn:
+                conn.row_factory = sqlite3.Row
+                yield conn
+            return
         conn = sqlite3.connect(self.db_path, timeout=timeout, isolation_level=None)
         conn.row_factory = sqlite3.Row
         try:

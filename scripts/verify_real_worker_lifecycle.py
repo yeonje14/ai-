@@ -26,18 +26,17 @@ import os
 import re
 import shutil
 import signal
-import socket
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
-import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.worker_smoke_api import start_worker_api
+
 OUT = ROOT / "data/research/real-lifecycle"
 RUNTIME = ROOT / "data/runtime/real-lifecycle"
 TEST_ID = "TRINITYtest"
@@ -146,41 +145,17 @@ class Harness:
                    TRINITY_AUTHORIZED_MEDIA=str(self.work / "registry.json"),
                    TRINITY_AUTHORIZED_MEDIA_ROOT=str(ROOT / "data"), PYTHONUNBUFFERED="1", **SCENARIO_ENV[scenario])
         self.env = env
-        self.token = uuid.uuid4().hex
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", 0))
-            self.port = sock.getsockname()[1]
-        self.base = f"http://127.0.0.1:{self.port}/api/v1"
-        self.server_log = (self.work / "server.log").open("w")
-        self.server = subprocess.Popen([sys.executable, "-m", "uvicorn", "server.main:app", "--host", "127.0.0.1",
-                                        "--port", str(self.port), "--no-access-log"], cwd=ROOT, env=env,
-                                       stdout=self.server_log, stderr=subprocess.STDOUT)
         self.workers: list[subprocess.Popen] = []
         self.worker_logs: list[Path] = []
-        deadline = time.monotonic() + 20
-        while True:
-            try:
-                if self.call("/health")[0] == 200:
-                    break
-            except (urllib.error.URLError, TimeoutError, ConnectionError):
-                pass
-            if time.monotonic() > deadline or self.server.poll() is not None:
-                raise RuntimeError("API 서버 시작 실패")
-            time.sleep(0.05)
+        try:
+            with (self.work / "server.log").open("w") as log:
+                self.server, self.api = start_worker_api(ROOT, env, log, timeout=10)
+        except BaseException:
+            shutil.rmtree(self.work)
+            raise
 
     def call(self, path: str, method: str = "GET", body=None, etag: str | None = None):
-        headers = {"Content-Type": "application/json", "X-Client-Token": self.token}
-        if etag is not None:
-            headers["If-Match"] = etag
-        req = urllib.request.Request(self.base + path, method=method, headers=headers,
-                                     data=None if body is None else json.dumps(body).encode())
-        try:
-            response = urllib.request.urlopen(req, timeout=10)
-        except urllib.error.HTTPError as exc:
-            response = exc
-        with response:
-            raw = response.read()
-            return response.status, (json.loads(raw) if raw else None), response.headers
+        return self.api.call(path, method, body, etag)
 
     def start_worker(self, drain: bool) -> subprocess.Popen:
         log = self.work / f"worker{len(self.workers) + 1}.log"
@@ -229,7 +204,6 @@ class Harness:
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait(timeout=5)
-        self.server_log.close()
         shutil.rmtree(self.work)
 
 

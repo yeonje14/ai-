@@ -93,6 +93,7 @@ flowchart TD
 
 | 영역 | 상태 |
 |---|---|
+| 개인 Bearer 인증·본인 작업 목록·멱등 접수·사용자별 요청 제한 | ✅ 구현·통합 테스트 |
 | 서비스 골격 (FastAPI·SQLite·Worker·취소·복구·소유권) | ✅ 구현·통합 테스트 |
 | 권한 미디어 등록부 · 임의 URL 거절 | ✅ |
 | 발화 구간 Gate (webrtcvad + MediaPipe 입 움직임) | ✅ 본인 촬영 영상으로 검증. 다중 화자는 미검증 |
@@ -150,7 +151,6 @@ flowchart TD
 **데이터 없이 할 수 있는 일**
 - 세션마다 처리 시간이 크게 달라지는 원인 조사, Worker 안 SyncNet의 실제 장치 기록
 - 실제 영상으로 단계 제한시간·실제 모델 실행 중 강제 종료(SIGKILL)·MPS 취소 검증
-- 정식 인증·사용자별 요청 한도(rate limit) (대기 3건 초과 시 429는 구현됨)
 - Flutter 공유 시트 + iOS/Android 빌드
 - HiDF 호환성 점검 (진짜 10 + 가짜 10: 해상도·오디오·Gate·WaveRep)
 
@@ -180,12 +180,19 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-서버와 Worker는 터미널 두 개에서 실행합니다.
+처음 실행할 때는 저장소 루트에서 [서버 실행 방법의 계정 DB 준비 단계](docs/DESIGN.md#서버-실행-방법-백로그-47번)를 따라 전용 디렉터리(0700)에 계정 DB(0600)를 초기화하고 대화형 터미널에서 개인 키를 발급합니다. 이후 API와 Worker 터미널 양쪽에서 다음 경로를 설정합니다.
+
+```bash
+export TRINITY_DB_PATH="$(pwd -P)/data/runtime/accounts-demo/accounts.sqlite3"
+export TRINITY_RUNTIME_DIR="$(pwd -P)/data/runtime/accounts-demo/jobs"
+```
 
 ```bash
 uvicorn server.main:app --reload     # API (http://127.0.0.1:8000)
 python -m server.jobs.worker         # 분석은 Worker에서만 실행
 ```
+
+세 번째 터미널에서 `python scripts/smoke_slice.py`를 실행하고 발급받은 키를 숨김 입력합니다. `python scripts/smoke_slice.py --isolated`는 별도의 임시 계정 DB·API·Worker로 확인합니다.
 
 등록되지 않은 영상은 `analysis_unavailable`로 끝납니다. 허가 미디어 등록과 환경 변수는 `docs/DESIGN.md` 하단 "서버 실행 방법"에 있습니다. 실제 미디어를 분석하려면 Gate 의존성(`pip install -r requirements-gate.txt`, 모델 파일은 `docs/gate.md`)도 필요합니다.
 

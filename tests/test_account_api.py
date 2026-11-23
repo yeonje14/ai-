@@ -26,6 +26,34 @@ def assert_unauthorized(response):
     assert TOKEN not in response.text
 
 
+@pytest.mark.parametrize("state", ["unknown", "expired", "revoked", "suspended"])
+def test_invalid_credential_uses_no_writer(client, account_db, monkeypatch, state):
+    headers = bearer("x" * 43 if state == "unknown" else TOKEN)
+    with accounts.connection(account_db, write=True) as admin:
+        if state == "expired":
+            admin.execute("UPDATE credentials SET expires_at=0 WHERE user_id='test-user'")
+        elif state == "revoked":
+            admin.execute("UPDATE credentials SET revoked_at=0 WHERE user_id='test-user'")
+        elif state == "suspended":
+            admin.execute("UPDATE users SET disabled_at=0 WHERE user_id='test-user'")
+
+    connect = sqlite3.connect
+    write_attempts = []
+
+    def traced(*args, **kwargs):
+        kwargs["timeout"] = 0
+        conn = connect(*args, **kwargs)
+        conn.set_trace_callback(lambda sql: write_attempts.append(sql) if sql == "BEGIN IMMEDIATE" else None)
+        return conn
+
+    with accounts.connection(account_db, write=True) as holder:
+        monkeypatch.setattr(sqlite3, "connect", traced)
+        assert_unauthorized(client.get(BASE, headers=headers))
+        assert_unauthorized(client.post(BASE, content=b"{", headers={**headers, "Content-Type": "application/json"}))
+        assert write_attempts == []
+        assert holder.execute("SELECT COUNT(*) FROM api_requests").fetchone() == (0,)
+
+
 @pytest.mark.parametrize("mode", ["missing", "malformed", "unknown", "legacy", "mixed", "duplicate",
                                    "expired", "revoked", "suspended"])
 def test_credential_rejection_for_every_route(client, account_db, mode):
@@ -122,6 +150,7 @@ def test_credential_checked_after_write_lock(client, account_db, monkeypatch, me
         assert_unauthorized(future.result(timeout=5))
     with accounts.connection(account_db, write=False) as conn:
         assert conn.execute("SELECT analysis_id,cancel_requested FROM jobs").fetchall() == [(aid, 0)]
+        assert conn.execute("SELECT SUM(calls) FROM api_requests").fetchone() == (1,)
 
 
 def test_auth_and_status_share_read_snapshot(client, account_db, monkeypatch):

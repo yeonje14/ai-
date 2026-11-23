@@ -9,7 +9,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from server import accounts
 from server.config import Settings
 from server.jobs import admission
 from server.jobs.queue import JobQueue
@@ -20,10 +19,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     settings = settings or Settings.from_env()
     # 사전 초기화된 계정 DB만 허용한다. 스키마 설치도 다른 API 시작과 직렬화한다.
-    with accounts.connection(settings.db_path, write=True) as conn:
-        conn.execute("SELECT user_id FROM jobs LIMIT 0")
-        admission.prepare(conn)
-    queue = JobQueue(settings.db_path, registered_users=True)
+    queue = JobQueue.open_registered(settings.db_path, prepare=admission.prepare)
 
     app = FastAPI(title="TRINITY", version="0.1.0")
     app.state.settings = settings

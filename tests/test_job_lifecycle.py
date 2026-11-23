@@ -134,8 +134,8 @@ def test_alive_old_worker_blocks_recovery_until_it_releases_runtime(queue, regis
 
 
 @pytest.mark.parametrize('max_attempts', [1, 2])
-def test_actual_worker_restart_after_kill(queue, registry, settings, max_attempts):
-    aid = queue.enqueue(REGISTERED_ID, OWNER, 3)
+def test_actual_worker_restart_after_kill(account_queue, registry, settings, max_attempts):
+    aid = account_queue.enqueue(REGISTERED_ID, OWNER, 3)
     folder = seed_folder(settings, aid)
     # 실제 Worker main을 별도 프로세스로 실행한다. validating의 긴 지연 중 강제 종료한다.
     script = '''
@@ -155,16 +155,16 @@ main([])
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         deadline = time.monotonic() + 5
-        while queue.get(aid, OWNER).stage != 'validating':
+        while account_queue.get(aid, OWNER).stage != 'validating':
             assert proc.poll() is None and time.monotonic() < deadline
             time.sleep(.02)
         proc.kill()
         proc.wait(timeout=5)
         # lease가 살아 있을 때는 선점하지 않는다. 만료 후 새 Worker가 처리한다.
-        assert worker.run_once(queue, registry, replace(settings, max_attempts=max_attempts), 'new') is False
+        assert worker.run_once(account_queue, registry, replace(settings, max_attempts=max_attempts), 'new') is False
         time.sleep(.7)
-        worker.run_once(queue, registry, replace(settings, max_attempts=max_attempts), 'new')
-        job = queue.get(aid, OWNER)
+        worker.run_once(account_queue, registry, replace(settings, max_attempts=max_attempts), 'new')
+        job = account_queue.get(aid, OWNER)
         assert job.job_status == ('failed' if max_attempts == 1 else 'finished')
         assert job.attempts == max_attempts
         if max_attempts == 1:
@@ -260,10 +260,10 @@ def test_unrelated_cleanup_failure_does_not_block_new_jobs(queue, registry, sett
 
 
 @pytest.mark.parametrize('engine', ['gate', 'model'])
-def test_worker_death_stops_children_before_recovery(queue, registry, settings, tmp_path, engine):
+def test_worker_death_stops_children_before_recovery(account_queue, registry, settings, tmp_path, engine):
     import json
     pidfile = tmp_path / 'orphan_pids.json'
-    aid = queue.enqueue(REGISTERED_ID, OWNER, 3)
+    aid = account_queue.enqueue(REGISTERED_ID, OWNER, 3)
     folder = settings.runtime_dir / aid
     child = tmp_path / 'orphan_writer.py'
     child.write_text(
@@ -308,13 +308,13 @@ main([])
             assert time.monotonic() < deadline and proc.poll() is None
             time.sleep(.01)
         pids = json.loads(pidfile.read_text())
-        queue.request_cancel(aid, OWNER)
-        expire(queue, aid)  # 이미 만료된 lease라도 guardian 종료 전 복구가 선행하면 안 된다.
+        account_queue.request_cancel(aid, OWNER)
+        expire(account_queue, aid)  # 이미 만료된 lease라도 guardian 종료 전 복구가 선행하면 안 된다.
         proc.kill()
         proc.wait(timeout=5)
         deadline = time.monotonic() + 5
-        while queue.get(aid, OWNER).job_status != 'cancelled':
-            worker.run_once(queue, registry, settings, 'replacement')
+        while account_queue.get(aid, OWNER).job_status != 'cancelled':
+            worker.run_once(account_queue, registry, settings, 'replacement')
             assert time.monotonic() < deadline
             time.sleep(.01)
         for pid in pids:

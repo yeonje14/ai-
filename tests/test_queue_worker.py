@@ -1,16 +1,64 @@
 """큐 신뢰성: 원자적 선점, 중복 실행 방지, lease 복구, 재시도 상한, 취소, 타임아웃, 축 실패 격리."""
 
 import sqlite3
+import subprocess
 import threading
+from contextlib import closing
 from dataclasses import replace
 
+import pytest
+
+from server import accounts
+from server.api import create_app
 from server.axes import signal as signal_axis
 from server.ingest.media_resolver import AuthorizedMediaRegistry
 from server.jobs import worker
-from server.jobs.queue import LEASE_CANCEL, LEASE_LOST, LEASE_OK
+from server.jobs.queue import LEASE_CANCEL, LEASE_LOST, LEASE_OK, JobQueue
 from tests.conftest import REGISTERED_ID
 
 OWNER = "owner-hash"
+
+
+@pytest.mark.parametrize("service", ["api", "worker"])
+@pytest.mark.parametrize("problem", ["missing", "legacy", "missing_user_id", "unsafe_file", "linked_file"])
+def test_startup_refuses_invalid_job_db_without_creating_files(settings, run_worker, service, problem):
+    path = settings.db_path
+    if problem in {"legacy", "missing_user_id"}:
+        JobQueue(path).init_schema()
+        path.chmod(0o600)
+        if problem == "missing_user_id":
+            with closing(sqlite3.connect(path)) as conn:
+                conn.execute(f"PRAGMA application_id={accounts.APP_ID}")
+    elif problem == "unsafe_file":
+        accounts.initialize(path)
+        path.chmod(0o644)
+    elif problem == "linked_file":
+        target = path.with_suffix(".target")
+        accounts.initialize(target)
+        path.symlink_to(target)
+    original = path.read_bytes() if path.exists() else None
+    if service == "worker":
+        with pytest.raises(subprocess.CalledProcessError):
+            run_worker()
+    else:
+        with pytest.raises((OSError, ValueError, sqlite3.DatabaseError)):
+            create_app(settings)
+    assert (path.read_bytes() if path.exists() else None) == original
+    assert not any(path.parent.glob(path.name + "-*"))
+    assert not settings.runtime_dir.exists()
+
+
+@pytest.mark.parametrize("operation", ["claim", "init_schema"])
+def test_registered_queue_cannot_recreate_removed_database(account_db, operation):
+    # Worker 시작 경로와 같이 API 스키마 준비 없이 큐를 연다.
+    queue = JobQueue.open_registered(account_db)
+    account_db.unlink()
+    with pytest.raises((OSError, ValueError, sqlite3.DatabaseError)):
+        if operation == "claim":
+            queue.claim("w", 30, 2)
+        else:
+            queue.init_schema()
+    assert not list(account_db.parent.glob(account_db.name + "*"))
 
 
 def _expire_lease(queue, analysis_id):
