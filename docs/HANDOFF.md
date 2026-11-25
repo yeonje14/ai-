@@ -22,7 +22,7 @@
   - 다운로드: `data/research/seamless/.venv/bin/python -I research/seamless/fetch_pilot.py --order 0`
   - 확인: `python scripts/seamless_first_pair.py files`, `python scripts/seamless_first_pair.py run --who A|B`
 - **남은 일 / 막힌 점**
-  - 원본 재생으로 입 모양과 음성이 맞는지 사람이 확인해야 한다(미검증).
+  - 원본 재생 사람 확인: 육안으로 뚜렷한 입·소리 어긋남 없음, 정밀 판정 불가(2026-11-25 사용자).
   - 4K 세로 320초에서 Gate와 MotionPhys가 제한에 걸린다. 10쌍 전에 구간 자르기, 최종 인코딩 해상도, 측정 전용 제한 가운데 무엇을 할지 정해야 한다. 서비스 제한을 바꾸려면 §15.3 결정 기록이 먼저다.
   - MuseTalk 합성은 지도교수 확인 대기다.
   - §15.3 결정 6 변경은 PR 본문에 제안 문안만 두었다. DESIGN.md는 바꾸지 않았다.
