@@ -1,5 +1,44 @@
 # HANDOFF
 
+## Seamless 개발 파일럿 계획 확정 (2026-11-25, 코드 변경 없음)
+
+- 배경: DeepSpeak v2·v1.1(2026-11-15 신청) 무응답. BabelFake는 공개 신청 창구가 없고 승인이 불확실해 핵심 경로에서 뺐다.
+- 계획: `docs/seamless-pilot-plan.md`. 승인 없이 받을 수 있는 Meta Seamless Interaction(CC BY-NC 4.0) naturalistic 실제 대화와, 같은 영상으로 만든 MuseTalk 립싱크로 개발 파일럿을 한다.
+- 결정:
+  - 미디어를 열기 전에 공식 train에서 내부 test 200쌍·내부 dev 100쌍·파일럿 10쌍을 고정 시드·촬영기관 층화로 예약한다. 상세 ID는 `data/research/seamless/reservation/`(커밋 금지), 해시·시드·규칙은 `docs/seamless-reservation.md`로 커밋.
+  - 공식 dev·test와 내부 test 미디어는 개발 중 내려받지 않는다.
+  - 참가자 얼굴 합성은 지도교수 확인(비상업 범위, 학교 절차) 뒤에 시작한다.
+  - DeepSpeak 승인 시 역할은 승인 시점 규칙(계획 §8)으로 정한다.
+- 남은 일:
+  - Hugging Face 로그인 후 승인 단계 유무 확인
+  - 지도교수 메일
+  - 예약 스크립트 구현과 첫 쌍 확인(브랜치 `research/seamless-pilot`)
+  - 목표: 예약·첫 쌍 11-28, 10쌍 12-05, 확대 결정 12-08(제안)
+
+## Seamless Interaction 기반 대체안 평가 (2026-11-24)
+
+- v2 재검토: 내부 test 200·dev 100은 공식 train에서 메타데이터만으로 사전 예약하는 제안이다. 먼저 §15.3에 역할 변경을 제안하고 공식 dev/test 충돌·계보를 검사한 뒤, 전체 후보에서 시드·기관 층화·중복 없는 대화 선택을 적용한다. 1,130은 키 순서로 뽑은 결과라 새 추출의 모집단으로 고정하지 않는다. 같은 공식 인덱스에서 train과 dev/test의 P 코드 교집합은 각각 17/32개, 기관+P 코드 교집합은 0/0개였다. 신원 독립성을 단정하지 않는다. 예약 ID 목록은 Git 밖 연구 경로에 두고 규칙·소스 버전·시드·목록 해시만 기록한다. 현행 어댑터는 공식 train을 재분할하므로 예약 보존 검증이 필요하다.
+- 공식 test의 53은 후보 수다(상한 56). FPR 0%라면 n=53의 CP 방식 상한은 6.72%, 5%라면 14.74%다. 파일럿 이전에 고정할 제외·결측·교체 규칙을 명시하고 첫 실제 다운로드는 예약 후 파일럿 ID 한 쌍으로 한정한다. 실측 전에는 예약 test를 처리하거나 모델을 고르지 않는다.
+- 현재 권고는 Meta Seamless Interaction의 자연 대화 영상과 같은 녹화에서 만든 립싱크 쌍을 개발 파일럿으로 먼저 검증하는 것이다. 정식 교체는 §15.3 결정 6 변경 제안으로 남긴다. 승인 대기와 독립적으로 시작할 수 있다. 아래 HiDF·LipSync-A 검토는 보조 자료의 근거다.
+- Meta 저장소 `assets/filelist.csv` Git blob `e759e6d00f152a4833df2b985de842ab642812cd`를 직접 집계했다. naturalistic의 `vendor/session/interaction`별로 두 참가자 파일을 짝지어, 키 순서대로 두 ID 모두 미사용일 때만 채택했다. 공식 test 823개 interaction, 서로 다른 P 코드 113개, 비중복 53쌍(이론 최대 56쌍). dev 748개, 91개 코드, 비중복 40쌍. train은 vendor 구분 없이 같은 P 코드를 재사용 금지하는 보수적인 계산으로도 1,130쌍. 실제 신원 오류·교차 분할 중복·발화 적합성은 별도 확인 대상이다. [공식 인덱스 안내](https://github.com/facebookresearch/seamless_interaction#assetsfilelistcsv)
+- 따라서 공식 test 200그룹·dev 60그룹은 제안대로 배정할 수 없다. 공식 test 보존이 기본이다. train에서 프로젝트 내부 holdout을 별도로 떼려면 공식 test와 명칭·역할을 구분하고 어댑터/설계 변경을 먼저 제안한다. 150그룹, 영상 FPR 5%의 CP 방식 상한은 9.81%(k=7.5), 200그룹은 9.00%(k=10)다. 두 경우 모두 그룹 bootstrap과 큰 값으로 판정한다.
+- 공식 카드의 약 10%는 대화·프롬프트의 수작업 주석 오류다. A/V 시간 정렬은 별도 측정한다. SyncNet 출력으로 test real을 사전 필터링하지 않는다. 같은 화자의 다른 발화와 상대방 발화를 개발에서 비교한다. HiDF·LipSync-A는 자료·그룹별로 개발 또는 별도 보조 평가 역할을 사전에 고정한다.
+- 다음 작업은 공식 train의 naturalistic 대화 한 쌍(공식 S3 안내 약 200MB)으로 원본 식별, 파일·트랙·발화·얼굴·Gate를 확인한 뒤 개발 10쌍으로 확대하는 것이다. 자료 카드상 CC BY-NC 4.0. 파일 인덱스와 FPR 계산 확인, 로컬 HF 접속은 DNS 실패. 미디어·MuseTalk MLX·M3 처리량 미검증. 당시 남은 디스크 약 30GiB여서 DFDC와 복수 생성기 일괄 다운로드는 초기 범위에서 제외할 것을 권한다. [데이터 카드](https://huggingface.co/datasets/facebook/seamless-interaction)
+
+## DeepSpeak 대체 후보 판단 (2026-11-24)
+
+- HiDF는 얼굴 교체 원본·변형 쌍, LipSync-A는 오디오 구동 립싱크 표본의 개발 시험에 권한다. 정식 주 학습셋 채택은 보류한다. LipSync-A의 `0_real`은 생성 방식에 따라 신원 원천 영상 또는 구동 영상이다.
+- [BabelFake 논문 §7·부록 E](https://arxiv.org/html/2610.06339v1)의 동의 웹캠 설계는 주 학습 후보에 맞지만 기관 검증·이용 계약이 필요하다. [MAVOS-DD의 미지 생성기](https://openreview.net/pdf?id=XHSKSNIjLf)를 유지하려면 LipSync-A의 Sonic과 BabelFake의 HiFiFace를 학습·개발에서 제외한다. HiDF의 [이전 공개 원고 §3.1](https://openreview.net/pdf?id=XhyCPEnlCa)에서 Reface 사용을 확인했다. 현재 배포 영상별 버전·가중치는 미확인이다.
+- [최종 검토본](deepspeak-fallback-review.md)에 그룹 단위 분할, 오디오 단독 무음 제거 명령 정정, 공식 생성기 제외 범위, 코드로 재계산한 FPR 예시와 실제 실행 진입점을 기록했다.
+- 다음 작업은 표본의 양쪽 영상에 `ffprobe`와 기존 Gate를 적용해 해상도·발화·축별 처리 가능 비율을 비교하고, 인물·원본·구동 자료를 묶은 뒤 독립 그룹 수를 세는 것이다. 이번 판단은 문서 검토이며 미디어 실측·학습은 미검증이다.
+
+## DeepSpeak v2 미승인에 대비한 학습 데이터 후보 조사 (2026-11-23)
+
+- 백로그 3번 후보 조사. 공개 배포 1순위는 [LipSync-A](https://huggingface.co/datasets/AnsonShe/LipSync-A)(립싱크·토킹헤드, CC BY-NC-SA 4.0, 18.9 GB)와 [HiDF](https://zenodo.org/records/16140829)(얼굴 교체, 영상 ZIP 합계 약 1.56 GB)다. [HiDF 연구진](https://github.com/DSAIL-SKKU/HiDF)은 CC BY-NC 4.0과 원본 영상·대상 이미지 ID 파일명 규칙을 명시한다. [DigiFakeAV](https://huggingface.co/datasets/cambrain/DigiFakeAV/tree/main)는 합성 음성이 포함된 디지털 휴먼 보완 후보이며 오디오 포함 묶음을 선별해야 한다.
+- 신청형은 [Celeb-DF++](https://github.com/OUC-VAS/Celeb-DF-PP)(얼굴 교체·표정/동작 재현·음성 구동 합성), [FakeAVCeleb](https://github.com/DASH-Lab/FakeAVCeleb)(음성·영상 조작 조합), [KoDF](https://github.com/deepbrainai-research/kodf)(한국어 발화)를 검토했다. [LAV-DF](https://huggingface.co/datasets/ControlNet/LAV-DF)는 조건 동의가 필요하며 짧은 부분 조작 실험 후보다.
+- 다음 검증은 LipSync-A의 `selection.json`·`_real_index.json`과 HiDF 파일명에서 인물·원본·구동 자료 계보를 확보하고, 소량 표본에 `ffprobe`와 기존 Gate를 실행해 해상도·발화·품질과 유형별 통과율을 확인하는 것이다. [MAVOS-DD 논문](https://openreview.net/pdf?id=XHSKSNIjLf)의 미지 생성기 Sonic·HifiFace·Roop와 겹치는 훈련 후보를 미리 표시한다.
+- 공식 배포 목록·문서 조사만 수행했다. 접근 신청, 영상 다운로드, 실제 표본 검사 및 학습은 미실행이다. 채택 시 §15.3 결정 6 변경을 먼저 제안한다.
+
 ## PR #35 마감 · 리뷰 6·7·9 통합
 
 - PR #32(`eddd0f0`), #33(`2ba4268`), #34(`63b07bf`)를 통합한 PR #35가 `76a455f`로 병합됐다. 세 리뷰 커밋 모두 `origin/main`의 조상임을 확인했다.
