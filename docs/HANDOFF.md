@@ -1,5 +1,33 @@
 # HANDOFF
 
+## Seamless 분할 예약과 첫 쌍 확인 (2026-11-25, 브랜치 `research/seamless-pilot`)
+
+- **한 일 — 분할 예약.** 계획 §2를 구현했다(`scripts/seamless_reserve.py`, 기록 `docs/seamless-reservation.md`).
+  - 미디어를 받기 전에 커밋 `c6c67db`를 push했다.
+  - 공식 filelist blob `e759e6d0`(공식 main `b61b032`과 같음), 시드 20261125, 기관 층화로 내부 test 200, dev 100, 파일럿 10쌍을 예약했다. 부족분은 없다. `reservation.csv` SHA-256은 `2cd2ddc8…`이다.
+  - P 코드가 여러 기관에 나타나 신원을 구별할 수 없는 대화 21,907개, 공식 dev·test와 코드가 겹치는 대화 2,821개, 접미사 ID 154개는 예약에서 뺐다. 예약 후보는 23,003개다.
+  - 예약된 참가자의 improvised train 행 2,120개는 앞으로 어떤 학습에도 넣지 않는다.
+- **한 일 — 첫 쌍.** 계획 §3을 구현했다(`docs/seamless-first-pair.md`).
+  - 공식 패키지를 별도 venv `data/research/seamless/.venv`에 설치하고, 공식 S3 방법으로 pilot#0 두 ID만 받았다. 보호 래퍼는 `research/seamless/fetch_pilot.py`, 잠금 파일은 `research/seamless/requirements.lock.txt`다.
+  - 원본은 **2160×3840 세로 영상이고 MP4에 자체 AAC 오디오가 있다**. WAV는 MP4 오디오와 길이가 같고 +5~9ms 차이다.
+  - A(얼굴 대상): Gate 117.6초(제한 120초), 적합 구간 68.7초, 얼굴 높이 약 500px.
+    - WaveRep: `completed`
+    - MotionPhys: `error` / `timeout`(300초)
+    - SyncNet: `insufficient_input` / `tracking_failed`(959초). 13개 구간 중 1개에 트랙이 없었다. 오프셋 +4~5프레임은 본인 촬영 영상과 비슷하다.
+  - B: Gate `gate_timeout`, 서비스 결과는 `analysis_unavailable`.
+  - 실제 조건 MKV(영상 복사 + WAV 한 트랙)는 첫 쌍 확인용이다. 10쌍 단계에서는 실제와 합성을 같은 최종 인코딩으로 맞춘다.
+- **디스크.** `data/research/seamless`는 2.3GB(venv 1.4GB, 미디어 895MB)이고, 작업 폴더는 최대 660MB였다가 지웠다. 여유 공간은 31GiB에서 27GiB로 줄었다.
+- **실행 방법**(저장소 루트)
+  - 예약: `conda activate trinity && python scripts/seamless_reserve.py`. 입력은 공식 저장소를 `data/research/seamless/src/seamless_interaction`에 clone한 것이다.
+  - 다운로드: `data/research/seamless/.venv/bin/python -I research/seamless/fetch_pilot.py --order 0`
+  - 확인: `python scripts/seamless_first_pair.py files`, `python scripts/seamless_first_pair.py run --who A|B`
+- **남은 일 / 막힌 점**
+  - 원본 재생으로 입 모양과 음성이 맞는지 사람이 확인해야 한다(미검증).
+  - 4K 세로 320초에서 Gate와 MotionPhys가 제한에 걸린다. 10쌍 전에 구간 자르기, 최종 인코딩 해상도, 측정 전용 제한 가운데 무엇을 할지 정해야 한다. 서비스 제한을 바꾸려면 §15.3 결정 기록이 먼저다.
+  - MuseTalk 합성은 지도교수 확인 대기다.
+  - §15.3 결정 6 변경은 PR 본문에 제안 문안만 두었다. DESIGN.md는 바꾸지 않았다.
+  - `docs/deepspeak-fallback-review.md`는 여전히 커밋되지 않았다. 이번 작업에서 건드리지 않았다.
+
 ## Seamless 개발 파일럿 계획 확정 (2026-11-25, 코드 변경 없음)
 
 - 배경: DeepSpeak v2·v1.1(2026-11-15 신청) 무응답. BabelFake는 공개 신청 창구가 없고 승인이 불확실해 핵심 경로에서 뺐다.
