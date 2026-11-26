@@ -83,3 +83,37 @@ def test_mux_real_keeps_video_copy_and_single_wav_track(tmp_path):
     video = next(s for s in out["streams"] if s["codec_type"] == "video")
     assert audio["codec_name"] == "pcm_f32le"        # WAV 그대로, MP4의 AAC가 아니다
     assert video["codec_name"] == "h264"             # 재인코딩하지 않았다
+
+
+def test_summarize_and_compare_handle_missing_values(tmp_path, monkeypatch):
+    res = {
+        "job_status_equivalent": "finished",
+        "gate": {"reason_code": None, "media": {"width": 1080, "height": 1920, "duration_sec": 25.0},
+                 "eligible_segments": [{"start_sec": 1.0, "end_sec": 6.0,
+                                        "quality": {"face_height_px": 250.0, "face_height_ratio": 0.23,
+                                                    "sharpness": 40.0}}],
+                 "excluded_segments": [{"start_sec": 0.0, "end_sec": 1.0, "reason_code": "no_speech_detected"}]},
+        "axes": {"signal": {"status": "completed", "reason_code": None},
+                 "physics": {"status": "error", "reason_code": "timeout"},
+                 "alignment": {"status": "completed", "reason_code": None}},
+        "axis_raw": {"waverep": {"frame_logit": {"frames": 11}},
+                     "syncnet": {"segments": [{"reason_code": None, "tracks": [{"offset_frames": 4}]}]}},
+        "stages": {"gate_sec": 9.5, "total_sec": 30.0},
+        "job_timeout_after_gate_sec": 280.0,
+        "disk": {"job_dir_peak_bytes": 2_500_000},
+    }
+    s = fp.summarize(res)
+    assert s["eligible"] == "1개, 5.0s (20.0%)"
+    assert s["motionphys"] == "error / timeout"
+    assert s["syncnet_offsets"] == [4] and s["waverep_frames"] == 11 and s["job_dir_peak_mb"] == 2.5
+    assert fp.summarize(None) == {}
+    # gate_timeout처럼 축이 없는 결과
+    s2 = fp.summarize({"gate": {"reason_code": "gate_timeout", "media": None}, "stages": {"gate_sec": 120.0}})
+    assert s2["gate"] == "gate_timeout" and s2["waverep"] is None and s2["eligible"] is None
+
+    monkeypatch.setattr(fp, "PILOT_DIR", tmp_path)
+    (tmp_path / "inspect").mkdir()
+    (tmp_path / "inspect/A.pre.json").write_text(json.dumps(res))
+    table = fp.compare_table()
+    assert table.splitlines()[0].startswith("| 항목 | A 원본 | A 전처리")
+    assert "| Gate 시간(s) | — | 9.5 | — | — |" in table

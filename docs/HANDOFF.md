@@ -1,5 +1,23 @@
 # HANDOFF
 
+## Seamless 전처리 적용 결과와 B `no_mouth_movement` 원인 (2026-11-26, 브랜치 `research/seamless-preprocess`)
+
+- **한 일 — 전처리 적용.** 규칙(`6bc3493`)을 pilot#0에 적용했다(`scripts/seamless_preprocess.py`). A·B 25초 창을 1080×1920 CRF 20으로 인코딩했다. 출력 오디오는 원본 WAV 같은 창과 시간차 0이고, 영상은 원본 프레임과 −2.7ms / +11.2ms(한 프레임 미만)다.
+- **결과**(`docs/seamless-preprocess.md` §4.3, `python scripts/seamless_first_pair.py compare`)
+  - A: Gate 5.7초, 적합 16.3초, WaveRep `completed`, MotionPhys `completed`(원본은 timeout), SyncNet `tracking_failed`(트랙 없는 구간 2개). 합계 114.8초.
+  - B: `gate_timeout`은 사라졌고 대신 `no_mouth_movement`로 Gate 거부(입 벌림 측정 49/375).
+- **원인**(§4.4, 숫자만 센 일회성 진단, 서비스 코드 변경 없음)
+  - B의 얼굴은 픽셀 크기로는 작지 않다. 검출 높이 중앙값 286px로 A의 251px보다 크다.
+  - 실패한 단계는 Face Landmarker다. 검출기가 얼굴을 찾은 90개 표본 중, 전체 프레임에서는 21개만 특징점을 얻었다. 박스 2–4배로 자르면 90개 모두 얻었다. 6배는 72개다.
+  - 세로 전신 프레임에서 얼굴이 이미지 전체에 비해 작은 것이 직접 원인이다. 측정이 없는 구간이 `no_mouth_movement`로 분류돼 "말하지 않음"처럼 나간다.
+- **결정(사용자).** 제안 1(Seamless 입력을 얼굴 주변으로 잘라 넣기)은 채택하지 않는다. 학습 입력과 서비스 입력이 달라지고 서비스 문제를 가리기 때문이다. Gate 개선은 `fix/gate-small-face`에서 계획부터 검토한다.
+- **테스트.** `pytest -q tests/test_seamless_preprocess.py tests/test_seamless_first_pair.py` 15개 통과.
+- **남은 일**
+  - Gate 개선 계획 검토와 §15.3 변경 승인
+  - A SyncNet `tracking_failed` 원인(미조사)
+  - MuseTalk 합성(지도교수 확인 대기)
+  - `docs/deepspeak-fallback-review.md`는 여전히 커밋하지 않았다.
+
 ## Seamless 분할 예약과 첫 쌍 확인 (2026-11-25, 브랜치 `research/seamless-pilot`)
 
 - **한 일 — 분할 예약.** 계획 §2를 구현했다(`scripts/seamless_reserve.py`, 기록 `docs/seamless-reservation.md`).
@@ -22,7 +40,7 @@
   - 다운로드: `data/research/seamless/.venv/bin/python -I research/seamless/fetch_pilot.py --order 0`
   - 확인: `python scripts/seamless_first_pair.py files`, `python scripts/seamless_first_pair.py run --who A|B`
 - **남은 일 / 막힌 점**
-  - 원본 재생으로 입 모양과 음성이 맞는지 사람이 확인해야 한다(미검증).
+  - 원본 재생 사람 확인: 육안으로 뚜렷한 입·소리 어긋남 없음, 정밀 판정 불가(2026-11-25 사용자).
   - 4K 세로 320초에서 Gate와 MotionPhys가 제한에 걸린다. 10쌍 전에 구간 자르기, 최종 인코딩 해상도, 측정 전용 제한 가운데 무엇을 할지 정해야 한다. 서비스 제한을 바꾸려면 §15.3 결정 기록이 먼저다.
   - MuseTalk 합성은 지도교수 확인 대기다.
   - §15.3 결정 6 변경은 PR 본문에 제안 문안만 두었다. DESIGN.md는 바꾸지 않았다.
