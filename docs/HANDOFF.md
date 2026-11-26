@@ -1,5 +1,20 @@
 # HANDOFF
 
+## Gate 입 측정 불가 원인 구현 gate-v2 (2026-11-26, 브랜치 `feat/gate-v2`)
+
+- **한 일:** 승인된 §15.3 문안((a) 제외)대로 `mouth_unmeasurable`을 구현했다.
+  - 대응은 `insufficient_quality` / `abstained`다. `NO_SPEECH_FAMILY`에는 넣지 않았다. 기준 0.5는 `GateConfig.mouth_min_measured_ratio`다.
+  - 바꾼 곳: `runner.GATE_REASONS`, `report`의 대응·문구, 앱 문구("얼굴이 작거나 가려져서 입 움직임을 잴 수 없었습니다. 그래서 판단을 보류합니다."), DESIGN §10·§15.3·결정 8 보완 표.
+- **API 계약 변경:** `reason_code`에 새 값 `mouth_unmeasurable`이 나올 수 있다. 새 필드와 상태 값은 없다.
+- **실제 영상 대조:** PR #40 재라벨 수치와 모두 같았다(`docs/gate.md` "gate-v2").
+- **캐시 키와 특징 버전이 바뀌는 범위**
+  - `GATE_VERSION` gate-v1 → gate-v2로 학습 특징 버전 dict 전체가 바뀐다. 따라서 gate-v1로 만든 묶음은 서버가 쓰지 않는다. 지금은 묶음이 없다(`configs/fusion_bundle.json` digest null).
+  - 특징 캐시 키: Gate 축은 키에 설정(버전)이 들어가므로 모든 영상에서 바뀐다.
+  - WaveRep·MotionPhys·SyncNet 축 키에는 자기 설정과 Gate 구간만 들어간다. 따라서 적합 구간이 달라진 영상에서만 바뀐다. 이번 변경은 적합 구간이 없던 영상의 제외 원인만 바꾸므로 모델 축 키는 바뀌지 않는다.
+  - 디스크에 기존 특징 캐시는 없다.
+- **(a) crop:** 서버에 넣지 않았다. 1-B에서 (b)와 묶은 Vab로 다시 잰다.
+- **12-03 범위 축소 기준:** 아직 적용하지 않는다. 12-03에 1-B 결과로 정한다.
+
 ## 제품 절대 규칙과 합성 조건 기록 (2026-11-26, 브랜치 `docs/product-rules`, 코드 변경 없음)
 
 - **한 일**

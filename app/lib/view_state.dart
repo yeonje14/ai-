@@ -96,6 +96,7 @@ const _reasonText = <String, String>{
   'face_too_small': '얼굴이 작아 분석할 구간을 확보하지 못했습니다.',
   'too_blurry': '얼굴 영역이 흐려 분석할 구간을 확보하지 못했습니다.',
   'segment_too_short': '분석할 발화 구간이 너무 짧습니다.',
+  'mouth_unmeasurable': '얼굴이 작거나 가려져서 입 움직임을 잴 수 없었습니다. 그래서 판단을 보류합니다.',
   // 축별 세부 원인
   'tracking_failed': '추적에 실패했습니다.',
   'insufficient_motion': '움직임이 부족합니다.',

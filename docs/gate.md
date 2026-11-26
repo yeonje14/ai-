@@ -149,6 +149,7 @@ docs/DESIGN.md §10에 추가했다.
 | 얼굴 높이(구간 중앙값)가 기준 미만 | `face_too_small` |
 | 얼굴 선명도(구간 중앙값)가 기준 미만 | `too_blurry` |
 | 구간 길이가 기준 미만 | `segment_too_short` |
+| 주된 얼굴은 있지만 입 움직임 없는 조각에서 입 벌림을 잰 표본이 절반 미만(2026-11-26) | `mouth_unmeasurable` |
 
 대표 원인 코드는 음성 구간을 가장 길게 막은 원인이다. 음성이 아예 없으면 `no_speech_detected`다.
 원인별 `analysis_status`·`verdict_status` 대응은 docs/DESIGN.md §15.3 결정 8 보완(2026-11-15 사용자 승인)을 따른다.
@@ -530,7 +531,7 @@ c6에서 FFmpeg 자동 선택은 채널이 많은 4ch를 골랐다(2026-11-19 �
    - 프레임 단위 정답이 없어 측정률은 정확도가 아니다.
    - 확인용 영상의 검출 실패 원인(얼굴 비율, 고개 방향, 가림 등)은 조사하지 않았다.
 
-#### §15.3 변경 제안 문안 (사용자 승인 대기, DESIGN.md는 아직 바꾸지 않음)
+#### §15.3 변경 제안 문안 (2026-11-26 사용자 승인, (a) 항목 제외. DESIGN §15.3에 반영, 구현은 브랜치 `feat/gate-v2`)
 
 > **결정 8 보완(Gate 입 측정 불가 원인) — 2026-11-26, Claude 제안, 사용자 승인 대기.**
 > 얼굴 특징점을 얻지 못한 음성 구간이 지금은 `no_mouth_movement`(`out_of_scope` / `not_applicable`)로 분류된다. 그래서 "입을 잴 수 없음"이 "말하지 않음"으로 나간다. Seamless 전처리본(1080×1920)에서 현행 입 벌림 측정률은 pilot#0 B 13.1%, 파일럿 3번 A 4.3%였다. 두 영상 모두 대표 원인이 `no_mouth_movement`였다(`docs/gate.md` "작은 얼굴 입 측정 비교"). 다음과 같이 정한다.
@@ -564,3 +565,19 @@ c6에서 FFmpeg 자동 선택은 채널이 많은 4ch를 골랐다(2026-11-19 �
 > - 사전 기준 미달:
 >   - 개발용 B 80%와 확인용 저측정 영상 5개의 80%에 못 미쳤다. 주된 원인은 검출 누락이다.
 >   - 소형 얼굴 영상 2개에서 입 벌림 값 차이 중앙값이 0.018로 기준 0.01을 넘었다.
+
+## gate-v2: `mouth_unmeasurable` 구현 확인 (2026-11-26, 브랜치 `feat/gate-v2`)
+
+위 승인 문안((a) 제외)을 구현했다.
+- `server/gate/segments.py`: 주된 얼굴이 하나이고 입 움직임이 없는 조각마다 입 측정률을 센다(`mouth_activity.measured_fraction`). 측정률이 `GateConfig.mouth_min_measured_ratio`(0.5) 미만이면 `mouth_unmeasurable`이다. 다른 원인의 우선순위는 그대로다.
+- `GATE_VERSION`은 `gate-v2`다.
+
+**실제 영상 대조**
+- 방법: 서버 `run_gate`(gate-v2)를 실제 영상에 돌려 PR #40의 V0 재라벨 수치와 견줬다. 모두 같았다.
+
+| 영상 | 대표 원인 | `mouth_unmeasurable` 초 | 적합 구간 | `no_mouth_movement` 초 |
+|---|---|---|---|---|
+| Seamless pilot#0 B | `mouth_unmeasurable`(PR #40 재라벨과 같음) | 20.186(같음) | 0 | 20.186 → 0 |
+| 파일럿 3번 A | `mouth_unmeasurable`(같음) | 10.737(같음) | 0 | 10.737 → 0 |
+| 본인 A·B·E | 통과(변화 없음) | 0 | 37.021·33.46·24.864(변화 없음) | 2.789·2.062·1.834(변화 없음) |
+| 본인 C·D | `no_mouth_movement`(유지) | 0 | 0 | 0.36·30.33(변화 없음) |

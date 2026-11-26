@@ -216,3 +216,71 @@ def test_landmark_model_must_match_recorded_hash(tmp_path):
     model.unlink()
     with pytest.raises(faces.GateSetupError):
         faces.resolve_landmark_model(tmp_path, cfg)
+
+
+# ---------- 입 측정 불가 (mouth_unmeasurable, 2026-11-26 §15.3) ----------
+
+from server.gate.types import MOUTH_UNMEASURABLE, NO_FACE_DETECTED  # noqa: E402
+
+
+def measured_series(measured_until, start=0.0, end=10.0):
+    """start~end 15fps 표본 중 measured_until초 전까지만 입 벌림을 쟀다(닫힌 입)."""
+    return series(lambda t: 0.006 if t < measured_until else None, start, end)
+
+
+def test_mostly_unmeasured_piece_is_mouth_unmeasurable():
+    samples = measured_series(2.0)                     # 약 20%만 잼
+    result = segments.build_result(MEDIA, [(0.0, 10.0)], one_face_frames(), CONFIG,
+                                   mouth_active=[], mouth_samples=samples)
+    assert [s.reason_code for s in result.excluded_segments] == [MOUTH_UNMEASURABLE]
+    assert result.reason_code == MOUTH_UNMEASURABLE
+
+
+def test_half_measured_piece_stays_no_mouth_movement():
+    samples = [MouthSample(round(i * 0.1, 3), 0.006 if i % 2 == 0 else None, BOX) for i in range(100)]
+    assert mouth_activity.measured_fraction(samples, 0.0, 9.9) == 0.5
+    result = segments.build_result(MEDIA, [(0.0, 9.9)], one_face_frames(), CONFIG,
+                                   mouth_active=[], mouth_samples=samples)
+    assert result.reason_code == NO_MOUTH_MOVEMENT
+
+
+def test_piece_without_samples_stays_no_mouth_movement():
+    result = segments.build_result(MEDIA, [(0.0, 10.0)], one_face_frames(), CONFIG,
+                                   mouth_active=[], mouth_samples=[])
+    assert result.reason_code == NO_MOUTH_MOVEMENT
+    assert mouth_activity.measured_fraction([], 0.0, 1.0) is None
+
+
+def test_without_mouth_samples_keeps_old_behavior():
+    result = segments.build_result(MEDIA, [(0.0, 10.0)], one_face_frames(), CONFIG, mouth_active=[])
+    assert result.reason_code == NO_MOUTH_MOVEMENT
+
+
+def test_mouth_unmeasurable_keeps_other_reasons_priority():
+    # 0~5초는 얼굴 없음, 5~10초는 얼굴 하나·측정 없음. 얼굴 없음 조각은 그대로 no_face_detected다.
+    frames = one_face_frames(lambda t: [] if t < 5.0 else [FACE])
+    samples = measured_series(0.0)
+    result = segments.build_result(MEDIA, [(0.0, 10.0)], frames, CONFIG, mouth_active=[], mouth_samples=samples)
+    codes = [s.reason_code for s in result.excluded_segments]
+    assert codes[0] == NO_FACE_DETECTED and codes[-1] == MOUTH_UNMEASURABLE
+    # 입이 움직인 조각은 측정률과 무관하게 지금처럼 품질 검사로 간다
+    moving = segments.build_result(MEDIA, [(0.0, 10.0)], one_face_frames(), CONFIG,
+                                   mouth_active=[(0.0, 10.0)], mouth_samples=measured_series(0.0))
+    assert moving.reason_code is None
+
+
+def test_mouth_unmeasurable_is_not_in_no_speech_family():
+    assert MOUTH_UNMEASURABLE == "mouth_unmeasurable" and MOUTH_UNMEASURABLE not in NO_SPEECH_FAMILY
+    assert CONFIG.mouth_min_measured_ratio == 0.5
+
+
+def test_mouth_unmeasurable_state_message_and_runner_accept():
+    from server.gate import report, runner
+    assert report.REJECTION_STATES[MOUTH_UNMEASURABLE] == ("insufficient_quality", "abstained")
+    assert report.REASON_MESSAGES[MOUTH_UNMEASURABLE]
+    assert MOUTH_UNMEASURABLE in runner.GATE_REASONS
+
+
+def test_gate_version_is_v2():
+    from training.features import extract
+    assert extract.GATE_VERSION == "gate-v2"

@@ -20,6 +20,9 @@ TOO_BLURRY = "too_blurry"
 SEGMENT_TOO_SHORT = "segment_too_short"
 # 음성으로 판정된 소리는 있지만, 보이는 얼굴에서 입을 여닫는 움직임이 반복되는 것을 확인하지 못했다
 NO_MOUTH_MOVEMENT = "no_mouth_movement"
+# 주된 얼굴은 있지만 입 벌림을 잰 표본이 부족해 입 움직임을 확인할 수 없었다(2026-11-26, §15.3).
+# 발화 없음 계열이 아니라 품질 문제다
+MOUTH_UNMEASURABLE = "mouth_unmeasurable"
 
 # 적합 구간이 없는 까닭이 "보이는 사람이 말하는 것을 확인하지 못함"인 원인 코드 묶음
 NO_SPEECH_FAMILY = (AUDIO_MISSING, NO_SPEECH_DETECTED, NO_MOUTH_MOVEMENT)
@@ -47,6 +50,7 @@ class GateConfig:
     mouth_max_reversal_gap_sec: float = 0.75  # 반전 사이가 이보다 길면 다른 묶음이다
     mouth_pad_sec: float = 0.2               # 묶음 앞뒤로 붙이는 여유
     mouth_max_sample_gap_sec: float = 0.3    # 측정이 이보다 오래 끊기면 시계열을 나눈다
+    mouth_min_measured_ratio: float = 0.5    # 움직임 없는 조각에서 잰 표본이 이 비율 미만이면 mouth_unmeasurable
     # 구간 품질
     min_short_side_px: int = 360
     min_face_height_px: float = 96.0

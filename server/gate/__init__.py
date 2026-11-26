@@ -73,4 +73,5 @@ def run_gate(
         media, speech, frames, config,
         mouth_active=mouth_activity.active_intervals(samples, config),
         mouth_summary=mouth_activity.summarize(samples, config),
+        mouth_samples=samples,
     )
