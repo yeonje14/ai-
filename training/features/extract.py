@@ -46,7 +46,7 @@ from training.evaluation.lock import DEFAULT_LOCK_PATH, load_lock
 SCHEMA_VERSION = 1
 AXES = ("gate", "waverep", "motionphys", "syncnet")
 MODEL_AXES = AXES[1:]
-GATE_VERSION = "gate-v1"  # Gate 설정(임시 임계값)이 바뀌면 올린다. 캐시 키에 들어간다
+GATE_VERSION = "gate-v2"  # Gate 설정(임시 임계값)이 바뀌면 올린다. 캐시 키에 들어간다
 CACHEABLE = ("completed", "insufficient_input", "unsupported_input", "out_of_distribution")
 
 

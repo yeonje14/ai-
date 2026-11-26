@@ -484,7 +484,7 @@ Flutter — REST Polling으로 상태/결과 표시
 | 판정 | `verdict_status` | `assessed`, `abstained`, `not_applicable` |
 | 축별 | `axes.*.status` | `completed`, `insufficient_input`, `unsupported_input`, `out_of_distribution`, `error` |
 
-**보류 원인:** `insufficient_evidence`, `unvalidated_condition`, `no_valid_fusion_model`, `video_access_unavailable`, `access_not_authorized`, `speaker_unconfirmed`. 축별 세부 원인 예: `tracking_failed`, `insufficient_motion`, `occluded_mouth`, `audio_missing`, `inference_error`. 발화 구간 Gate의 구간 제외 원인(백로그 6번): `media_unreadable`, `audio_missing`, `no_speech_detected`, `no_mouth_movement`, `no_face_detected`, `speaker_unconfirmed`, `low_resolution`, `face_too_small`, `too_blurry`, `segment_too_short`. 작업 실패 원인(`job_status=failed`의 `reason_code`): `timeout`, `worker_error`, `max_attempts_exceeded`. Gate 실행 실패는 `gate_error`, Gate 단계 제한시간 초과는 `gate_timeout`이다. 원인별 분석·판정 상태 대응은 §15.3 결정 8 보완 표를 따른다.
+**보류 원인:** `insufficient_evidence`, `unvalidated_condition`, `no_valid_fusion_model`, `video_access_unavailable`, `access_not_authorized`, `speaker_unconfirmed`. 축별 세부 원인 예: `tracking_failed`, `insufficient_motion`, `occluded_mouth`, `audio_missing`, `inference_error`. 발화 구간 Gate의 구간 제외 원인(백로그 6번): `media_unreadable`, `audio_missing`, `no_speech_detected`, `no_mouth_movement`, `no_face_detected`, `speaker_unconfirmed`, `low_resolution`, `face_too_small`, `too_blurry`, `segment_too_short`, `mouth_unmeasurable`(2026-11-26 추가, §15.3). 작업 실패 원인(`job_status=failed`의 `reason_code`): `timeout`, `worker_error`, `max_attempts_exceeded`. Gate 실행 실패는 `gate_error`, Gate 단계 제한시간 초과는 `gate_timeout`이다. 원인별 분석·판정 상태 대응은 §15.3 결정 8 보완 표를 따른다.
 
 - 모델 오류·추적 실패·미실행 점수는 **`null`**, 진짜라고 해석될 `0`이 아님.
 - 입력이 분석 범위 밖이거나 영상에 접근할 수 없으면 **진위를 추정하지 않음**.
@@ -703,6 +703,25 @@ TRINITY/
 
 ### 15.3 설계 결정 1~12 요약
 
+**결정 8 보완(Gate 입 측정 불가 원인) — 2026-11-26, Claude 제안(PR #40), 사용자 승인(2026-11-26). `docs/gate.md`의 문안 그대로, (a) 항목은 넣지 않았다.**
+얼굴 특징점을 얻지 못한 음성 구간이 지금은 `no_mouth_movement`(`out_of_scope` / `not_applicable`)로 분류된다. 그래서 "입을 잴 수 없음"이 "말하지 않음"으로 나간다. Seamless 전처리본(1080×1920)에서 현행 입 벌림 측정률은 pilot#0 B 13.1%, 파일럿 3번 A 4.3%였다. 두 영상 모두 대표 원인이 `no_mouth_movement`였다(`docs/gate.md` "작은 얼굴 입 측정 비교"). 다음과 같이 정한다.
+- **새 Gate 구간 제외 원인 `mouth_unmeasurable`.**
+  - 대상: 주된 얼굴이 하나인 음성 구간에서 반복되는 입 움직임을 확인하지 못한 조각 가운데, 조각 안 입 표본의 절반 미만만 입 벌림을 잰 조각(임시값 0.5).
+  - 절반 이상을 쟀거나 조각 안에 표본이 없으면 지금처럼 `no_mouth_movement`다.
+  - 대응은 `insufficient_quality` / `abstained`다. 위 결정 8 보완 표에 행을 더한다.
+  - 발화 없음 계열(`NO_SPEECH_FAMILY`)에는 넣지 않는다.
+- **API 계약 변경.**
+  - §10 "발화 구간 Gate의 구간 제외 원인" 목록에 값 `mouth_unmeasurable`을 더한다.
+  - 이 값은 최상위 `reason_code`(적합 구간이 없을 때)와 `explanations[].reason_code`에 나올 수 있다.
+  - 새 API 필드와 새 상태 값은 없다.
+  - 앱은 이 코드의 안내 문구를 추가한다. 문구가 없는 이전 앱은 기본 문구와 서버 설명 메시지를 보여 준다.
+- 학습 특징 버전의 Gate 버전을 `gate-v2`로 올리고 옛 캐시는 쓰지 않는다. 고정된 묶음은 아직 없다.
+
+근거(현행 측정에 규칙을 적용한 결과):
+- pilot#0 B의 20.2초, 파일럿 3번 A의 10.7초가 `mouth_unmeasurable`로 바뀌고 대표 원인이 된다.
+- 본인 촬영 A~E는 입 벌림 측정률이 100%이고 바뀌는 조각이 없다. C(발화 없음)와 D(입 움직임 없이 음성)는 `no_mouth_movement`를 유지한다.
+- 영상 13개, 기기 1대에서 측정했다. 0.5는 임시값이다.
+
 **제품 절대 규칙 — 2026-11-26, 사용자 결정.** `AGENTS.md` 맨 위 "제품 절대 규칙"을 그대로 따른다. (1) 입력은 웹의 YouTube 링크 붙여넣기, 앱의 YouTube "공유 → TRINITY" 또는 링크 붙여넣기뿐이며 파일 업로드 등 다른 입력은 만들지 않는다. (2) 링크의 영상을 서버가 받아 분석한다(졸업작품 시연·연구 전용, 연구용 다운로드 어댑터에서만). (3) 결과는 점수가 아니라 증거다. 진위를 숫자 하나("가짜 확률 ○○%", 종합 점수)로 말하지 않고, 어느 구간에서 어떤 신호가 진짜 영상들의 일반 범위와 비교해 어떻게 다른지를 보여주며, 근거가 부족하면 판단 보류로 그대로 말한다. 이 규칙과 충돌하는 기존 문서·코드는 아직 고치지 않았다. 충돌 목록은 `docs/HANDOFF.md` 2026-11-26 절에 있고, 항목별로 따로 결정한다. (2)의 구체 설계(연구용 다운로드 어댑터)는 별도 결정 기록으로 승인받은 뒤 구현한다.
 
 **Seamless 참가자 합성 — 2026-11-26, 사용자 확인.** 2026-11-26 사용자 확인: 캡스톤은 비상업이고, 참가자 데이터로 연구용 합성을 만드는 데 학교 절차는 없다. 합성 진행 가능. 합성물은 외부(저장소·Pages·발표 자료)에 공개하지 않고, 출처와 변경 내용을 기록하며, 시연은 본인 영상으로만 한다. 기존 "참가자 얼굴 합성은 지도교수 확인(비상업 범위, 학교 절차) 뒤에 시작" 조건은 이 문장으로 바꾼다.
@@ -819,7 +838,7 @@ Gate 적합 구간이 없으면 WaveRep을 실행하지 않는다. 기존 상태
 |---|---|---|
 | `audio_missing`, `no_speech_detected`, `no_mouth_movement`, `no_face_detected` | `out_of_scope` | `not_applicable` |
 | `speaker_unconfirmed` | `unsupported` | `abstained` |
-| `low_resolution`, `face_too_small`, `too_blurry`, `segment_too_short` | `insufficient_quality` | `abstained` |
+| `low_resolution`, `face_too_small`, `too_blurry`, `segment_too_short`, `mouth_unmeasurable`(2026-11-26 추가) | `insufficient_quality` | `abstained` |
 | `media_unreadable`, `gate_error`, `gate_timeout` | `analysis_unavailable` | `abstained` |
 
 Gate의 실행 실패(`gate_error`)와 단계 제한시간 초과(`gate_timeout`)는

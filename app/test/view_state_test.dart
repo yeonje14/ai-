@@ -92,6 +92,7 @@ void main() {
         '영상 1분 0초 가운데 20초를 분석했습니다.');
     expect(reasonText('no_valid_fusion_model'), isNotNull);
     expect(reasonText('made_up_code'), isNull);
+    expect(reasonText('mouth_unmeasurable'), '얼굴이 작거나 가려져서 입 움직임을 잴 수 없었습니다. 그래서 판단을 보류합니다.');
     for (final kind in ApiErrorKind.values) {
       expect(apiErrorText(ApiException(kind)), isNotEmpty);
     }

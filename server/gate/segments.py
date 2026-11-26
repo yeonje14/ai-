@@ -11,9 +11,11 @@ from collections import defaultdict
 from statistics import median
 from typing import Optional, Sequence
 
+from server.gate.mouth_activity import measured_fraction
 from server.gate.types import (
     AUDIO_MISSING,
     FACE_TOO_SMALL,
+    MOUTH_UNMEASURABLE,
     LOW_RESOLUTION,
     NO_FACE_DETECTED,
     NO_MOUTH_MOVEMENT,
@@ -26,6 +28,7 @@ from server.gate.types import (
     GateConfig,
     GateResult,
     MediaInfo,
+    MouthSample,
     Segment,
     SegmentQuality,
 )
@@ -72,12 +75,15 @@ def build_result(
     config: GateConfig = GateConfig(),
     mouth_active: Optional[Sequence[Interval]] = None,
     mouth_summary: Optional[dict] = None,
+    mouth_samples: Optional[Sequence[MouthSample]] = None,
 ) -> GateResult:
     """음성 구간과 (track_id가 붙은) 얼굴 표본으로 적합·제외 구간을 만든다.
 
     speech가 None이면 오디오 스트림이 없다는 뜻이다.
     mouth_active는 입을 여닫는 움직임이 반복된 구간이다. None이면 입 움직임을 재지 않은 것이고
     음성과 얼굴만으로 판단한다(단위 테스트용. run_gate는 항상 잰다).
+    mouth_samples가 있으면 움직임 없는 조각 가운데 입 벌림을 잰 표본이 mouth_min_measured_ratio 미만인
+    조각을 mouth_unmeasurable로 둔다(표본이 없거나 비율 이상이면 no_mouth_movement).
     """
     duration = media.duration_sec
     if speech is None:
@@ -106,7 +112,7 @@ def build_result(
                 if moving:
                     seg = _judge(p_start, p_end, state, faces, short_side, config)
                 else:
-                    seg = Segment(_r(p_start), _r(p_end), NO_MOUTH_MOVEMENT)
+                    seg = Segment(_r(p_start), _r(p_end), _not_moving_reason(p_start, p_end, mouth_samples, config))
                 (eligible if seg.reason_code is None else excluded).append(seg)
 
     # 얼굴/입 움직임의 경계가 1ms 미만으로 어긋나면 반올림 뒤 빈 조각이 생길 수 있다.
@@ -126,6 +132,13 @@ def build_result(
         ),
         mouth_summary=mouth_summary,
     )
+
+
+def _not_moving_reason(start, end, samples, config) -> str:
+    if samples is None:
+        return NO_MOUTH_MOVEMENT
+    f = measured_fraction(samples, _r(start), _r(end))
+    return MOUTH_UNMEASURABLE if f is not None and f < config.mouth_min_measured_ratio else NO_MOUTH_MOVEMENT
 
 
 def _split_by_activity(start: float, end: float, active: Sequence[Interval]):

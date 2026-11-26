@@ -23,6 +23,7 @@ CASES = [
     ("face_too_small", "insufficient_quality", "abstained"),
     ("too_blurry", "insufficient_quality", "abstained"),
     ("segment_too_short", "insufficient_quality", "abstained"),
+    ("mouth_unmeasurable", "insufficient_quality", "abstained"),   # 2026-11-26 승인
     ("media_unreadable", "analysis_unavailable", "abstained"),
     ("gate_error", "analysis_unavailable", "abstained"),
     ("gate_timeout", "analysis_unavailable", "abstained"),

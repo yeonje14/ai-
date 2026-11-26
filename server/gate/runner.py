@@ -21,7 +21,7 @@ GATE_TIMEOUT = "gate_timeout"
 GATE_REASONS = frozenset({
     "media_unreadable", "audio_missing", "no_speech_detected", "no_mouth_movement",
     "no_face_detected", "speaker_unconfirmed", "low_resolution", "face_too_small",
-    "too_blurry", "segment_too_short", GATE_ERROR, GATE_TIMEOUT,
+    "too_blurry", "segment_too_short", "mouth_unmeasurable", GATE_ERROR, GATE_TIMEOUT,
 })
 
 

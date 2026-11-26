@@ -113,6 +113,14 @@ def summarize(samples: Sequence[MouthSample], config: GateConfig) -> dict:
     }
 
 
+def measured_fraction(samples: Sequence[MouthSample], start: float, end: float) -> Optional[float]:
+    """[start, end] 안 표본 가운데 입 벌림을 잰 비율. 표본이 없으면 None."""
+    inside = [s for s in samples if start - 1e-9 <= s.t <= end + 1e-9]
+    if not inside:
+        return None
+    return sum(1 for s in inside if s.opening is not None) / len(inside)
+
+
 def _merge(intervals: Sequence[Interval]) -> list[Interval]:
     out: list[list[float]] = []
     for a, b in sorted(intervals):
