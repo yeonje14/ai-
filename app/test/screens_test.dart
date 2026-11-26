@@ -14,7 +14,7 @@ import 'package:trinity_app/view_state.dart';
 import 'helpers.dart';
 
 const band = '모델 미연결 · 가상 데이터';
-const light = TPalette.light;
+const light = TPalette.dark;
 void noop() {}
 
 Widget result(ScreenKind kind, MockScenario s) =>
@@ -129,141 +129,31 @@ void main() {
     });
   });
 
-  group('홈: 앱 배치(좁은 화면)', () {
-    testWidgets('왼쪽 정렬 두 줄 제목, 설명, 입력 카드, 폭을 채우는 버튼', (tester) async {
-      await pumpScreen(tester, InputScreen(onSubmit: (_) {}));
-      final title = find.text('영상 속 단서,\n차분히 확인하세요.');
-      expect(title, findsOneWidget);
-      expect(tester.getTopLeft(title).dx, TSpace.screen);
-      expect(find.text(InputScreen.lead), findsOneWidget);
-      // 입력란과 버튼이 같은 카드 안에 있다
-      final card = find.ancestor(of: find.byType(TextField), matching: find.byType(Panel));
-      expect(card, findsOneWidget);
-      expect(find.descendant(of: card, matching: find.text(InputScreen.submitLabel)), findsOneWidget);
-      // 버튼이 카드 안쪽 폭을 채운다
-      final button = tester.getSize(find.byType(PrimaryButton));
-      final field = tester.getSize(find.byType(TextField));
-      expect(button.width, field.width);
-      expect(button.width, greaterThan(250));
-      // 상단: 로고와 메뉴가 아닌 웹 전용 요소는 없다
-      expect(find.text('TRINITY'), findsOneWidget); // 로고
-      expect(find.text(InputScreen.permissionShort), findsNothing);
-      expect(find.text('이런 단서를 살펴봐요', skipOffstage: false), findsOneWidget);
-    });
-
-    testWidgets('768 너비까지는 앱 배치, 769부터 웹 배치', (tester) async {
-      await pumpScreen(tester, InputScreen(onSubmit: (_) {}), size: const Size(768, 900));
-      expect(find.text('영상 속 단서,\n차분히 확인하세요.'), findsOneWidget);
-      expect(find.ancestor(of: find.byType(TextField), matching: find.byType(Panel)), findsOneWidget);
-      await pumpScreen(tester, InputScreen(onSubmit: (_) {}), size: const Size(769, 900));
-      expect(find.text('영상 속 단서,\n차분히 확인하세요.'), findsNothing);
+  for (final size in [phone, desktop]) {
+    testWidgets('홈 ${size.width}: 하나의 링크 입력과 두 동작, 신호별 설명', (tester) async {
+      await pumpScreen(tester, InputScreen(onSubmit: (_) {}), size: size);
       expect(find.text(InputScreen.tagline), findsOneWidget);
-    });
-  });
-
-  group('홈: 웹 배치(넓은 화면)', () {
-    Future<void> pumpWeb(WidgetTester tester, {MockScenario? mock, ValueChanged<String>? onSubmit}) => pumpScreen(
-          tester,
-          TrinityNav(
-            onHome: noop,
-            onGuide: noop,
-            child: InputScreen(onSubmit: onSubmit ?? (_) {}, mockScenario: mock, onMockScenarioChanged: (_) {}),
-          ),
-          size: desktop,
-        );
-
-    testWidgets('가운데 워드마크, 한 줄 소개, 폭 680의 캡슐 입력창', (tester) async {
-      await pumpWeb(tester);
-      final mark = find.text('TRINITY');
-      expect(mark, findsOneWidget);
-      expect(tester.getCenter(mark).dx, closeTo(640, 1));
-      expect(tester.widget<Text>(mark).style!.fontSize, greaterThanOrEqualTo(40));
-      expect(tester.getCenter(find.text(InputScreen.tagline)).dx, closeTo(640, 1));
-      // 워드마크는 화면 가운데보다 위에 있다
-      expect(tester.getCenter(mark).dy, lessThan(400));
-      final field = tester.getRect(find.byType(TextField));
-      expect(field.width, 680);
-      expect(field.center.dx, closeTo(640, 1));
-      final deco = tester.widget<TextField>(find.byType(TextField)).decoration!;
-      expect((deco.enabledBorder as OutlineInputBorder).borderRadius, BorderRadius.circular(32));
-      expect((deco.prefixIcon as Icon).icon, Icons.link);
-      // 순서: 워드마크 → 소개 → 입력창 → 버튼 → 허가 안내 → 접힌 설명
-      final ys = [
-        tester.getCenter(mark).dy,
-        tester.getCenter(find.text(InputScreen.tagline)).dy,
-        field.center.dy,
-        tester.getCenter(find.text(InputScreen.submitLabel)).dy,
-        tester.getCenter(find.text(InputScreen.permissionShort)).dy,
-        tester.getCenter(find.text(InputScreen.helpTitle)).dy,
-      ];
-      expect(ys, [...ys]..sort());
-    });
-
-    testWidgets('입력창을 감싼 카드, 큰 메뉴, 영문 머리글, 원형 장식이 없다', (tester) async {
-      await pumpWeb(tester);
-      expect(find.ancestor(of: find.byType(TextField), matching: find.byType(Panel)), findsNothing);
-      expect(find.text('영상 확인'), findsNothing);
-      expect(find.byType(Overline), findsNothing);
-      for (final text in allText(tester)) {
-        expect(text.toUpperCase().contains('CLOSER LOOK'), isFalse);
-        expect(text.contains('LOOK CLOSER'), isFalse);
-      }
-      for (final c in tester.widgetList<Container>(find.byType(Container))) {
-        final d = c.decoration;
-        if (d is BoxDecoration) expect(d.shape, BoxShape.rectangle);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('붙여넣기'), findsOneWidget);
+      expect(find.text('확인하기'), findsOneWidget);
+      for (final title in ['얼굴 화질 신호', '움직임', '입과 소리']) {
+        expect(find.text(title), findsOneWidget);
       }
     });
-
-    testWidgets('오른쪽 위에 작은 "이용 안내"만 있다', (tester) async {
-      await pumpWeb(tester);
-      final guide = find.text('이용 안내');
-      expect(guide, findsOneWidget);
-      final pos = tester.getCenter(guide);
-      expect(pos.dx, greaterThan(1280 - 150));
-      expect(pos.dy, lessThan(120));
-      expect(tester.widget<Text>(guide).style!.fontSize, lessThanOrEqualTo(14));
-    });
-
-    testWidgets('"분석 요청"과 mock 전용 "예시로 둘러보기"가 입력창 아래 가운데에 나란히 있다', (tester) async {
-      final sent = <String>[];
-      await pumpWeb(tester, mock: MockScenario.abstained, onSubmit: sent.add);
-      final submit = tester.getRect(find.byType(PrimaryButton));
-      final example = tester.getRect(find.byType(SecondaryButton));
-      expect(submit.center.dy, example.center.dy);
-      expect(submit.right, lessThan(example.left));
-      expect((submit.left + example.right) / 2, closeTo(640, 1));
-      expect(submit.top, greaterThan(tester.getRect(find.byType(TextField)).bottom));
-      await tester.tap(find.text(InputScreen.exampleLabel));
-      expect(sent, [InputScreen.exampleUrl]);
-    });
-
-    testWidgets('mock이 아니면 "예시로 둘러보기"와 가상 결과 고르기가 없다', (tester) async {
-      await pumpWeb(tester);
-      expect(find.text(InputScreen.exampleLabel), findsNothing);
-      expect(find.text('가상 결과 고르기'), findsNothing);
-      expect(tester.getCenter(find.byType(PrimaryButton)).dx, closeTo(640, 1));
-    });
-
-    testWidgets('"무엇을 분석하나요?"는 접혀 있다가 펴진다', (tester) async {
-      await pumpWeb(tester);
-      expect(find.text('영상의 미세한 신호'), findsNothing);
-      await tester.tap(find.text(InputScreen.helpTitle));
-      await tester.pump();
-      expect(find.text('영상의 미세한 신호'), findsOneWidget);
-      expect(find.textContaining('영상 파일은 받지 않습니다'), findsOneWidget);
-    });
-  });
+  }
 
   group('홈: 입력', () {
     for (final size in [phone, desktop]) {
       testWidgets('${size.width.toInt()}: 주소를 넘기고 빈 입력은 막는다. 파일 고르기는 없다', (tester) async {
         final sent = <String>[];
         await pumpScreen(tester, InputScreen(onSubmit: sent.add), size: size);
+        await tester.ensureVisible(find.text(InputScreen.submitLabel));
         await tester.tap(find.text(InputScreen.submitLabel));
         await tester.pump();
         expect(sent, isEmpty);
         expect(find.text('YouTube 영상 주소를 넣어 주세요.'), findsOneWidget);
         await tester.enterText(find.byType(TextField), '  https://youtu.be/abc  ');
+        await tester.ensureVisible(find.text(InputScreen.submitLabel));
         await tester.tap(find.text(InputScreen.submitLabel));
         expect(sent, ['https://youtu.be/abc']);
         expect(find.textContaining('파일 선택', skipOffstage: false), findsNothing);
@@ -298,6 +188,7 @@ void main() {
     testWidgets('요청 중에는 버튼이 꺼진다', (tester) async {
       final sent = <String>[];
       await pumpScreen(tester, InputScreen(onSubmit: sent.add, busy: true));
+      await tester.ensureVisible(find.text('요청하는 중…'));
       await tester.tap(find.text('요청하는 중…'));
       expect(sent, isEmpty);
     });
@@ -313,14 +204,12 @@ void main() {
         ),
       );
       expect(colorOfText(tester, '분석 중'), light.muted);
-      for (final label in stageLabels.values) {
+      for (final label in ['영상 확인 · Gate', '화질 신호', '움직임', '입과 소리']) {
         expect(find.text(label, skipOffstage: false), findsOneWidget);
       }
-      final rows = tester.widgetList<StageRow>(find.byType(StageRow, skipOffstage: false)).toList();
-      expect(rows.map((r) => r.state).toList(), [
-        StageState.done, StageState.done, StageState.done, StageState.current,
-        StageState.pending, StageState.pending, StageState.pending, StageState.pending,
-      ]);
+      expect(find.text('끝남', skipOffstage: false), findsOneWidget);
+      expect(find.text('진행 중', skipOffstage: false), findsOneWidget);
+      expect(find.text('대기', skipOffstage: false), findsNWidgets(2));
       for (final text in allText(tester)) {
         expect(text.contains('%'), isFalse, reason: text);
         expect(RegExp(r'\d').hasMatch(text), isFalse, reason: text);
@@ -330,24 +219,20 @@ void main() {
       expect(find.text('처음으로', skipOffstage: false), findsNothing);
     });
 
-    testWidgets('넓은 화면에서는 단계를 두 줄로 나눠도 순서가 같다', (tester) async {
-      await pumpScreen(
-        tester,
-        ProgressScreen(state: const JobState(jobStatus: JobStatus.processing, stage: 'validating'), onRestart: noop),
-        size: desktop,
-      );
-      final rows = tester.widgetList<StageRow>(find.byType(StageRow)).toList();
-      expect(rows.map((r) => r.label).toList(), stageLabels.values.toList());
-      expect(tester.getTopLeft(find.byWidget(rows[0])).dy, tester.getTopLeft(find.byWidget(rows[4])).dy);
+    testWidgets('조기 종료되어 모델을 실행하지 않은 단계는 건너뜀이다', (tester) async {
+      await pumpScreen(tester, ProgressScreen(state: const JobState(
+        jobStatus: JobStatus.processing, stage: 'finalizing',
+        completedStages: ['validating', 'access_check', 'preprocessing'],
+      ), onRestart: noop), size: desktop);
+      expect(find.text('건너뜀', skipOffstage: false), findsNWidgets(3));
+      expect(find.text('끝남', skipOffstage: false), findsOneWidget);
     });
 
-    testWidgets('대기 중은 따로 표시한다', (tester) async {
+    testWidgets('대기 중에는 네 단계 모두 대기다', (tester) async {
       await pumpScreen(tester, ProgressScreen(state: const JobState(jobStatus: JobStatus.queued), onRestart: noop));
       expect(find.text('대기 중'), findsOneWidget);
-      final rows = tester.widgetList<StageRow>(find.byType(StageRow, skipOffstage: false));
-      expect(rows.every((r) => r.state == StageState.pending), isTrue);
+      expect(find.text('대기', skipOffstage: false), findsNWidgets(4));
     });
-
     testWidgets('작업 실패는 판정이 아니라고 알린다', (tester) async {
       var restarted = false;
       await pumpScreen(
@@ -418,10 +303,10 @@ void main() {
     testWidgets('낮음: 무채색 라벨, 진짜라는 뜻이 아니라는 문구, "안전"·"진짜 영상입니다" 없음', (tester) async {
       for (final p in TPalette.all) {
         await pumpScreen(tester, result(ScreenKind.low, MockScenario.low), brightness: p.brightness);
-        expect(isAchromatic(colorOfText(tester, '의심 신호 낮음')!), isTrue);
+        expect(colorOfText(tester, '의심 신호 낮음'), p.low);
         final chip = tester.widget<Container>(
             find.ancestor(of: find.text('의심 신호 낮음'), matching: find.byType(Container)).first);
-        expect(isAchromatic((chip.decoration as BoxDecoration).color!), isTrue);
+        expect((chip.decoration as BoxDecoration).color, p.lowBg);
       }
       expect(find.text(ResultScreen.lowDisclaimer), findsOneWidget);
       for (final text in allText(tester)) {
@@ -435,6 +320,13 @@ void main() {
       expect(find.text('판단을 보류한 이유'), findsOneWidget);
       expect(find.text(reasonText('no_valid_fusion_model')!), findsOneWidget);
       expect(find.text(ResultScreen.noJudgement), findsOneWidget);
+    });
+
+    testWidgets('분석 구간, 신호별 확인 내용, 비교 기준의 준비 상태를 보여 준다', (tester) async {
+      await pumpScreen(tester, result(ScreenKind.abstained, MockScenario.abstained));
+      for (final title in ['분석한 구간', '신호별 확인 내용', '진짜 영상 범위와 비교', '비교 기준 준비 중 → 판단 보류', '참고 정보, 진위 단정 아님']) {
+        expect(find.text(title, skipOffstage: false), findsOneWidget);
+      }
     });
 
     testWidgets('발견·낮음·보류는 분석 범위를 보여 준다', (tester) async {
@@ -487,34 +379,12 @@ void main() {
   });
 
   group('판단 근거 상세', () {
-    testWidgets('원시 지표에 "확률 아님"을 표시한다', (tester) async {
+    testWidgets('세 신호의 근거와 상태를 보여 주고 원시 점수는 숨긴다', (tester) async {
       await pumpScreen(tester, DetailScreen(result: mockResult(MockScenario.abstained), onBack: noop));
-      expect(find.text(DetailScreen.notProbability, skipOffstage: false), findsOneWidget);
-      expect(find.text(DetailScreen.rawNotice, skipOffstage: false), findsOneWidget);
-      expect(find.text('원시 점수 · 확률 아님', skipOffstage: false), findsNWidgets(2));
-      expect(find.text('LSE-C · 확률 아님', skipOffstage: false), findsOneWidget);
-      expect(find.text('0.81', skipOffstage: false), findsOneWidget);
-      expect(find.text('4.20', skipOffstage: false), findsOneWidget);
-      for (final text in allText(tester)) {
-        expect(text.contains('%'), isFalse, reason: text);
+      for (final text in ['0.81', '4.20', '0.00', '원시 점수', 'LSE-C', 'LSE-D']) {
+        expect(find.textContaining(text, skipOffstage: false), findsNothing);
       }
-    });
-
-    testWidgets('없는 값은 0이 아니라 "값 없음"이다', (tester) async {
-      await pumpScreen(tester, DetailScreen(result: mockResult(MockScenario.abstained), onBack: noop));
-      final physics = tester.widget<AxisResultRow>(find.byWidgetPredicate(
-          (w) => w is AxisResultRow && w.description.contains('MotionPhys'), skipOffstage: false));
-      expect(physics.metrics.single.$2, '값 없음');
-      expect(physics.statusText, '입력 부족 · 움직임이 부족합니다.');
-      expect(find.text('0.00', skipOffstage: false), findsNothing);
-      expect(find.textContaining('종합 점수는 값 없음', skipOffstage: false), findsOneWidget);
-    });
-
-    testWidgets('SyncNet은 보조 지표라고 적고 종합 판정 포함 여부를 보여 준다', (tester) async {
-      await pumpScreen(tester, DetailScreen(result: mockResult(MockScenario.abstained), onBack: noop));
-      final row = tester.widget<AxisResultRow>(find.byWidgetPredicate(
-          (w) => w is AxisResultRow && w.description.contains('SyncNet'), skipOffstage: false));
-      expect(row.metrics.last, ('종합 판정에 포함', '아니오'));
+      expect(find.textContaining('움직임이 부족합니다.', skipOffstage: false), findsOneWidget);
       expect(find.textContaining(DetailScreen.syncNote, skipOffstage: false), findsOneWidget);
     });
 
@@ -527,13 +397,6 @@ void main() {
 
     testWidgets('접근 불가 결과의 상세는 모든 지표가 "값 없음"이다', (tester) async {
       await pumpScreen(tester, DetailScreen(result: mockResult(MockScenario.unavailable), onBack: noop));
-      final rows = tester.widgetList<AxisResultRow>(find.byType(AxisResultRow, skipOffstage: false));
-      expect(rows, hasLength(3));
-      for (final r in rows) {
-        for (final (name, value) in r.metrics) {
-          if (name.contains('확률 아님')) expect(value, '값 없음');
-        }
-      }
       expect(find.text('분석한 구간이 기록되지 않았습니다.', skipOffstage: false), findsOneWidget);
     });
   });

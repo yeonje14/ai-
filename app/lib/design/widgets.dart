@@ -7,6 +7,9 @@ library;
 import 'package:flutter/material.dart';
 
 import 'tokens.dart';
+import 'starfield.dart';
+
+export 'starfield.dart';
 
 export 'tokens.dart' show StatusTone;
 
@@ -18,6 +21,7 @@ class TrinityNav extends InheritedWidget {
     required this.onGuide,
     this.inGuide = false,
     this.serverMode = false,
+    this.replayMode = false,
     required super.child,
   });
 
@@ -27,6 +31,7 @@ class TrinityNav extends InheritedWidget {
 
   /// 실제 서버 모드인지. 고지 문구를 고른다. 없으면 mock으로 본다.
   final bool serverMode;
+  final bool replayMode;
 
   /// 화면이 실제 서버의 결과를 보여 주는지.
   static bool isServerMode(BuildContext context) => of(context)?.serverMode ?? false;
@@ -34,7 +39,7 @@ class TrinityNav extends InheritedWidget {
   static TrinityNav? of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<TrinityNav>();
 
   @override
-  bool updateShouldNotify(TrinityNav old) => old.inGuide != inGuide || old.serverMode != serverMode;
+  bool updateShouldNotify(TrinityNav old) => old.inGuide != inGuide || old.serverMode != serverMode || old.replayMode != replayMode;
 }
 
 /// 좁은 화면(앱 배치)인지. 768 이하면 앱 배치다.
@@ -42,18 +47,22 @@ bool isAppLayout(BuildContext context) => MediaQuery.sizeOf(context).width <= TS
 
 /// 상단 고지 띠. 모든 화면 맨 위에 둔다. mock 모드와 실제 서버 모드의 문구가 다르다.
 class NoticeBand extends StatelessWidget {
-  const NoticeBand({super.key});
+  const NoticeBand({super.key, this.serverMode = false});
+
+  final bool serverMode;
 
   /// mock 모드: 꾸며 낸 값이다.
   static const text = '모델 미연결 · 가상 데이터';
 
   /// 실제 서버 모드: 실제 계산 결과지만 검증된 판정이 아니다.
+  static const replayText = '시연용 녹화 결과';
   static const serverText = '연구용 시제품 · 결과는 참고 정보';
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final text = TrinityNav.isServerMode(context) ? serverText : NoticeBand.text;
+    final nav = TrinityNav.of(context);
+    final text = nav?.replayMode == true ? replayText : (nav?.serverMode == true || serverMode) ? serverText : NoticeBand.text;
     return Semantics(
       container: true,
       label: text,
@@ -188,6 +197,7 @@ class TrinityScaffold extends StatelessWidget {
     this.header = HeaderStyle.full,
     this.maxWidth = TSize.contentMax,
     this.topGap = TSpace.x4,
+    this.serverMode = false,
   });
 
   final List<Widget> children;
@@ -196,6 +206,7 @@ class TrinityScaffold extends StatelessWidget {
 
   /// 상단 줄과 본문 사이의 간격.
   final double topGap;
+  final bool serverMode;
 
   static const footerText = '영상 내용의 사실 여부를 확인하는 서비스는 아닙니다.';
 
@@ -203,10 +214,10 @@ class TrinityScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return Scaffold(
-      body: SafeArea(
+      body: StarfieldBackground(child: SafeArea(
         child: Column(
           children: [
-            const NoticeBand(),
+            NoticeBand(serverMode: serverMode),
             Expanded(
               child: SingleChildScrollView(
                 child: Column(
@@ -222,6 +233,7 @@ class TrinityScaffold extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const Center(child: MotionToggle()),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(TSpace.screen, 0, TSpace.screen, TSpace.x4),
                       child: Text(
@@ -237,7 +249,7 @@ class TrinityScaffold extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -253,15 +265,15 @@ class _ButtonBase extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final enabled = onPressed != null;
-    final fg = filled ? p.paper : (enabled ? p.ink : p.muted);
-    final bg = filled ? (enabled ? p.ink : p.muted) : p.paper;
+    final fg = filled && enabled ? Colors.white : (enabled ? p.ink : p.muted);
+    final bg = filled ? (enabled ? p.primary : p.soft) : Colors.transparent;
     return Semantics(
       button: true,
       enabled: enabled,
       child: Material(
         color: bg,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(TRadius.control),
+          borderRadius: BorderRadius.circular(TRadius.pill),
           side: filled ? BorderSide.none : BorderSide(color: enabled ? p.controlLine : p.line),
         ),
         clipBehavior: Clip.antiAlias,
@@ -458,7 +470,7 @@ class Panel extends StatelessWidget {
     final p = context.palette;
     return Container(
       decoration: BoxDecoration(
-        color: p.paper,
+        color: const Color(0x14FFFFFF),
         border: Border.all(color: p.line),
         borderRadius: BorderRadius.circular(TRadius.panel),
       ),

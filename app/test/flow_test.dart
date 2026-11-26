@@ -26,11 +26,9 @@ Future<void> submit(WidgetTester tester, String text) async {
   // 시나리오를 고르느라 내려간 화면을 맨 위로 되돌린다
   await tester.drag(find.byType(SingleChildScrollView), const Offset(0, 8000));
   await tester.pump();
-  await tester.ensureVisible(find.text('분석 요청'));
+  await tester.ensureVisible(find.text('확인하기'));
   await tester.pump();
-  await tester.drag(find.byType(SingleChildScrollView), const Offset(0, 120));
-  await tester.pump();
-  await tester.tap(find.text('분석 요청'));
+  await tester.tap(find.text('확인하기'));
   await tester.pump();
 }
 
@@ -213,9 +211,9 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(TrinityApp(config: const AppConfig(pollInterval: tick), api: MockAnalysisApi()));
-    expect(find.text('영상 속 단서, 차분히 확인하세요.'), findsOneWidget);
+    expect(find.text('영상 속 단서,\n차분히 확인하세요.'), findsOneWidget);
     await tester.enterText(find.byType(TextField), url);
-    await tester.tap(find.text('분석 요청'));
+    await tester.tap(find.text('확인하기'));
     await tester.pump();
     await runToEnd(tester);
     expect(find.text('판단 보류'), findsOneWidget);

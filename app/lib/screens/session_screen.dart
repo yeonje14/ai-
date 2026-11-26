@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../api/analysis_api.dart';
 import '../view_state.dart';
+import '../design/tokens.dart';
+import '../design/widgets.dart';
 
 /// 서버 모드의 세션 경계. 키 만료 시 기존 분석 화면과 폴링 타이머도 폐기한다.
 class SessionScreen extends StatefulWidget {
@@ -89,30 +91,36 @@ class _SessionScreenState extends State<SessionScreen> {
         _load();
       });
     }
-    return Scaffold(
-      appBar: AppBar(title: Text(_authenticated ? '내 작업' : 'TRINITY 로그인')),
-      body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 600),
-        child: ListView(padding: const EdgeInsets.all(24), children: [
-          if (!_authenticated) ...[
-            TextField(controller: _keyField, obscureText: true, autocorrect: false,
-              enableSuggestions: false, enabled: !_busy,
-              decoration: const InputDecoration(labelText: '운영자가 발급한 키'),
-              onSubmitted: (_) => _load()),
-            FilledButton(onPressed: _busy ? null : () => _load(), child: const Text('인증')),
-          ] else ...[
-            FilledButton(onPressed: _busy ? null : () => _open(null), child: const Text('새 분석')),
-            if (_jobs.isEmpty && !_busy) const Text('접수한 작업이 없습니다.'),
-            for (final job in _jobs)
-              ListTile(title: Text(job.id), subtitle: Text('${job.created.toLocal().toString().substring(0, 16)} · ${jobStatusText[job.status]}'),
-                onTap: _busy ? null : () => _open(job.id)),
-            if (_cursor != null)
-              TextButton(onPressed: _busy ? null : () => _load(more: true), child: const Text('이전 작업 더 보기')),
-            if (_error != null)
-              TextButton(onPressed: _busy ? null : () => _load(), child: const Text('목록 다시 조회')),
-          ],
-          if (_error != null) Text(_error!),
-        ]),
-      )),
-    );
+    final p = context.palette;
+    return TrinityScaffold(serverMode: true, children: [
+      Semantics(header: true, child: Text(_authenticated ? '내 작업' : 'TRINITY 로그인',
+        style: TText.display.copyWith(color: p.ink))),
+      const SizedBox(height: TSpace.x4),
+      Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (!_authenticated) ...[
+          Text('운영자가 발급한 키', style: TText.label.copyWith(color: p.ink)),
+          const SizedBox(height: TSpace.x2),
+          Semantics(label: '운영자가 발급한 키', child: TextField(controller: _keyField,
+            obscureText: true, autocorrect: false, enableSuggestions: false, enabled: !_busy,
+            style: TText.body.copyWith(color: p.ink), onSubmitted: (_) => _load())),
+          const SizedBox(height: TSpace.x3),
+          PrimaryButton(label: '인증', onPressed: _busy ? null : () => _load()),
+        ] else ...[
+          PrimaryButton(label: '새 분석', onPressed: _busy ? null : () => _open(null)),
+          const SizedBox(height: TSpace.x3),
+          if (_jobs.isEmpty && !_busy) const Text('접수한 작업이 없습니다.', style: TText.body),
+          for (final job in _jobs) ListTile(
+            contentPadding: EdgeInsets.zero, minTileHeight: TSize.touch,
+            title: Text(job.id, style: TText.bodyStrong),
+            subtitle: Text('${job.created.toLocal().toString().substring(0, 16)} · ${jobStatusText[job.status]}',
+              style: TText.secondary.copyWith(color: p.muted)),
+            onTap: _busy ? null : () => _open(job.id),
+          ),
+          if (_cursor != null) SecondaryButton(label: '이전 작업 더 보기', onPressed: _busy ? null : () => _load(more: true)),
+          if (_error != null) SecondaryButton(label: '목록 다시 조회', onPressed: _busy ? null : () => _load()),
+        ],
+        if (_error != null) Semantics(liveRegion: true, child: Text(_error!, style: TText.body.copyWith(color: p.warning))),
+      ])),
+    ]);
   }
 }

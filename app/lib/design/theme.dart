@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 
 import 'tokens.dart';
 
-/// 밝은 테마가 기본이다. 어두운 테마는 시스템 설정이 어두울 때 쓴다.
-ThemeData buildTrinityTheme([Brightness brightness = Brightness.light]) {
-  final p = brightness == Brightness.dark ? TPalette.dark : TPalette.light;
+/// 시스템 밝기와 관계없이 같은 대비로 표시한다.
+ThemeData buildTrinityTheme([Brightness brightness = Brightness.dark]) {
+  const p = TPalette.dark;
   final scheme = ColorScheme(
-    brightness: brightness,
+    brightness: p.brightness,
     surface: p.bg,
     onSurface: p.ink,
-    primary: p.ink,
+    primary: p.accent,
     onPrimary: p.paper,
     secondary: p.muted,
     onSecondary: p.paper,
@@ -25,7 +25,7 @@ ThemeData buildTrinityTheme([Brightness brightness = Brightness.light]) {
   final body = TText.body.copyWith(color: p.ink);
   return ThemeData(
     useMaterial3: true,
-    brightness: brightness,
+    brightness: p.brightness,
     colorScheme: scheme,
     extensions: [p],
     scaffoldBackgroundColor: p.bg,
@@ -51,7 +51,7 @@ ThemeData buildTrinityTheme([Brightness brightness = Brightness.light]) {
       errorMaxLines: 6,
       prefixIconColor: p.muted,
       enabledBorder: inputBorder(p.controlLine),
-      focusedBorder: inputBorder(p.ink, 2),
+      focusedBorder: inputBorder(p.accent, 2),
       disabledBorder: inputBorder(p.line),
       errorBorder: inputBorder(p.warning),
       focusedErrorBorder: inputBorder(p.warning, 2),
