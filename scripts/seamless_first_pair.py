@@ -7,6 +7,7 @@ research/seamless/fetch_pilot.py로 받은 두 파일 ID만 읽는다. MuseTalk 
     python scripts/seamless_first_pair.py files            # 해시·ffprobe·디코딩·VAD·시간축 (A, B)
     python scripts/seamless_first_pair.py run --who A      # 실제 조건 입력(MKV) → Gate → 세 축 (Worker와 같은 순서·제한)
     python scripts/seamless_first_pair.py run --who B
+    python scripts/seamless_first_pair.py run --who A --input pre   # 전처리 입력(docs/seamless-preprocess.md)
 
 - 실제 조건 입력은 **첫 쌍 확인용**이다. 원본 MP4의 영상 스트림을 복사하고, 같은 참가자의 WAV 하나만
   오디오 트랙으로 넣은 MKV다(손실 재인코딩 없음). MP4 자체 오디오는 넣지 않는다.
@@ -109,12 +110,18 @@ def decode_check(path: Path, stream: str) -> dict:
             "elapsed_sec": round(time.monotonic() - t0, 2)}
 
 
-def pcm(path: Path, stream: str, seconds: float):
+def pcm_window(path: Path, stream: str, start: float, seconds: float):
+    """[start, start+seconds] 오디오를 8kHz 모노 float로 디코딩한다(입력 쪽 -ss, 오디오는 정확히 잘린다)."""
     import numpy as np
-    proc = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", stream, "-t", str(seconds),
+    proc = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-ss", f"{start:.6f}", "-i", str(path),
+                           "-map", stream, "-t", str(seconds),
                            "-ac", "1", "-ar", str(XCORR_RATE), "-f", "f32le", "-"],
                           capture_output=True, timeout=600, check=True)
     return np.frombuffer(proc.stdout, dtype=np.float32)
+
+
+def pcm(path: Path, stream: str, seconds: float):
+    return pcm_window(path, stream, 0.0, seconds)
 
 
 def xcorr_lag(ref, other, rate: int = XCORR_RATE, max_lag_sec: float = XCORR_MAX_LAG_SEC) -> dict:
@@ -263,7 +270,8 @@ def _summ_motionphys(out: dict) -> dict:
     return {k: out.get(k) for k in ("status", "reason_code", "device_used", "variants")}
 
 
-def run_real(who: str) -> dict:
+def run_real(who: str, source: str = "original") -> dict:
+    """source: original(원본 MP4 영상 + WAV MKV) 또는 pre(docs/seamless-preprocess.md 전처리 MP4)."""
     from server.axes import AxisContext
     from server.axes import alignment, physics
     from server.axes import signal as signal_axis
@@ -295,7 +303,7 @@ def run_real(who: str) -> dict:
     work_root = SEAMLESS / "work"
     work_root.mkdir(parents=True, exist_ok=True)
     result: dict = {"schema_version": SCHEMA_VERSION, "who": who, "file_id": p["file_id"],
-                    "condition": "real_mkv_first_pair_check",
+                    "condition": "real_mkv_first_pair_check" if source == "original" else "real_preprocessed",
                     "settings": {k: v for k, v in asdict(settings).items()
                                  if "timeout" in k or "device" in k or k.startswith("job_")},
                     "disk_free_before": shutil.disk_usage(SEAMLESS).free}
@@ -314,9 +322,18 @@ def run_real(who: str) -> dict:
                 return False
             return True
 
-        media = job_dir / "media.mkv"
-        result["mux"] = mux_real(p["files"]["mp4"], p["files"]["wav"], media)
-        stages["preprocessing_mux_sec"] = result["mux"]["elapsed_sec"]
+        if source == "original":
+            media = job_dir / "media.mkv"
+            result["mux"] = mux_real(p["files"]["mp4"], p["files"]["wav"], media)
+            stages["preprocessing_mux_sec"] = result["mux"]["elapsed_sec"]
+        else:
+            # Worker처럼 허가 미디어를 작업 폴더로 복사한다
+            src = PILOT_DIR / "pre" / f"{who}.mp4"
+            media = job_dir / "media.mp4"
+            t0 = time.monotonic()
+            shutil.copyfile(src, media)
+            result["staged"] = {"bytes": media.stat().st_size, "sha256": sha256_file(media)}
+            stages["preprocessing_copy_sec"] = round(time.monotonic() - t0, 2)
 
         t0 = time.monotonic()
         try:
@@ -372,17 +389,99 @@ def run_real(who: str) -> dict:
         shutil.rmtree(job_dir, ignore_errors=True)
         result["disk"]["job_dir_removed"] = not job_dir.exists()
         result["disk_free_after"] = shutil.disk_usage(SEAMLESS).free
-        write_json(PILOT_DIR / f"inspect/{who}.real.json", result)
+        name = "real" if source == "original" else "pre"
+        write_json(PILOT_DIR / f"inspect/{who}.{name}.json", result)
     return result
+
+
+def summarize(res: dict | None) -> dict:
+    """run 결과 JSON 하나를 비교표 한 열로 줄인다. 없는 값은 None(표에서 '—')."""
+    if res is None:
+        return {}
+    g = res.get("gate") or {}
+    el = g.get("eligible_segments") or []
+    media = g.get("media") or {}
+    qs = [s["quality"] for s in el if s.get("quality")]
+    excl: dict[str, float] = {}
+    for x in g.get("excluded_segments") or []:
+        excl[x.get("reason_code")] = excl.get(x.get("reason_code"), 0.0) + x["end_sec"] - x["start_sec"]
+    axes = res.get("axes") or {}
+    raw = res.get("axis_raw") or {}
+    st = res.get("stages") or {}
+    sync = raw.get("syncnet") or {}
+    segs = sync.get("segments") or []
+    tracked = [t for sg in segs for t in (sg.get("tracks") or [])]
+
+    def ax(name):
+        a = axes.get(name)
+        return None if a is None else f"{a['status']}" + (f" / {a['reason_code']}" if a.get("reason_code") else "")
+
+    dur = media.get("duration_sec")
+    eligible = sum(x["end_sec"] - x["start_sec"] for x in el)
+    return {
+        "job": res.get("job_status_equivalent"),
+        "media": None if not media else f"{media['width']}×{media['height']}, {dur:.1f}s",
+        "gate": g.get("reason_code") or ("완료" if media else None),
+        "gate_sec": st.get("gate_sec"),
+        "eligible": None if not media else f"{len(el)}개, {eligible:.1f}s ({eligible / dur:.1%})",
+        "excluded": None if not excl else ", ".join(f"{k} {v:.1f}" for k, v in sorted(excl.items(), key=lambda kv: -kv[1])),
+        "face_h": None if not qs else f"{min(q['face_height_px'] for q in qs):g}–{max(q['face_height_px'] for q in qs):g}px",
+        "face_ratio": None if not qs else f"{min(q['face_height_ratio'] for q in qs):g}–{max(q['face_height_ratio'] for q in qs):g}",
+        "sharpness": None if not qs else f"{min(q['sharpness'] for q in qs):g}–{max(q['sharpness'] for q in qs):g}",
+        "waverep": ax("signal"),
+        "waverep_frames": ((raw.get("waverep") or {}).get("frame_logit") or {}).get("frames"),
+        "waverep_sec": st.get("waverep_sec"),
+        "motionphys": ax("physics"),
+        "motionphys_sec": st.get("motionphys_sec"),
+        "syncnet": ax("alignment"),
+        "syncnet_segments": None if not segs else (
+            f"{len(segs)}개 중 짧음 {sum(1 for x in segs if x['reason_code'] == 'segment_too_short')}, "
+            f"트랙 있음 {sum(1 for x in segs if x.get('tracks'))}, 트랙 없음 "
+            f"{sum(1 for x in segs if x['reason_code'] == 'tracking_failed')}"),
+        "syncnet_offsets": None if not tracked else sorted({t["offset_frames"] for t in tracked}),
+        "syncnet_sec": st.get("syncnet_sec"),
+        "total_sec": st.get("total_sec"),
+        "job_limit_sec": res.get("job_timeout_after_gate_sec"),
+        "job_dir_peak_mb": round(res["disk"]["job_dir_peak_bytes"] / 1e6, 1) if res.get("disk") else None,
+    }
+
+
+ROWS = (("job", "Worker 기준 작업 상태"), ("media", "Gate가 읽은 입력"), ("gate", "Gate"), ("gate_sec", "Gate 시간(s)"),
+        ("eligible", "적합 구간"), ("excluded", "제외 구간(사유별 초)"), ("face_h", "얼굴 높이(구간 중앙값 범위)"),
+        ("face_ratio", "짧은 변 대비"), ("sharpness", "선명도"), ("waverep", "WaveRep"),
+        ("waverep_frames", "WaveRep 프레임"), ("waverep_sec", "WaveRep 시간(s)"), ("motionphys", "MotionPhys"),
+        ("motionphys_sec", "MotionPhys 시간(s)"), ("syncnet", "SyncNet"), ("syncnet_segments", "SyncNet 구간"),
+        ("syncnet_offsets", "SyncNet 오프셋(25fps 프레임)"), ("syncnet_sec", "SyncNet 시간(s)"),
+        ("total_sec", "합계(s)"), ("job_limit_sec", "Gate 뒤 작업 제한(s)"), ("job_dir_peak_mb", "작업 폴더 최대(MB)"))
+
+
+def compare_table() -> str:
+    cols = {}
+    for who in ("A", "B"):
+        for name in ("real", "pre"):
+            path = PILOT_DIR / f"inspect/{who}.{name}.json"
+            cols[(who, name)] = summarize(json.loads(path.read_text(encoding="utf-8")) if path.exists() else None)
+    head = "| 항목 | A 원본 | A 전처리 | B 원본 | B 전처리 |\n|---|---|---|---|---|"
+    lines = [head]
+    for key, label in ROWS:
+        vals = [cols[(w, n)].get(key) for w in ("A", "B") for n in ("real", "pre")]
+        lines.append(f"| {label} | " + " | ".join("—" if v is None else str(v) for v in vals) + " |")
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("files")
+    sub.add_parser("compare")
     r = sub.add_parser("run")
     r.add_argument("--who", choices=("A", "B"), required=True)
+    r.add_argument("--input", choices=("original", "pre"), default="original",
+                   help="original: 원본 영상 + WAV MKV, pre: docs/seamless-preprocess.md 전처리 MP4")
     opt = ap.parse_args(argv)
+    if opt.cmd == "compare":
+        print(compare_table())
+        return 0
     if opt.cmd == "files":
         rep = files_report()
         print(json.dumps({w: {"timeline": d["timeline"], "mp4_has_audio": d["mp4_has_audio"],
@@ -392,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
                                                                      "pair": rep["pair"]},
                          ensure_ascii=False, indent=2))
     else:
-        res = run_real(opt.who)
+        res = run_real(opt.who, opt.input)
         print(json.dumps({k: res.get(k) for k in ("job_status_equivalent", "stages", "disk",
                                                    "job_timeout_after_gate_sec")}, ensure_ascii=False, indent=2))
     return 0
