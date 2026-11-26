@@ -717,6 +717,11 @@ TRINITY/
 
 ### 15.3 설계 결정 1~12 요약
 
+**변경 제안 · 2026-11-27 · 구간별 기준 범위 (승인 대기)**
+
+결과에 선택적 `evidence_ranges` 배열을 추가한다. 각 행의 `start_sec, end_sec`는 원본 시작 기준 초, `axis, signal_id, unit`은 측정 종류, `value`는 구간 관찰값이다. `reference_version`은 데이터 예약 해시·모델·Gate·전처리·장치·통계 규칙을 식별한다. `comparisons`의 조건별 행에는 `profile_id, n_people, percentile, percentile_ci95, upper_reference_value`를 둔다(백분위 0~100, 신뢰구간은 하한·상한 순). `comparison_status`는 within_range / rare / abstained, `comparison_reason`은 결측·표본 부족·경계 불확실·조건 불일치 사유다. 측정 실패 값과 계산할 수 없는 백분위는 null이다. 구버전·비교 미실행 결과는 필드를 생략할 수 있다. 기존 작업·분석·판정·축 상태, fusion 라벨, coverage 계약은 유지한다. 상세 통계·공개 조건은 [4단계 계획](superpowers/plans/2026-11-27-evidence-range.md)을 따른다.
+
+
 **결정 1 변경(연구용 다운로드 어댑터) — 2026-11-26, 사용자 승인.**
 졸업작품 시연·연구 전용(비상업, 공개 배포 없음)으로 다음을 허용한다. Worker가 사용자 YouTube 링크의 영상을 연구용 다운로드 어댑터(`server/ingest/research_download.py`, 기존 `ApprovedPlatformAccessAdapter` 자리)로 내려받아 분석한다.
 이 경로는 YouTube 서비스 약관에 어긋날 수 있다. 그 위험을 알고 아래 조건으로 한정한다.
