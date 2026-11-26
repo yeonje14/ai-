@@ -38,7 +38,6 @@ sys.path.insert(0, str(REPO_ROOT))
 
 SEAMLESS = REPO_ROOT / "data/research/seamless"
 PILOT_DIR = SEAMLESS / "pilot/pilot-00"
-FETCH = PILOT_DIR / "fetch.json"
 SCHEMA_VERSION = 1
 XCORR_SECONDS = 120     # MP4 자체 오디오와 WAV의 시간 차를 잴 앞부분 길이
 XCORR_RATE = 8000
@@ -58,9 +57,13 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def pick() -> dict:
-    """fetch.json에서 A·B 파일 경로를 읽는다. 받은 파일 외에는 읽지 않는다."""
-    rec = json.loads(FETCH.read_text(encoding="utf-8"))
+def pilot_dir(order: int = 0) -> Path:
+    return SEAMLESS / f"pilot/pilot-{order:02d}"
+
+
+def pick(order: int = 0) -> dict:
+    """파일럿 order번의 fetch.json에서 A·B 파일 경로를 읽는다. 받은 파일 외에는 읽지 않는다."""
+    rec = json.loads((pilot_dir(order) / "fetch.json").read_text(encoding="utf-8"))
     out = {}
     for who, key in (("A", "file_id_a"), ("B", "file_id_b")):
         fid = rec["pilot"][key]

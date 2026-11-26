@@ -1,14 +1,16 @@
 """Seamless 파일럿 입력 전처리: 25초 창 선택과 최종 인코딩 (docs/seamless-preprocess.md, 커밋 6bc3493).
 
     conda activate trinity
-    python scripts/seamless_preprocess.py            # pilot#0: 창 4개 계산·기록, A·B 실제 조건 인코딩
+    python scripts/seamless_preprocess.py              # pilot#0: 창 4개 계산·기록, A·B 실제 조건 인코딩
+    python scripts/seamless_preprocess.py --order 1    # 예약 파일럿 1번(fetch_pilot.py --order 1로 받은 것)
 
 - 창은 공식 Meta VAD 발화량이 가장 많은 25초 창이다(동점이면 앞쪽). A 얼굴 창, B 얼굴 창,
   A 구동 음성 창(A 얼굴 창과 겹치지 않음), B 구동 음성 창(= B 얼굴 창)을 계산한다.
   구동 음성 창은 기록만 한다. 합성은 하지 않는다.
 - 최종 인코딩: 영상은 training.emulator의 x264-crf20-1080p 프로파일 설정, 오디오는 WAV → AAC-LC
   48kHz 모노 192kbps, MP4. 원본 MP4 영상과 같은 참가자 WAV를 한 명령에서 출력 쪽 -ss/-t로 함께 자른다.
-- 결과: data/research/seamless/pilot/pilot-00/pre/ (Git 제외). 내용(전사·프레임)은 기록하지 않는다.
+- 결과: data/research/seamless/pilot/pilot-NN/pre/ (Git 제외). 내용(전사·프레임)은 기록하지 않는다.
+- 시간축(영상 시작·길이, WAV 길이)은 원본 ffprobe에서 읽는다(pilot#0에서 files.json과 같은 값).
 """
 
 from __future__ import annotations
@@ -168,19 +170,28 @@ def frame_alignment(src_mp4: Path, out_mp4: Path, start: float, n: int = 3) -> d
             "consistent": len(offsets) == 1}
 
 
-# ---------- pilot#0 실행 ----------
+# ---------- 파일럿 실행 ----------
 
-def run_pilot0() -> dict:
+def timeline_from_probe(mp4_probe: dict, wav_probe: dict) -> dict:
+    """창 선택에 쓰는 시간축. 영상 스트림의 시작·길이와 WAV 길이."""
+    v = next(s for s in mp4_probe["streams"] if s["codec_type"] == "video")
+    return {"video_start_sec": v["start_time"], "video_duration_sec": v["duration"],
+            "wav_duration_sec": wav_probe["streams"][0]["duration"]}
+
+
+def run_pilot(order: int = 0, out_dir: Optional[Path] = None) -> dict:
     from scripts import seamless_first_pair as fp
 
-    p = fp.pick()
-    files = json.loads((fp.PILOT_DIR / "inspect/files.json").read_text(encoding="utf-8"))["participants"]
-    out_dir = fp.PILOT_DIR / "pre"
+    p = fp.pick(order)
+    out_dir = out_dir or fp.pilot_dir(order) / "pre"
     out_dir.mkdir(parents=True, exist_ok=True)
-    rec: dict = {"rule_commit": "6bc3493", "window_sec": WINDOW_SEC, "video_profile": PROFILES[VIDEO_PROFILE_ID].to_dict(),
+    rec: dict = {"rule_commit": "6bc3493", "order": order, "window_sec": WINDOW_SEC,
+                 "video_profile": PROFILES[VIDEO_PROFILE_ID].to_dict(),
                  "audio_args": list(AUDIO_ARGS), "ffmpeg_version": ffmpeg_version(), "windows": {}, "encodes": {}}
     vad = {w: load_vad(p[w]["files"]["json"]) for w in ("A", "B")}
-    tl = {w: files[w]["timeline"] for w in ("A", "B")}
+    tl = {w: timeline_from_probe(fp.ffprobe(p[w]["files"]["mp4"]), fp.ffprobe(p[w]["files"]["wav"]))
+          for w in ("A", "B")}
+    rec["timeline"] = tl
 
     t0 = time.monotonic()
     faces = {}
@@ -216,8 +227,11 @@ def run_pilot0() -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter).parse_args(argv)
-    rec = run_pilot0()
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--order", type=int, default=0, help="예약 파일럿 번호(fetch_pilot.py --order와 같다)")
+    ap.add_argument("--out-dir", type=Path, default=None, help="재현 확인용 출력 폴더(기본: pilot-NN/pre)")
+    opt = ap.parse_args(argv)
+    rec = run_pilot(opt.order, opt.out_dir)
     show = {"windows": rec["windows"], "window_select_sec": rec["window_select_sec"],
             "encodes": {w: {k: e[k] for k in ("elapsed_sec", "bytes", "sha256", "audio_vs_source_wav_window",
                                               "video_alignment")}
