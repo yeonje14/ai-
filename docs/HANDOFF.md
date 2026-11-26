@@ -1,5 +1,16 @@
 # HANDOFF
 
+## 4단계 기준 범위 예약 v2와 실행기 (2026-11-27, 브랜치 `design/evidence-range`, PR #47)
+
+- **이어받은 것:** Codex가 남긴 커밋 안 된 `tests/test_evidence_range_reserve_v2.py`(구현 없이 테스트 2개)를 그대로 살려 쓰고 패턴 테스트 1개를 더했다.
+- **예약 v2 (메타데이터만, 실행함):** `python -m scripts.evidence_range_reserve_v2`. 세션(쌍) 단위, 두 참가자 모두 사용, 기관별 5:3 번갈아 배정. range_fit 311세션 / range_check 185세션. 교집합 0. v1 목록은 지우지 않고 "메타데이터만 보고 대체, 사유: 역할 배분"으로 기록했다(`range_v2_summary.json`, 계획, DESIGN §15.3). 해시는 계획 문서 표.
+- **통계 규칙 변경(문안):** 기준 분포는 세션별·신호별 최댓값, 부트스트랩·공개 최소치·오탐률은 세션 단위. §15.3 제안의 `n_people`을 `n_sessions`로 바꿨다(승인 대기 제안 안의 변경).
+- **실행기:** `scripts/evidence_range_run.py fetch | analyze --gate-version <v> | status`. 상태는 `data/research/seamless/range_v2/<역할>/<order>/state.json`, 로그는 `range_v2/run.log`. `research/seamless/fetch_pilot.py`에 `--role range_fit|range_check`를 더했다(v2 목록 해시 고정, 기존 예약과 겹침 검사). `seamless_first_pair.run_real`의 본체를 `run_job`/`run_file(gate_only=)`로 나눴고, WaveRep 결과 요약에 프레임 번호·logit을 남긴다.
+- **fetch 순서(PR #47 검토 반영):** 두 역할을 5:3(F F C F F C F C 반복)으로 번갈아 받는다. 역할 안 order·예약 목록·해시·analyze 정지 규칙은 그대로다. 한 역할이 끝나면 남은 역할을 이어서 받는다.
+- **실행하지 않음:** 실제 fetch·analyze. 사용자가 터미널에서 돌린다(`caffeinate -i python scripts/evidence_range_run.py fetch`, 예상 33시간, 440.8GB 전송, 25초본 약 11GB 누적).
+- **확인 필요:** 재압축 인코딩 시간(예산에 없음), WaveRep 프레임 번호와 Gate 구간 경계 대응, 공식 패키지 로그(`logs/seamless_interaction_fs.log`)에 URL이 남는지(파일럿 4쌍 뒤에는 "http" 0건), 실효 50Mbps 가정.
+- **남은 일:** 12-03 Gate 결정 → analyze. 통계 계산 스크립트(백분위·부트스트랩·Wilson)는 아직 없다.
+
 ## 2단계 연구용 다운로드와 분석 창 (2026-11-26, feat/research-download)
 
 - Worker는 등록부를 우선 확인한다. 미등록 ID의 다운로드는 명시적으로 켠 연구용 어댑터에서만 수행한다. 네트워크 오류만 큐의 제한 횟수 안에서 재시도한다.

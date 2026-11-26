@@ -262,6 +262,9 @@ def _summ_waverep(out: dict) -> dict:
     keep = {k: out.get(k) for k in ("status", "reason_code", "video", "timing", "memory")}
     keep["device_used"] = (out.get("model") or {}).get("device_used")
     keep["frame_logit"] = (out.get("raw_metrics") or {}).get("frame_logit")
+    # 구간별 통계용: 프레임 번호와 logit 숫자만 남긴다(영상 내용 없음)
+    keep["frames"] = [{"index": f.get("index"), "logit": f.get("logit")} for f in out.get("frames") or []]
+    keep["sampling"] = out.get("sampling")
     return keep
 
 
@@ -275,6 +278,47 @@ def _summ_motionphys(out: dict) -> dict:
 
 def run_real(who: str, source: str = "original") -> dict:
     """source: original(원본 MP4 영상 + WAV MKV) 또는 pre(docs/seamless-preprocess.md 전처리 MP4)."""
+    p = pick()[who]
+    result: dict = {"schema_version": SCHEMA_VERSION, "who": who, "file_id": p["file_id"],
+                    "condition": "real_mkv_first_pair_check" if source == "original" else "real_preprocessed"}
+
+    def prepare(job_dir: Path, stages: dict) -> Path:
+        if source == "original":
+            media = job_dir / "media.mkv"
+            result["mux"] = mux_real(p["files"]["mp4"], p["files"]["wav"], media)
+            stages["preprocessing_mux_sec"] = result["mux"]["elapsed_sec"]
+            return media
+        return stage_copy(PILOT_DIR / "pre" / f"{who}.mp4", job_dir, result, stages)
+
+    try:
+        return run_job(prepare, result)
+    finally:
+        name = "real" if source == "original" else "pre"
+        write_json(PILOT_DIR / f"inspect/{who}.{name}.json", result)
+
+
+def stage_copy(src: Path, job_dir: Path, result: dict, stages: dict) -> Path:
+    """Worker처럼 허가 미디어를 작업 폴더로 복사한다."""
+    media = job_dir / f"media{src.suffix}"
+    t0 = time.monotonic()
+    shutil.copyfile(src, media)
+    result["staged"] = {"bytes": media.stat().st_size, "sha256": sha256_file(media)}
+    stages["preprocessing_copy_sec"] = round(time.monotonic() - t0, 2)
+    return media
+
+
+def run_file(src: Path, work_root: Path | None = None, *, gate_only: bool = False) -> dict:
+    """파일 하나를 Worker와 같은 Gate → 세 축으로 돌린 결과(수치·상태만). 기록은 호출자가 한다.
+
+    gate_only: Gate까지만 돈다(job_status_equivalent = "finished/gate_only").
+    """
+    result: dict = {"schema_version": SCHEMA_VERSION}
+    return run_job(lambda job_dir, stages: stage_copy(Path(src), job_dir, result, stages), result, work_root,
+                   gate_only=gate_only)
+
+
+def run_job(prepare, result: dict, work_root: Path | None = None, *, gate_only: bool = False) -> dict:
+    """prepare(job_dir, stages) -> 미디어 경로. Gate와 세 축을 Worker와 같은 함수·순서·제한으로 돌린다."""
     from server.axes import AxisContext
     from server.axes import alignment, physics
     from server.axes import signal as signal_axis
@@ -285,7 +329,6 @@ def run_real(who: str, source: str = "original") -> dict:
     from server.jobs import worker
     from server.fusion import load_active
 
-    p = pick()[who]
     settings = Settings.from_env()
     raw: dict[str, dict] = {}
 
@@ -303,13 +346,11 @@ def run_real(who: str, source: str = "original") -> dict:
     syncnet_mod.run_syncnet = rec("syncnet", orig_s, _summ_syncnet)
     motionphys_mod.run_motionphys = rec("motionphys", orig_m, _summ_motionphys)
 
-    work_root = SEAMLESS / "work"
+    work_root = work_root or SEAMLESS / "work"
     work_root.mkdir(parents=True, exist_ok=True)
-    result: dict = {"schema_version": SCHEMA_VERSION, "who": who, "file_id": p["file_id"],
-                    "condition": "real_mkv_first_pair_check" if source == "original" else "real_preprocessed",
-                    "settings": {k: v for k, v in asdict(settings).items()
-                                 if "timeout" in k or "device" in k or k.startswith("job_")},
-                    "disk_free_before": shutil.disk_usage(SEAMLESS).free}
+    result.update({"settings": {k: v for k, v in asdict(settings).items()
+                                if "timeout" in k or "device" in k or k.startswith("job_")},
+                   "disk_free_before": shutil.disk_usage(work_root).free})
     job_dir = Path(tempfile.mkdtemp(prefix="job-", dir=work_root)).resolve()
     sampler = DiskSampler(job_dir)
     sampler.start()
@@ -325,18 +366,7 @@ def run_real(who: str, source: str = "original") -> dict:
                 return False
             return True
 
-        if source == "original":
-            media = job_dir / "media.mkv"
-            result["mux"] = mux_real(p["files"]["mp4"], p["files"]["wav"], media)
-            stages["preprocessing_mux_sec"] = result["mux"]["elapsed_sec"]
-        else:
-            # Worker처럼 허가 미디어를 작업 폴더로 복사한다
-            src = PILOT_DIR / "pre" / f"{who}.mp4"
-            media = job_dir / "media.mp4"
-            t0 = time.monotonic()
-            shutil.copyfile(src, media)
-            result["staged"] = {"bytes": media.stat().st_size, "sha256": sha256_file(media)}
-            stages["preprocessing_copy_sec"] = round(time.monotonic() - t0, 2)
+        media = prepare(job_dir, stages)
 
         t0 = time.monotonic()
         try:
@@ -358,6 +388,8 @@ def run_real(who: str, source: str = "original") -> dict:
             result["job_status_equivalent"] = "failed/timeout (gate)"
         elif not segments:
             result["job_status_equivalent"] = "finished/gate_rejection"
+        elif gate_only:
+            result["job_status_equivalent"] = "finished/gate_only"
         else:
             ctx = AxisContext(job_dir=job_dir, settings=settings, media_path=media, segments=segments,
                               heartbeat=heartbeat, bundle=load_active(settings))
@@ -391,9 +423,7 @@ def run_real(who: str, source: str = "original") -> dict:
                           "sample_interval_sec": sampler.interval}
         shutil.rmtree(job_dir, ignore_errors=True)
         result["disk"]["job_dir_removed"] = not job_dir.exists()
-        result["disk_free_after"] = shutil.disk_usage(SEAMLESS).free
-        name = "real" if source == "original" else "pre"
-        write_json(PILOT_DIR / f"inspect/{who}.{name}.json", result)
+        result["disk_free_after"] = shutil.disk_usage(work_root).free
     return result
 
 

@@ -4,10 +4,15 @@
 공식 패키지가 설치된 별도 venv에서 실행한다(trinity 환경에 설치하지 않는다):
 
     data/research/seamless/.venv/bin/python -I research/seamless/fetch_pilot.py --order 0
+    data/research/seamless/.venv/bin/python -I research/seamless/fetch_pilot.py --role range_fit --order 0
+
+기준 범위 예약 v2(range_fit / range_check, docs/superpowers/plans/2026-11-27-evidence-range.md)도 같은 방법으로
+한 세션(두 사람)씩 받는다. 보통은 scripts/evidence_range_run.py fetch가 이 파일을 부른다.
 
 보호 장치:
 - 예약 파일의 SHA-256이 커밋된 값과 같아야 한다. 공식 인덱스 blob도 기준과 같아야 한다.
-- 예약 파일에서 role=pilot인 행만 받는다. 두 파일 ID가 공식 인덱스에서 naturalistic·train이어야 한다.
+- 예약 파일에서 role=pilot인 행만 받는다. range 역할은 v2 목록(해시 고정)에서만 받고, 두 사람의 참가자 코드와
+  세션이 기존 예약(test·dev·pilot)에 없어야 한다. 두 파일 ID가 공식 인덱스에서 naturalistic·train이어야 한다.
   내부 test·dev와 공식 dev·test는 받을 방법이 없다.
 - 공식 함수는 다운로드 오류를 로그로만 남긴다. 그래서 받은 뒤 mp4·wav·VAD가 있는지 직접 확인한다.
   빠졌으면 공식 URL에 HEAD를 보내 DNS 오류·HTTP 거절·기타를 구분해 기록한다.
@@ -40,6 +45,15 @@ LOGS = SEAMLESS / "logs"
 EXPECTED_RESERVATION_SHA256 = "2cd2ddc8ff89e85abf03c3ea2a1b84f0b03119d16bc02e01203d180dbf6538c0"
 EXPECTED_FILELIST_BLOB = "e759e6d00f152a4833df2b985de842ab642812cd"
 ALLOWED_ROLE = "pilot"
+RESERVATION_DIR = SEAMLESS / "reservation"
+# 기준 범위 예약 v2 (계획 문서와 scripts/evidence_range_reserve_v2.py 출력에 커밋한 값)
+RANGE_LISTS = {
+    "range_fit": (RESERVATION_DIR / "range_fit_v2.csv",
+                  "736b417ec91bf1f4f0d206876d906155b97176ffd1c6a13092b7e4844d0aca07"),
+    "range_check": (RESERVATION_DIR / "range_check_v2.csv",
+                    "ad9d69f7c927a5dcc0abe3fc9a924df1b4ffeef45d4f67864eb9cbbbb8b33a7f"),
+}
+RANGE_DIR = SEAMLESS / "range_v2"
 ALLOWED_LABEL = "naturalistic"
 ALLOWED_SPLIT = "train"
 
@@ -60,19 +74,43 @@ def git_blob_sha1(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
+def _identity(file_id: str) -> tuple[str, str]:
+    """(세션 키, 참가자 코드). 참가자 코드는 앞의 0을 떼고 접미사를 무시한다(seamless_reserve와 같은 기준)."""
+    parts = file_id.split("_")
+    if len(parts) != 4 or not parts[3].startswith("P"):
+        raise GuardError("파일 ID 형식 오류")
+    return f"{parts[0]}_{parts[1]}", str(int(parts[3][1:].rstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")))
+
+
+def check_not_reserved(ids: list[str], reservation: Path) -> None:
+    """기존 예약(test·dev·pilot)의 참가자나 세션과 겹치면 멈춘다."""
+    taken_sessions, taken_people = set(), set()
+    with reservation.open(newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            for k in ("file_id_a", "file_id_b"):
+                s, p = _identity(r[k])
+                taken_sessions.add(s)
+                taken_people.add(p)
+    for fid in ids:
+        s, p = _identity(fid)
+        if s in taken_sessions or p in taken_people:
+            raise GuardError("기존 예약과 겹치는 참가자나 세션이다")
+
+
 def select_pilot(reservation: Path, filelist: Path, order: int,
-                 expected_res_sha=EXPECTED_RESERVATION_SHA256, expected_blob=EXPECTED_FILELIST_BLOB) -> dict:
-    """예약 파일에서 파일럿 order번 행을 고르고 공식 인덱스로 label·split을 확인한다."""
+                 expected_res_sha=EXPECTED_RESERVATION_SHA256, expected_blob=EXPECTED_FILELIST_BLOB,
+                 role: str = ALLOWED_ROLE) -> dict:
+    """예약 파일에서 role의 order번 행을 고르고 공식 인덱스로 label·split을 확인한다."""
     got = sha256_file(reservation)
     if got != expected_res_sha:
-        raise GuardError(f"reservation.csv sha256 {got} != 커밋된 값 {expected_res_sha}")
+        raise GuardError(f"{reservation.name} sha256 {got} != 커밋된 값 {expected_res_sha}")
     data = filelist.read_bytes()
     if git_blob_sha1(data) != expected_blob:
         raise GuardError("filelist blob이 기준과 다르다")
     with reservation.open(newline="", encoding="utf-8") as f:
-        rows = [r for r in csv.DictReader(f) if r["role"] == ALLOWED_ROLE and int(r["order"]) == order]
+        rows = [r for r in csv.DictReader(f) if r["role"] == role and int(r["order"]) == order]
     if len(rows) != 1:
-        raise GuardError(f"pilot order {order} 행이 {len(rows)}개다")
+        raise GuardError(f"{role} order {order} 행이 {len(rows)}개다")
     row = rows[0]
     ids = [row["file_id_a"], row["file_id_b"]]
     index = {}
@@ -130,12 +168,19 @@ def disk(path: Path) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--role", choices=(ALLOWED_ROLE, *RANGE_LISTS), default=ALLOWED_ROLE)
     ap.add_argument("--order", type=int, default=0)
     ap.add_argument("--num-workers", type=int, default=4)
     opt = ap.parse_args(argv)
 
-    pick = select_pilot(RESERVATION, FILELIST, opt.order)
-    out_dir = PILOT / f"pilot-{opt.order:02d}"
+    if opt.role == ALLOWED_ROLE:
+        pick = select_pilot(RESERVATION, FILELIST, opt.order)
+        out_dir = PILOT / f"pilot-{opt.order:02d}"
+    else:
+        path, sha = RANGE_LISTS[opt.role]
+        pick = select_pilot(path, FILELIST, opt.order, sha, role=opt.role)
+        check_not_reserved([pick["file_id_a"], pick["file_id_b"]], RESERVATION)
+        out_dir = RANGE_DIR / opt.role / f"{opt.order:04d}"
     out_dir.mkdir(parents=True, exist_ok=True)
     LOGS.mkdir(parents=True, exist_ok=True)
     MEDIA.mkdir(parents=True, exist_ok=True)
@@ -144,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     from seamless_interaction.fs import SeamlessInteractionFS  # 별도 venv에만 있다
 
     fs = SeamlessInteractionFS(local_dir=str(MEDIA), filelist_path=str(FILELIST), num_workers=opt.num_workers)
+    # 키 이름 "pilot"은 이전 기록과 같게 둔다(range 역할도 같은 키)
     record = {"pilot": pick, "disk_before": disk(MEDIA), "downloads": {}}
     for fid in (pick["file_id_a"], pick["file_id_b"]):
         idx = pick["index"][fid]
