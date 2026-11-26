@@ -719,7 +719,7 @@ TRINITY/
 
 **변경 제안 · 2026-11-27 · 구간별 기준 범위 (승인 대기)**
 
-결과에 선택적 `evidence_ranges` 배열을 추가한다. 각 행의 `start_sec, end_sec`는 원본 시작 기준 초, `axis, signal_id, unit`은 측정 종류, `value`는 구간 관찰값이다. `reference_version`은 데이터 예약 해시·모델·Gate·전처리·장치·통계 규칙을 식별한다. `comparisons`의 조건별 행에는 `profile_id, n_people, percentile, percentile_ci95, upper_reference_value`를 둔다(백분위 0~100, 신뢰구간은 하한·상한 순). `comparison_status`는 within_range / rare / abstained, `comparison_reason`은 결측·표본 부족·경계 불확실·조건 불일치 사유다. 측정 실패 값과 계산할 수 없는 백분위는 null이다. 구버전·비교 미실행 결과는 필드를 생략할 수 있다. 기존 작업·분석·판정·축 상태, fusion 라벨, coverage 계약은 유지한다. 상세 통계·공개 조건은 [4단계 계획](superpowers/plans/2026-11-27-evidence-range.md)을 따른다.
+결과에 선택적 `evidence_ranges` 배열을 추가한다. 각 행의 `start_sec, end_sec`는 원본 시작 기준 초, `axis, signal_id, unit`은 측정 종류, `value`는 구간 관찰값이다. `reference_version`은 데이터 예약 해시·모델·Gate·전처리·장치·통계 규칙을 식별한다. `comparisons`의 조건별 행에는 `profile_id, n_people, percentile, percentile_ci95, upper_reference_value`를 둔다(백분위 0~100, 신뢰구간은 하한·상한 순). `comparison_status`는 within_range / rare / abstained, `comparison_reason`은 결측·표본 부족·경계 불확실·조건 불일치 사유다. 측정 실패 값과 계산할 수 없는 백분위는 null이다. 구버전·비교 미실행 결과는 필드를 생략할 수 있다. 기존 작업·분석·판정·축 상태, fusion 라벨, coverage 계약은 유지한다. 기준 버전에는 12-03 결정 후 고정한 Gate 버전, 역할별 예약 순서·정지 규칙(250/150명을 상한으로 원본 Gate 통과 100/60명 또는 소진 시 종료), 25초 전처리와 비교 신호 집합을 포함한다. A-select 한 사람분의 원본만 동시에 받고 전처리 확인 즉시 삭제한다. percentile의 분모는 해당 조건·신호의 사람별 성공 구간 최댓값 수다. 두 신호에 단측 2.5%씩 배분하며 결측 시 재배분하지 않는다. 표시 경계와 독립 검증은 사람 단위 오탐 5%를 목표로 고정한다. 상세 통계·공개 조건은 [4단계 계획](superpowers/plans/2026-11-27-evidence-range.md)을 따른다.
 
 
 **결정 1 변경(연구용 다운로드 어댑터) — 2026-11-26, 사용자 승인.**
