@@ -8,7 +8,7 @@
 
 **상태:** 본 문서는 **구현 명세와 실험 계획**입니다. 사용자 대상 YouTube 링크 분석, Apple Silicon 모델 구동, 데이터셋 접근, 검출 성능은 현재 TRINITY에서 완료되었다고 주장하지 않습니다. *설계 결정*과 *검증 완료*는 다릅니다.
 
-**최상위 제품 원칙:** 사용자는 영상 파일을 다운로드하거나 업로드하지 않습니다. **YouTube 링크를 붙여넣거나 YouTube 공유 메뉴에서 TRINITY를 선택**하는 것이 유일한 기본 입력입니다. 다만 YouTube URL만으로 원본 영상/음성에 접근할 권한이 자동으로 생기지는 않습니다. 분석 가능한 미디어 확보는 **출시를 가로막을 수 있는 독립적인 P0 과제**입니다.
+**최상위 제품 원칙:** 사용자는 영상 파일을 다운로드하거나 업로드하지 않습니다. **YouTube 링크를 붙여넣거나 YouTube 공유 메뉴에서 TRINITY를 선택**하는 것이 유일한 기본 입력입니다. 다만 YouTube URL만으로 원본 영상/음성에 접근할 권한이 자동으로 생기지는 않습니다. 비공개 연구·시연 경로의 운영 조건은 §15.3의 2026-11-26 결정을 따릅니다. 분석 가능한 미디어 확보는 **출시를 가로막을 수 있는 독립적인 P0 과제**입니다.
 
 **연구 목표:** 단일 화면 발화자가 확인되는 토킹헤드 영상에서 WaveRep(신호), MotionPhys/Face Motion(움직임), SyncNet(음성·입술 동기화)의 유효성을 **각각 검증**하고, 압축·새 생성기·실제 유통 환경에서의 성능과 선택적 점수 결합 효과를 비교합니다. **3축 결합의 우월성은 연구 가설이며 결과가 아닙니다.**
 
@@ -67,7 +67,7 @@ YouTube에서 영상 시청 → 공유 → TRINITY 선택 → URL 접수
 
 | 영역 | v6.0 기본 범위 | 제외/미해결 |
 |---|---|---|
-| 사용자 입력 | **YouTube `watch`, `youtu.be`, 지원된 Shorts URL**, 공유 시트 | MP4/MOV 업로드 UI, 임의 URL 다운로더 |
+| 사용자 입력 | **YouTube `watch`, `youtu.be`, 지원된 Shorts URL**, 공유 시트 | MP4/MOV 업로드 UI, 연구용 어댑터 밖의 임의 URL 다운로더 |
 | 미디어 확보 | 허가·승인 및 사용 조건이 확인된 데이터 접근 어댑터 | 모든 공개 YouTube 영상 자동 수집 가능하다는 가정 |
 | 연구/시연 | **등록된 YouTube ID ↔ 별도 권한 보유 미디어**로 링크 중심 흐름 검증 | 등록된 원본을 YouTube 재인코딩본이라고 주장 |
 | 분석 | 적합한 단일 발화 구간, 세 후보 축, 조건부 Fusion | 무조건 3축 합산, 전체 영상 진위 확정 |
@@ -122,7 +122,7 @@ MediaResolver.resolve(youtube_video_id) ->
 
 - `YouTubeMetadataAdapter`: 공식 지원 범위에서 영상 ID/메타데이터 확인. 디코딩용 미디어는 제공하지 않음.
 - `AuthorizedMediaRegistry`: **실험·시연용으로 허가된 미디어와 YouTube ID를 연결**, 허가 출처·원본/플랫폼 처리본 여부를 기록. 사용자는 파일을 올리지 않음.
-- `ApprovedPlatformAccessAdapter`: 플랫폼/콘텐츠 양측의 필요한 접근 권한과 구현 경로가 확보된 **후에만** 활성화하는 인터페이스. 미구현 상태 유지.
+- `ApprovedPlatformAccessAdapter`: 플랫폼/콘텐츠 양측의 필요한 접근 권한과 구현 경로가 확보된 **후에만** 활성화하는 인터페이스. 공개 서비스에서는 미구현 상태 유지. 비공개 연구 시연은 §15.3의 연구용 다운로드 어댑터를 사용한다.
 - `Unavailable`: 미디어가 없거나 접근 권한이 없으면 `video_access_unavailable`/`access_not_authorized`로 종료하고 **점수 생성 금지**.
 
 **개발 우선순위상 결론:** URL 파싱/UI만 먼저 만들고 '영상 분석 기능 완성'이라고 할 수 없습니다. 반대로 허가된 미디어 기반 엔진을 개발하되 제품 입력 철학을 파일 업로드로 바꾸지도 않습니다.
@@ -347,7 +347,7 @@ Logistic Regression이 내놓는 0–1 값은 **보정 여부와 무관하게 �
 | 결과 요약 | 의심 신호 또는 보류, 전체/대상 구간 coverage | 전체 진위를 단정하지 않음 |
 | 상세 | 축별 원시 지표, 영상 품질, 적용 범위, 모델/설명 버전 | 검증되지 않은 히트맵·확률 금지 |
 
-**모바일 공유:** Flutter 플랫폼별 공유 수신은 별도 플러그인/네이티브 설정 검토 후 구현합니다. 링크 뒤에 붙는 추적 쿼리와 시작 시각을 분리해 저장하되, `youtube_video_id`는 서버에서 다시 검증합니다. `youtube.com`, `www.youtube.com`, `m.youtube.com`, `youtu.be` 등 **명시적 허용 호스트**만 다루며 리디렉션 대상이나 사용자 제공 임의 URL을 서버에서 다운로드하지 않습니다.
+**모바일 공유:** Flutter 플랫폼별 공유 수신은 별도 플러그인/네이티브 설정 검토 후 구현합니다. 링크 뒤에 붙는 추적 쿼리와 시작 시각은 버리고, `youtube_video_id`는 서버에서 다시 검증합니다. `youtube.com`, `www.youtube.com`, `m.youtube.com`, `youtu.be` 등 **명시적 허용 호스트**만 다루며 리디렉션 대상이나 사용자 제공 임의 URL을 서버에서 다운로드하지 않습니다.
 
 **제품 메시지:** '의심 신호 낮음'은 '실제 사실'이나 '진짜 영상'을 보증하지 않습니다. TRINITY는 내용의 사실검증 서비스가 아닙니다.
 
@@ -483,6 +483,20 @@ Flutter — REST Polling으로 상태/결과 표시
 | 분석 | `analysis_status` | `completed`, `partial`, `out_of_scope`, `unsupported`, `insufficient_quality`, `analysis_unavailable` |
 | 판정 | `verdict_status` | `assessed`, `abstained`, `not_applicable` |
 | 축별 | `axes.*.status` | `completed`, `insufficient_input`, `unsupported_input`, `out_of_distribution`, `error` |
+
+연구용 다운로드의 원인과 상태 대응은 다음과 같다. 연구용 다운로드는 전체 길이 30분을 상한으로 둔다.
+
+| 코드 | analysis_status / verdict_status | 앱 문구안 |
+|---|---|---|
+| `download_blocked` | `analysis_unavailable` / `abstained` | YouTube가 영상 받기를 막아서 분석하지 못했습니다. |
+| `video_removed` | `analysis_unavailable` / `abstained` | 삭제된 영상이라 찾을 수 없습니다. |
+| `video_private` | `analysis_unavailable` / `abstained` | 비공개 영상이라 분석할 수 없습니다. |
+| `age_restricted` | `analysis_unavailable` / `abstained` | 나이 제한이 있는 영상은 로그인 없이 받을 수 없어 분석하지 못했습니다. |
+| `video_too_long` | `unsupported` / `abstained` | 영상이 길어서 분석하지 않았습니다. 30분 이하 영상만 분석합니다. |
+| `live_not_supported` | `unsupported` / `abstained` | 실시간 방송은 분석하지 않습니다. 방송이 끝난 뒤 다시 보내 주세요. |
+| `download_network_error` | `analysis_unavailable` / `abstained` | 인터넷 문제로 영상을 받지 못했습니다. 잠시 뒤 다시 시도해 주세요. |
+| `no_suitable_format` | `analysis_unavailable` / `abstained` | 분석할 수 있는 형태의 영상(소리 포함)을 찾지 못했습니다. |
+| `download_failed` | `analysis_unavailable` / `abstained` | 영상을 받는 중 문제가 생겨 분석하지 못했습니다. |
 
 **보류 원인:** `insufficient_evidence`, `unvalidated_condition`, `no_valid_fusion_model`, `video_access_unavailable`, `access_not_authorized`, `speaker_unconfirmed`. 축별 세부 원인 예: `tracking_failed`, `insufficient_motion`, `occluded_mouth`, `audio_missing`, `inference_error`. 발화 구간 Gate의 구간 제외 원인(백로그 6번): `media_unreadable`, `audio_missing`, `no_speech_detected`, `no_mouth_movement`, `no_face_detected`, `speaker_unconfirmed`, `low_resolution`, `face_too_small`, `too_blurry`, `segment_too_short`, `mouth_unmeasurable`(2026-11-26 추가, §15.3). 작업 실패 원인(`job_status=failed`의 `reason_code`): `timeout`, `worker_error`, `max_attempts_exceeded`. Gate 실행 실패는 `gate_error`, Gate 단계 제한시간 초과는 `gate_timeout`이다. 원인별 분석·판정 상태 대응은 §15.3 결정 8 보완 표를 따른다.
 
@@ -702,6 +716,22 @@ TRINITY/
 | Mac RAM·긴 추론·보안 | Medium/High | 한 번에 1건, 단일 Worker, timeout/인증/삭제 |
 
 ### 15.3 설계 결정 1~12 요약
+
+**결정 1 변경(연구용 다운로드 어댑터) — 2026-11-26, 사용자 승인.**
+졸업작품 시연·연구 전용(비상업, 공개 배포 없음)으로 다음을 허용한다. Worker가 사용자 YouTube 링크의 영상을 연구용 다운로드 어댑터(`server/ingest/research_download.py`, 기존 `ApprovedPlatformAccessAdapter` 자리)로 내려받아 분석한다.
+이 경로는 YouTube 서비스 약관에 어긋날 수 있다. 그 위험을 알고 아래 조건으로 한정한다.
+- **실행 위치:** Worker 안에서만 실행한다. 별도 venv의 yt-dlp를 서브프로세스(인자 리스트)로 부른다.
+- **입력:** 사용자 문자열은 넘기지 않는다. 서버가 검증한 video ID로 만든 정규 URL만 넘긴다.
+- **하지 않는 것:** 브라우저 쿠키, YouTube 로그인, 권한·연령 제한 우회는 쓰지 않는다. 로그인을 요구하면 실패로 끝낸다.
+- **켜고 끄기:** 기본은 꺼짐이다. `TRINITY_RESEARCH_DOWNLOAD=1`일 때만 켜진다.
+- **등록부 우선:** `AuthorizedMediaRegistry`에 등록된 ID는 다운로드하지 않고, 등록된 로컬 파일을 먼저 쓴다(예비 경로).
+- **삭제:** 받은 영상은 작업 폴더에만 둔다. 분석이 끝나거나 실패하거나 취소되면 지운다.
+- **학습 제외:** 학습 데이터에 넣지 않는다(기존 규칙).
+- **금지 범위:** API 핸들러, 학습·평가 스크립트, 그 밖의 모듈에서 임의 URL을 내려받는 것은 여전히 금지한다.
+- **영향받는 기존 기록:** §1 최상위 원칙의 "권한이 없으면 Unavailable", §2 표의 "임의 URL 다운로더" 범위 밖 행, §8, `docs/media-access.md`. 이번 변경은 이 경로에 한해 이 기록들을 대체한다.
+- **API 계약 변경:** 새 원인 코드가 생긴다(§10).
+
+60초 이하 영상은 전체를, 긴 영상은 발화가 가장 많은 연속 60초를 선택한다. 기존 coverage에 원본 길이와 원본 기준 모델 분석 구간을 담고 explanations에 선택 창의 시작·끝 초를 표시한다. 접수 URL은 공유 텍스트 8 KiB 안에서 하나를 고른다(링크 2048자).
 
 **결정 8 보완(Gate 입 측정 불가 원인) — 2026-11-26, Claude 제안(PR #40), 사용자 승인(2026-11-26). `docs/gate.md`의 문안 그대로, (a) 항목은 넣지 않았다.**
 얼굴 특징점을 얻지 못한 음성 구간이 지금은 `no_mouth_movement`(`out_of_scope` / `not_applicable`)로 분류된다. 그래서 "입을 잴 수 없음"이 "말하지 않음"으로 나간다. Seamless 전처리본(1080×1920)에서 현행 입 벌림 측정률은 pilot#0 B 13.1%, 파일럿 3번 A 4.3%였다. 두 영상 모두 대표 원인이 `no_mouth_movement`였다(`docs/gate.md` "작은 얼굴 입 측정 비교"). 다음과 같이 정한다.

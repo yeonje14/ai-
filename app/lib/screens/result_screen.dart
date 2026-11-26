@@ -95,7 +95,7 @@ class ResultScreen extends StatelessWidget {
         ],
         // 서버 설명 가운데 위의 이유와 같은 원인 코드는 되풀이하지 않는다
         for (final e in result.explanations)
-          if (e.message.isNotEmpty && !(reasonTitle != null && e.reasonCode == code && reasonText(code) != null)) ...[
+          if (e.message.isNotEmpty && (e.templateId == 'ANALYSIS_WINDOW' || !(reasonTitle != null && e.reasonCode == code && reasonText(code) != null))) ...[
             const SizedBox(height: TSpace.x3),
             Text(e.message, style: TText.body.copyWith(color: p.ink)),
           ],

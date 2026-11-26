@@ -95,7 +95,7 @@ flowchart TD
 |---|---|
 | 개인 Bearer 인증·본인 작업 목록·멱등 접수·사용자별 요청 제한 | ✅ 구현·통합 테스트 |
 | 서비스 골격 (FastAPI·SQLite·Worker·취소·복구·소유권) | ✅ 구현·통합 테스트 |
-| 권한 미디어 등록부 · 임의 URL 거절 | ✅ |
+| 허가 미디어 등록부 · [연구용 다운로드](docs/research-download.md) | ✅ |
 | 발화 구간 Gate (webrtcvad + MediaPipe 입 움직임) | ✅ 본인 촬영 영상으로 검증. 다중 화자는 미검증 |
 | WaveRep 실제 추론 + Worker 연결 | ✅ |
 | MotionPhys 특징 추출 + Worker 연결 | ✅ 분류기 학습은 데이터 대기 |

@@ -8,6 +8,16 @@ AnalysisResult r(Map<String, dynamic> j) =>
     AnalysisResult.fromJson({'analysis_id': 'a', 'youtube_video_id': 'v', 'job_status': 'finished', ...j});
 
 void main() {
+  test('다운로드 보류 원인을 어르신이 읽을 수 있는 문구로 매핑한다', () {
+    for (final code in [
+      'download_blocked', 'video_removed', 'video_private', 'age_restricted',
+      'video_too_long', 'live_not_supported', 'download_network_error',
+      'no_suitable_format', 'download_failed',
+    ]) {
+      expect(reasonText(code), isNotEmpty, reason: code);
+    }
+    expect(reasonText('video_too_long'), contains('30분 이하'));
+  });
   group('resolveScreen', () {
     final cases = <(Map<String, dynamic>, ScreenKind)>[
       ({'analysis_status': 'completed', 'verdict_status': 'assessed', 'verdict_label': 'suspicious_signals'}, ScreenKind.suspicious),

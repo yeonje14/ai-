@@ -101,6 +101,13 @@ def test_unregistered_id_is_analysis_unavailable(client, run_worker):
         assert axis["status"] != "completed"
 
 
+def test_shared_text_longer_than_url_limit_is_accepted(client):
+    shared = "a" * 2200 + f" youtu.be/{REGISTERED_ID}?si=discard 뒤 설명"
+    response = client.post("/api/v1/analyses", json={"url": shared})
+    assert response.status_code == 202
+    assert response.json()["youtube_video_id"] == REGISTERED_ID
+
+
 def test_invalid_url_is_422(client):
     for body in (
         {"url": "https://evil.example/watch?v=dQw4w9WgXcQ"},

@@ -1,11 +1,7 @@
 """AuthorizedMediaRegistry: 설정 파일에 등록된 video ID만 허가 미디어로 본다.
 
-임의 URL을 내려받지 않는다. 등록되지 않은 ID는 None을 돌려주고,
-호출자는 analysis_unavailable / access_not_authorized로 끝낸다.
-
-허가 미디어 파일은 운영자가 레지스트리에 `local_path`로 적는다(사용자 입력이 아니다).
-`local_path`는 미디어 루트 안의 상대 경로만 받는다. 파일이 없으면 호출자는
-analysis_unavailable / video_access_unavailable로 끝낸다. 미디어를 내려받지 않는다.
+등록부에는 운영자가 미디어 루트 안의 상대 경로를 등록한다.
+Worker가 등록 파일을 우선 사용하고 연구용 어댑터 사용 여부를 결정한다.
 """
 
 from __future__ import annotations

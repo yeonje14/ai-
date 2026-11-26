@@ -116,12 +116,17 @@ class Settings:
     # 켜면 결과에 gate_bypassed=true가 남고 analysis_status=partial, verdict_status=abstained로 고정된다.
     dev_manual_segments: tuple[tuple[float, float], ...] = ()
 
+    research_download_enabled: bool = False
+    download_executable: Path = Path("research/download/.venv/bin/yt-dlp")
+    deno_executable: Path = Path("/opt/homebrew/bin/deno")
+    download_timeout_seconds: float = 180.0
+
     def __post_init__(self) -> None:
         parse_cors_origins(",".join(self.cors_origins))  # 코드로 넣은 값도 같은 규칙으로 본다
         parse_manual_segments(format_manual_segments(self.dev_manual_segments))
         if not math.isfinite(self.gate_timeout_seconds) or self.gate_timeout_seconds <= 0:
             raise ValueError("gate_timeout_seconds는 유한한 양수여야 한다")
-        for name in ("job_timeout_base_seconds", "job_timeout_max_seconds",
+        for name in ("download_timeout_seconds", "job_timeout_base_seconds", "job_timeout_max_seconds",
                      "syncnet_timeout_base_seconds", "job_finalize_margin_seconds"):
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0:
@@ -148,6 +153,10 @@ class Settings:
             authorized_media_path=Path(
                 env("TRINITY_AUTHORIZED_MEDIA", str(d.authorized_media_path))
             ),
+            research_download_enabled=env("TRINITY_RESEARCH_DOWNLOAD", "0") == "1",
+            download_executable=Path(env("TRINITY_DOWNLOAD_EXECUTABLE", str(d.download_executable))),
+            deno_executable=Path(env("TRINITY_DENO_EXECUTABLE", str(d.deno_executable))),
+            download_timeout_seconds=float(env("TRINITY_DOWNLOAD_TIMEOUT_SECONDS", d.download_timeout_seconds)),
             gate_model_dir=Path(env("TRINITY_GATE_MODEL_DIR", str(d.gate_model_dir))),
             gate_models_config_path=Path(
                 env("TRINITY_GATE_MODELS_CONFIG", str(d.gate_models_config_path))
