@@ -58,3 +58,17 @@ def test_accepts_and_normalizes(url):
 def test_rejects(url):
     with pytest.raises(InvalidYouTubeUrl):
         parse_youtube_url(url)
+
+
+def test_extracts_one_link_from_share_text():
+    text = f"공유한 영상\nwww.youtube.com/shorts/{VID}?si=secret 이 영상이야"
+    assert parse_youtube_url(text).canonical_url == f"https://www.youtube.com/watch?v={VID}"
+
+
+@pytest.mark.parametrize("text", [
+    f"youtu.be/{VID} https://youtube.com/watch?v={VID}",
+    "가" * 2750 + f" youtu.be/{VID}",
+])
+def test_rejects_ambiguous_or_oversized_share(text):
+    with pytest.raises(InvalidYouTubeUrl):
+        parse_youtube_url(text)

@@ -372,12 +372,16 @@ class JobQueue:
                     json.dumps(completed_stages) if completed_stages is not None else None,
                     json.dumps(result, ensure_ascii=False) if result is not None else None,
                     failure_reason,
-                    time.time(),
+                    None if job_status == "queued" else time.time(),
                     analysis_id,
                     worker_id,
                 ),
             )
             return cur.rowcount == 1
+
+    def retry(self, analysis_id: str, worker_id: str) -> bool:
+        """정리된 시도를 다시 대기시킨다. 동시에 접수된 취소를 우선한다."""
+        return self._close(analysis_id, worker_id, "queued", completed_stages=[])
 
     def finish(
         self,

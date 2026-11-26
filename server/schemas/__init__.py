@@ -65,7 +65,7 @@ STAGE_ORDER = [s.value for s in Stage]
 
 
 class CreateAnalysisRequest(BaseModel):
-    url: str = Field(min_length=1, max_length=2048)
+    url: str = Field(min_length=1, max_length=8192)
 
 
 class CreateAnalysisResponse(BaseModel):

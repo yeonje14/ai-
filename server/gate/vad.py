@@ -40,11 +40,11 @@ def decode_pcm(path: Path, timeout_sec: float, audio_index: int) -> bytes:
     return proc.stdout
 
 
-def speech_flags(pcm: bytes, config: GateConfig) -> list[bool]:
+def speech_flags(pcm: bytes, config: GateConfig, detector=None) -> list[bool]:
     """vad_frame_ms 단위 프레임마다 음성 여부."""
     import webrtcvad
 
-    vad = webrtcvad.Vad(config.vad_aggressiveness)
+    vad = detector if detector is not None else webrtcvad.Vad(config.vad_aggressiveness)
     frame_bytes = SAMPLE_RATE * config.vad_frame_ms // 1000 * _BYTES_PER_SAMPLE
     return [
         vad.is_speech(pcm[i:i + frame_bytes], SAMPLE_RATE)

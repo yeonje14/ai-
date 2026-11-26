@@ -27,6 +27,7 @@ from server.config import Settings
 from server.gate import report as gate_report
 from server.gate.runner import GATE_ERROR, GATE_TIMEOUT, run_gate_process
 from server.gate.types import MEDIA_UNREADABLE, GateResult
+from server.ingest import speech_window
 from server.ingest.media_resolver import AuthorizedMediaRegistry
 from server.ingest.youtube_url import is_valid_video_id
 from server.jobs.device_state import THERMAL_NAMES, thermal_state
@@ -41,14 +42,17 @@ VIDEO_ACCESS_UNAVAILABLE = "video_access_unavailable"
 GATE_BYPASSED = "gate_bypassed"
 
 _UNAVAILABLE_EXPLANATIONS = {
-    ACCESS_NOT_AUTHORIZED: (
-        "ACCESS_NOT_AUTHORIZED",
-        "분석이 허가된 미디어로 등록되지 않은 영상이라 분석하지 않았습니다.",
-    ),
-    VIDEO_ACCESS_UNAVAILABLE: (
-        "VIDEO_ACCESS_UNAVAILABLE",
-        "허가된 영상이지만 분석할 미디어 파일에 접근할 수 없어 분석하지 않았습니다.",
-    ),
+    ACCESS_NOT_AUTHORIZED: "분석이 허가된 미디어로 등록되지 않은 영상이라 분석하지 않았습니다.",
+    VIDEO_ACCESS_UNAVAILABLE: "허가된 영상이지만 분석할 미디어 파일에 접근할 수 없어 분석하지 않았습니다.",
+    "download_blocked": "YouTube가 영상 받기를 막아서 분석하지 못했습니다.",
+    "video_removed": "삭제된 영상이라 찾을 수 없습니다.",
+    "video_private": "비공개 영상이라 분석할 수 없습니다.",
+    "age_restricted": "나이 제한이 있는 영상은 로그인 없이 받을 수 없어 분석하지 못했습니다.",
+    "video_too_long": "영상이 길어서 분석하지 않았습니다. 30분 이하 영상만 분석합니다.",
+    "live_not_supported": "실시간 방송은 분석하지 않습니다. 방송이 끝난 뒤 다시 보내 주세요.",
+    "download_network_error": "인터넷 문제로 영상을 받지 못했습니다. 잠시 뒤 다시 시도해 주세요.",
+    "no_suitable_format": "분석할 수 있는 소리 포함 영상을 찾지 못했습니다.",
+    "download_failed": "영상을 받는 중 문제가 생겨 분석하지 못했습니다.",
 }
 
 # (진행 단계명, 결과의 축 이름, 축 실행 함수 모듈)
@@ -142,11 +146,12 @@ def _axis_not_run(axis_name: str, reason_code: str, status: str) -> dict[str, An
 
 
 def build_unavailable_result(job: Job, reason_code: str) -> dict[str, Any]:
+    unsupported = reason_code in {"video_too_long", "live_not_supported"}
     return {
         "analysis_id": job.analysis_id,
         "youtube_video_id": job.youtube_video_id,
         "job_status": "finished",
-        "analysis_status": "analysis_unavailable",
+        "analysis_status": "unsupported" if unsupported else "analysis_unavailable",
         "verdict_status": "abstained",
         "verdict_label": None,
         "overall_score": None,
@@ -155,14 +160,14 @@ def build_unavailable_result(job: Job, reason_code: str) -> dict[str, Any]:
         "media_provenance": None,
         "coverage": _empty_coverage(),
         "axes": {
-            name: _axis_not_run(name, reason_code, "insufficient_input")
+            name: _axis_not_run(name, reason_code, "unsupported_input" if unsupported else "insufficient_input")
             for _, name, _ in AXES
         },
         "explanations": [
             {
-                "template_id": _UNAVAILABLE_EXPLANATIONS[reason_code][0],
+                "template_id": reason_code.upper(),
                 "reason_code": reason_code,
-                "message": _UNAVAILABLE_EXPLANATIONS[reason_code][1],
+                "message": _UNAVAILABLE_EXPLANATIONS[reason_code],
             }
         ],
     }
@@ -274,6 +279,7 @@ def process(
     terminal_status = None
     terminal_result = None
     failure_reason = None
+    window = None
     # 모델에는 서버가 발급한 analysis_id로 만든 작업 경로만 넘긴다.
     job_dir = settings.runtime_dir / job.analysis_id
 
@@ -318,6 +324,8 @@ def process(
     def finalize(result: dict[str, Any]) -> None:
         nonlocal terminal_status, terminal_result
         enter("finalizing")
+        if window is not None:
+            speech_window.apply_window(result, window)
         terminal_result = dump(AnalysisResult.model_validate(result))
         completed.append("finalizing")
         terminal_status = "finished"
@@ -330,26 +338,59 @@ def process(
 
         enter("access_check")
         media = registry.resolve(job.youtube_video_id)
-        completed.append("access_check")
-        if media is None:
-            finalize(build_unavailable_result(job, ACCESS_NOT_AUTHORIZED))
-            return
-        if media.local_path is None or not media.local_path.is_file():
-            # 등록은 됐지만 분석할 허가 미디어 파일이 없다. 내려받아 채우지 않는다.
-            finalize(build_unavailable_result(job, VIDEO_ACCESS_UNAVAILABLE))
-            return
+        if media is None and settings.research_download_enabled:
+            from server.ingest import research_download
 
+            job_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                media_path, window = research_download.fetch(
+                    job.youtube_video_id, job_dir, settings, on_tick=heartbeat
+                )
+            except research_download.DownloadError as exc:
+                if interrupted:
+                    raise interrupted[0]
+                if not heartbeat():
+                    raise interrupted[0]
+                completed.append("access_check")
+                if exc.reason == "download_network_error" and job.attempts < settings.max_attempts:
+                    terminal_status = "queued"
+                else:
+                    finalize(build_unavailable_result(job, exc.reason))
+                return
+            if interrupted:
+                raise interrupted[0]
+            provenance = "research_download"
+        elif media is None or media.local_path is None or not media.local_path.is_file():
+            completed.append("access_check")
+            reason = ACCESS_NOT_AUTHORIZED if media is None else VIDEO_ACCESS_UNAVAILABLE
+            finalize(build_unavailable_result(job, reason))
+            return
+        else:
+            provenance = media.provenance
+        completed.append("access_check")
         enter("preprocessing")
-        # 허가 미디어를 작업 폴더로 복사한다. 모델에는 이 작업 폴더 안의 경로만 넘긴다.
-        job_dir.mkdir(parents=True, exist_ok=True)
-        media_path = job_dir / f"media{media.local_path.suffix.lower()}"
-        shutil.copyfile(media.local_path, media_path)
         segments = settings.dev_manual_segments
         gate_bypassed = bool(segments)
         gate = None
+        if media is not None:
+            job_dir.mkdir(parents=True, exist_ok=True)
+            media_path = job_dir / f"media{media.local_path.suffix.lower()}"
+            shutil.copyfile(media.local_path, media_path)
+            if not gate_bypassed:
+                try:
+                    media_path, window = speech_window.prepare_window(
+                        media_path, job_dir, settings, on_tick=heartbeat
+                    )
+                except speech_window.WindowError as exc:
+                    if interrupted:
+                        raise interrupted[0]
+                    reason = exc.code if exc.code in GATE_FAILURES else GATE_ERROR
+                    gate = GateResult(None, reason)
+                if interrupted:
+                    raise interrupted[0]
         if gate_bypassed:
             log.warning("job %s gate bypassed by dev manual segments", job.analysis_id)
-        else:
+        elif gate is None:
             try:
                 gate = run_gate_process(
                     media_path, job_dir, settings=settings,
@@ -369,7 +410,7 @@ def process(
                 log.info("job %s timeout set to %.0fs for %.1fs eligible", job.analysis_id, limit, eligible_sec)
         completed.append("preprocessing")
         if gate is not None and not segments:
-            finalize(build_gate_rejection(job, media.provenance, gate))
+            finalize(build_gate_rejection(job, provenance, gate))
             return
 
         ctx = AxisContext(
@@ -416,7 +457,7 @@ def process(
         coverage = build_coverage(
             ctx.media_info, segments, axes["signal"]["status"] == "completed", gate
         )
-        result = build_result(job, media.provenance, axes, fused, coverage, gate_bypassed)
+        result = build_result(job, provenance, axes, fused, coverage, gate_bypassed)
         # 축 설명은 종합 보류 설명 바로 뒤에 둔다. 기존 항목의 순서는 그대로다.
         result["explanations"][1:1] = ctx.explanations
         if fused["verdict_status"] == "assessed":
@@ -446,6 +487,8 @@ def process(
         remove_job_dir(settings.runtime_dir, job.analysis_id)
         if terminal_status == "finished":
             queue.finish(job.analysis_id, worker_id, terminal_result, completed)
+        elif terminal_status == "queued":
+            queue.retry(job.analysis_id, worker_id)
         elif terminal_status == "cancelled":
             queue.mark_cancelled(job.analysis_id, worker_id)
         elif terminal_status == "failed":

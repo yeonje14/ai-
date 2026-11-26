@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
 MAX_URL_LENGTH = 2048
+MAX_SHARE_BYTES = 8192
+_SHARE_LINK = re.compile(r"^(?:(?:https?://)|(?:(?:www\.|m\.)?youtube\.com|youtu\.be)/)", re.I)
 WATCH_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com"})
 SHORT_HOSTS = frozenset({"youtu.be"})
 PATH_PREFIXES = ("shorts", "embed", "live")
@@ -38,7 +40,16 @@ def is_valid_video_id(value: str) -> bool:
 def parse_youtube_url(raw: str) -> ParsedYouTubeUrl:
     if not isinstance(raw, str):
         raise InvalidYouTubeUrl("not_a_string")
-    url = raw.strip()
+    if len(raw) > MAX_SHARE_BYTES or len(raw.encode("utf-8", errors="surrogatepass")) > MAX_SHARE_BYTES:
+        raise InvalidYouTubeUrl("bad_length")
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]|[\r\n]\s*[A-Za-z-]+:[ \t]", raw):
+        raise InvalidYouTubeUrl("forbidden_characters")
+    candidates = [token for token in raw.split() if _SHARE_LINK.match(token)]
+    if len(candidates) != 1:
+        raise InvalidYouTubeUrl("expected_one_link")
+    url = candidates[0]
+    if "://" not in url:
+        url = "https://" + url
     if not url or len(url) > MAX_URL_LENGTH:
         raise InvalidYouTubeUrl("bad_length")
     if _FORBIDDEN_CHARS_RE.search(url):
