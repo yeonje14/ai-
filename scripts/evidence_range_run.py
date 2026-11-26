@@ -5,7 +5,7 @@
     caffeinate -i python scripts/evidence_range_run.py analyze --gate-version gate-v2   # 12-03 Gate 결정 뒤
     python scripts/evidence_range_run.py status
 
-fetch   역할 순서(range_fit → range_check), 역할 안 order 순서로 한 세션씩
+fetch   두 역할을 5:3(F F C F F C F C 반복)으로 번갈아, 역할 안 order 순서로 한 세션씩
         공식 S3 방법(research/seamless/fetch_pilot.py, 별도 venv)으로 두 사람을 받는다
         → 전처리 규칙(6bc3493, scripts/seamless_preprocess.py)으로 두 사람의 25초본을 만든다
         → 길이·스트림·오디오 일치·해시를 확인하고 즉시 원본(mp4·wav·json·npz)을 지운다.
@@ -281,34 +281,57 @@ def fetch_one(root: Path, role: str, row: dict, deps: FetchDeps) -> dict:
     return state
 
 
+FETCH_RATIO = (("range_fit", 5), ("range_check", 3))
+
+
+def fetch_sequence(roles, rows_by_role: dict) -> list[tuple[str, dict]]:
+    """fetch 처리 순서. 두 역할이면 5:3(F F C F F C F C 반복)으로 번갈아, 역할 안은 order 순서다.
+
+    k번째까지 range_fit 수는 ceil(5(k+1)/8)이다. 한 역할이 끝나면 남은 역할을 이어서 받는다.
+    상태와 무관한 고정 순서라 중간에 멈췄다 다시 돌려도 같은 순서를 따른다.
+    """
+    queues = {role: list(rows_by_role[role]) for role in roles}
+    (first, a), (second, b) = FETCH_RATIO
+    seq: list[tuple[str, dict]] = []
+    k = 0
+    while any(queues.values()):
+        if set(queues) == {first, second}:
+            want = first if math.ceil(a * (k + 1) / (a + b)) > math.ceil(a * k / (a + b)) else second
+            k += 1
+            role = want if queues[want] else (second if want == first else first)
+        else:
+            role = next(r for r in queues if queues[r])
+        seq.append((role, queues[role].pop(0)))
+    return seq
+
+
 def run_fetch(root: Path, roles, rows_by_role: dict, deps: FetchDeps, progress: Progress,
               min_free_bytes: int, max_sessions: Optional[int] = None) -> str:
     """반환: 멈춘 이유(complete | low_disk | network | max_sessions)."""
     handled = 0
     consecutive_network = 0
-    for role in roles:
+    for role, row in fetch_sequence(roles, rows_by_role):
         rows = rows_by_role[role]
-        for row in rows:
-            order = int(row["order"])
-            prev = (read_json(session_dir(root, role, order) / "state.json").get("fetch") or {})
-            if prev.get("status") in (OK, FAILED):
-                continue
-            if max_sessions is not None and handled >= max_sessions:
-                return "max_sessions"
-            free = deps.free_bytes()
-            if free < min_free_bytes:
-                progress.line("fetch", role, order, "stop_low_disk", *_fetch_counts(root, role, rows),
-                              len(rows), free)
-                return "low_disk"
-            state = fetch_one(root, role, row, deps)
-            handled += 1
-            st = state["fetch"]
-            progress.line("fetch", role, order, f"{st['status']}" + (f":{st['reason_code']}" if st["reason_code"]
-                                                                       else ""),
-                          *_fetch_counts(root, role, rows), len(rows), deps.free_bytes())
-            consecutive_network = consecutive_network + 1 if st["status"] == RETRY else 0
-            if consecutive_network >= MAX_CONSECUTIVE_NETWORK:
-                return "network"
+        order = int(row["order"])
+        prev = (read_json(session_dir(root, role, order) / "state.json").get("fetch") or {})
+        if prev.get("status") in (OK, FAILED):
+            continue
+        if max_sessions is not None and handled >= max_sessions:
+            return "max_sessions"
+        free = deps.free_bytes()
+        if free < min_free_bytes:
+            progress.line("fetch", role, order, "stop_low_disk", *_fetch_counts(root, role, rows),
+                          len(rows), free)
+            return "low_disk"
+        state = fetch_one(root, role, row, deps)
+        handled += 1
+        st = state["fetch"]
+        progress.line("fetch", role, order, f"{st['status']}" + (f":{st['reason_code']}" if st["reason_code"]
+                                                                   else ""),
+                      *_fetch_counts(root, role, rows), len(rows), deps.free_bytes())
+        consecutive_network = consecutive_network + 1 if st["status"] == RETRY else 0
+        if consecutive_network >= MAX_CONSECUTIVE_NETWORK:
+            return "network"
     return "complete"
 
 

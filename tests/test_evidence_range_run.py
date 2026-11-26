@@ -81,12 +81,44 @@ def test_fetch_keeps_one_session_of_originals_and_resumes(tmp_path):
     assert w.originals() == []
     assert w.downloads == [("range_fit", 0), ("range_fit", 1)]
     assert w.fetch() == "complete"
-    assert w.downloads[2:] == [("range_fit", 2), ("range_check", 0), ("range_check", 1)]
+    assert w.downloads[2:] == [("range_check", 0), ("range_fit", 2), ("range_check", 1)]
     st = w.state("range_fit", 0)["fetch"]
     assert st["status"] == er.OK and st["originals_removed"] and st["attempts"] == 1
     assert (er.session_dir(w.root, "range_fit", 0) / "pre/A.mp4").exists()
     # 다시 돌려도 끝난 세션은 받지 않는다
     assert w.fetch() == "complete" and len(w.downloads) == 5
+
+
+def test_fetch_sequence_alternates_five_to_three_keeping_order():
+    rows = {"range_fit": _rows("range_fit", 12), "range_check": _rows("range_check", 9)}
+    seq = er.fetch_sequence(er.ROLES, rows)
+    roles = "".join("F" if r == "range_fit" else "C" for r, _ in seq)
+    assert roles[:16] == "FFCFFCFC" * 2
+    # fit 12개를 다 쓰면 남은 check를 이어서 받는다
+    assert roles == "FFCFFCFC" * 2 + "FFC" + "CC" and len(seq) == 21
+    for role in er.ROLES:
+        assert [int(row["order"]) for r, row in seq if r == role] == list(range(len(rows[role])))
+    # 한 역할만 고르면 그 역할 순서 그대로
+    assert [r for r, _ in er.fetch_sequence(("range_check",), rows)] == ["range_check"] * 9
+    # check가 먼저 바닥나면 fit을 이어서 받는다
+    short = {"range_fit": _rows("range_fit", 6), "range_check": _rows("range_check", 1)}
+    assert "".join(r[6].upper() for r, _ in er.fetch_sequence(er.ROLES, short)) == "FFCFFFF"
+
+
+def test_fetch_stopped_midway_keeps_ratio_and_resumes_in_sequence(tmp_path):
+    w = World(tmp_path, {"range_fit": _rows("range_fit", 10), "range_check": _rows("range_check", 6)})
+    assert w.fetch(max_sessions=8) == "max_sessions"
+    assert [r for r, _ in w.downloads].count("range_fit") == 5
+    assert [r for r, _ in w.downloads].count("range_check") == 3
+    w.diag = {("range_fit", 5): "dns_error"}          # 다음 세션은 재시도 대상으로 남는다
+    assert w.fetch(max_sessions=3) == "max_sessions"
+    assert w.downloads[8:] == [("range_fit", 5), ("range_fit", 6), ("range_check", 3)]
+    w.diag = {}
+    assert w.fetch() == "complete"
+    seq = [(r, int(row["order"])) for r, row in er.fetch_sequence(er.ROLES, w.rows)]
+    # 재시도 세션은 다음 실행에서 고정 순서의 자기 자리(가장 앞)에서 다시 받고, 나머지는 순서대로 이어진다
+    assert w.downloads == seq[:11] + [("range_fit", 5)] + seq[11:]
+    assert all(w.state(r, o)["fetch"]["status"] == er.OK for r, o in seq)
 
 
 def test_interrupted_session_is_cleaned_and_restarted(tmp_path):

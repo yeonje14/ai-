@@ -64,7 +64,7 @@ PR #40의 Seamless V0 Gate 통과는 사람 2/8이었다. 통과율은 작은 �
 
 scripts/evidence_range_run.py. 세션마다 data/research/seamless/range_v2/<역할>/<order>/state.json에 기록하고 같은 명령으로 이어서 한다. 진행 로그(range_v2/run.log)는 한 줄에 처리 수·통과 수·남은 디스크·경과 시간만 쓴다.
 
-- fetch: 역할 순서대로 한 세션씩 공식 S3 방법(research/seamless/fetch_pilot.py --role, data/research/seamless/.venv)으로 받고, 두 사람의 25초본을 만들어 확인한 즉시 원본을 지운다. 영구 실패(HTTP 거절·파일 누락·전처리 실패)는 원인을 기록하고 넘어간다. 네트워크·DNS 실패와 기록 없음은 다음 실행에서 다시 시도하고(세션당 3회), 연속 3세션이면 멈춘다.
+- fetch: 두 역할을 5:3(F F C F F C F C 반복)으로 번갈아, 역할 안은 order 순서로 한 세션씩 공식 S3 방법(research/seamless/fetch_pilot.py --role, data/research/seamless/.venv)으로 받고, 두 사람의 25초본을 만들어 확인한 즉시 원본을 지운다. 영구 실패(HTTP 거절·파일 누락·전처리 실패)는 원인을 기록하고 넘어간다. 네트워크·DNS 실패와 기록 없음은 다음 실행에서 다시 시도하고(세션당 3회), 연속 3세션이면 멈춘다.
 - analyze(12-03 뒤): `--gate-version`이 코드의 GATE_VERSION과 같아야 하고, 첫 실행에서 기준 버전(range_v2/reference_version.json)을 봉인한다. 사람마다 두 조건 Gate, 원본 통과자만 해당 조건 통과 시 세 축. 정지 규칙을 적용한다. 구간별 WaveRep 값을 위해 프레임 번호와 logit을 결과에 남긴다(구간 경계 대응은 확인 필요).
 
 ## 가짜 확인과 요약 라벨
