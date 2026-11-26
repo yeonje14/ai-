@@ -19,9 +19,10 @@ ScreenKind resolveScreen(AnalysisResult r, {required bool allowVerdictLabels}) {
     case AnalysisStatus.analysisUnavailable:
       return ScreenKind.unavailable;
     case AnalysisStatus.outOfScope:
+      return ScreenKind.outOfScope;
     case AnalysisStatus.unsupported:
     case AnalysisStatus.insufficientQuality:
-      return ScreenKind.outOfScope;
+      return r.verdictStatus == VerdictStatus.abstained ? ScreenKind.abstained : ScreenKind.outOfScope;
     default:
       break;
   }

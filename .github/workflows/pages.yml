@@ -1,0 +1,48 @@
+name: TRINITY 녹화 시연
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 공개 녹화 파일 검사
+        run: python3 scripts/record_demo.py --check
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.6'
+          channel: stable
+      - run: flutter pub get --enforce-lockfile
+        working-directory: app
+      - run: flutter test --no-pub
+        working-directory: app
+      - run: flutter build web --release --no-pub --no-web-resources-cdn --base-href /ai-/ --dart-define=TRINITY_API_MODE=replay
+        working-directory: app
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/build/web
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Pages에 배포
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -4,32 +4,21 @@ import '../api/models.dart';
 import '../design/tokens.dart';
 import '../design/widgets.dart';
 import '../view_state.dart';
+import 'result_screen.dart';
 
-/// 화면 6: 판단 근거 상세. 축별 원시 지표, 분석 범위, 서버가 보낸 상태 값.
-///
-/// 원시 지표는 확률이 아니다. 값이 없으면 "값 없음"으로 적는다(0이 아니다).
+/// 분석한 구간의 품질, 신호별 상태와 서버 기록을 보여 준다.
 class DetailScreen extends StatelessWidget {
   const DetailScreen({super.key, required this.result, required this.onBack});
 
   final AnalysisResult result;
   final VoidCallback onBack;
 
-  static const notProbability = '확률 아님';
-  static const rawNotice = '아래는 가상 데이터입니다. 원시 지표는 가짜일 확률이 아니며, 값 하나로 진위를 말할 수 없어요.';
-  static const serverRawNotice = '아래는 연구용 시제품의 계산 결과이며 참고 정보입니다. 원시 지표는 가짜일 확률이 아니며, 값 하나로 진위를 말할 수 없어요.';
-  static const syncNote = 'SyncNet은 진위를 가리는 모델이 아니라 동기화를 재는 보조 지표입니다.';
-  static const noOverall = '검증된 결합 모델이 없어 종합 점수는 값 없음으로 표시합니다.';
-
-  String _status(AxisResult a) {
-    final text = axisStatusText[a.status] ?? '알 수 없음';
-    final why = reasonText(a.reasonCode);
-    return why == null ? text : '$text · $why';
-  }
+  static const serverRawNotice = '연구용 시제품에서 관찰한 구간과 신호입니다.';
+  static const syncNote = 'SyncNet은 입술과 음성의 동기화를 확인하는 보조 지표입니다.';
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final signal = result.axes['signal'], physics = result.axes['physics'], alignment = result.axes['alignment'];
     final c = result.coverage;
     String orNone(String? v) => (v == null || v.isEmpty) ? '값 없음' : v;
     String sec(double? v) => v == null ? '값 없음' : formatDuration(v);
@@ -40,47 +29,17 @@ class DetailScreen extends StatelessWidget {
           child: TextLinkButton(label: '결과 요약으로', leading: Icons.arrow_back, onPressed: onBack),
         ),
         const SizedBox(height: TSpace.x2),
-        const Overline('BEHIND THE RESULT'),
-        const SizedBox(height: TSpace.x2),
-        Semantics(header: true, child: Text('판단 근거를\n하나씩 살펴보세요.', style: TText.display.copyWith(color: p.ink))),
+        Semantics(header: true, child: Text('판단 근거 살펴보기', style: TText.display.copyWith(color: p.ink))),
         const SizedBox(height: TSpace.x3),
-        InfoBox(
-          title: DetailScreen.notProbability,
-          body: TrinityNav.isServerMode(context) ? DetailScreen.serverRawNotice : DetailScreen.rawNotice,
-          tone: StatusTone.warning,
-        ),
-        const SizedBox(height: TSpace.x4),
-        if (signal != null)
-          AxisResultRow(
-            title: '영상의 미세한 신호',
-            description: 'WaveRep · 프레임에서 AI 생성 관련 특징을 찾습니다.',
-            statusText: _status(signal),
-            metrics: [('원시 점수 · ${DetailScreen.notProbability}', metricText(signal.rawScore))],
-            note: '모델 버전: ${orNone(signal.modelVersion)}',
-          ),
-        if (physics != null)
-          AxisResultRow(
-            title: '움직임의 패턴',
-            description: 'MotionPhys · 추적한 점들의 움직임 통계를 봅니다.',
-            statusText: _status(physics),
-            metrics: [('원시 점수 · ${DetailScreen.notProbability}', metricText(physics.rawScore))],
-            note: '모델 버전: ${orNone(physics.modelVersion)}',
-          ),
-        if (alignment != null)
-          AxisResultRow(
-            title: '입술·음성 동기화',
-            description: 'SyncNet · 소리와 입 움직임의 시간 차이를 잽니다.',
-            statusText: _status(alignment),
-            metrics: [
-              ('LSE-C · ${DetailScreen.notProbability}', metricText(alignment.lseC)),
-              ('LSE-D · ${DetailScreen.notProbability}', metricText(alignment.lseD)),
-              ('종합 판정에 포함', alignment.includedInFusion == true ? '예' : '아니오'),
-            ],
-          ),
-        if (result.axes.isEmpty) Text('축별 결과가 없습니다.', style: TText.body.copyWith(color: p.ink)),
-        InfoBox(
-          body: result.overallScore == null ? '${DetailScreen.syncNote} ${DetailScreen.noOverall}' : DetailScreen.syncNote,
-        ),
+        Text(serverRawNotice, style: TText.body.copyWith(color: p.muted)),
+        const SectionTitle('구간별 영상 품질'),
+        for (final e in result.explanations.where(isWindowEvidence))
+          Padding(padding: const EdgeInsets.only(bottom: TSpace.x2), child: Text(e.message, style: TText.body.copyWith(color: p.ink))),
+        if (!result.explanations.any((e) => e.templateId == 'GATE_ELIGIBLE_SEGMENT' || e.templateId == 'GATE_EXCLUDED_SEGMENT'))
+          Text('얼굴 크기와 선명도 측정 기록이 없습니다.', style: TText.body.copyWith(color: p.muted)),
+        const SectionTitle('신호별 확인 내용'),
+        SignalCards(result: result, includeReasons: true),
+        const InfoBox(body: syncNote),
         const SizedBox(height: TSpace.x4),
         CoverageBar(
           videoDurationSec: c?.videoDurationSec,

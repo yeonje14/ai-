@@ -32,13 +32,6 @@ class ProgressScreen extends StatelessWidget {
 
   static const notVerdict = '결과가 없습니다. 영상에 대한 판정이 아니에요.';
 
-  Widget _row(String stage, Set<String> done) => StageRow(
-        label: stageLabels[stage]!,
-        state: done.contains(stage)
-            ? StageState.done
-            : (stage == state.stage && state.jobStatus == JobStatus.processing ? StageState.current : StageState.pending),
-      );
-
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -51,12 +44,8 @@ class ProgressScreen extends StatelessWidget {
       JobStatus.finished => ('작업 종료', StatusTone.muted, '결과를 불러오고 있어요.', '잠시만 기다려 주세요.'),
       _ => ('분석 중', StatusTone.muted, '영상을 살펴보고 있어요.', '영상 접근을 확인한 뒤, 말하는 사람이 나오는 구간을 살펴봅니다.'),
     };
-    final done = state.completedStages.toSet();
-    final half = (stageOrder.length / 2).ceil();
     return TrinityScaffold(
       children: [
-        const Overline('ANALYSIS IN PROGRESS'),
-        const SizedBox(height: TSpace.x2),
         StatusLabel(text: label, tone: tone),
         const SizedBox(height: TSpace.x3),
         Semantics(header: true, liveRegion: true, child: Text(headline, style: TText.display.copyWith(color: p.ink))),
@@ -79,22 +68,14 @@ class ProgressScreen extends StatelessWidget {
           ),
         ],
         const SizedBox(height: TSpace.x4),
-        if (isAppLayout(context))
-          for (final stage in stageOrder) _row(stage, done)
-        else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: Column(children: [for (final s in stageOrder.take(half)) _row(s, done)])),
-              const SizedBox(width: TSpace.x5),
-              Expanded(child: Column(children: [for (final s in stageOrder.skip(half)) _row(s, done)])),
-            ],
-          ),
+        StageProgress(state: state),
+        if (job == JobStatus.processing && ['fusion', 'finalizing'].contains(state.stage))
+          Text(stageLabels[state.stage]!, style: TText.bodyStrong.copyWith(color: p.ink)),
         if (state.isActive && onCancel != null) ...[
           const SizedBox(height: TSpace.x4),
           OutlinedButton(
             onPressed: cancelRequested ? null : onCancel,
-            child: Text(cancelRequested ? '취소 요청 중…' : '분석 취소'),
+            child: Text(TrinityNav.of(context)?.replayMode == true ? '재생 종료' : (cancelRequested ? '취소 요청 중…' : '분석 취소')),
           ),
           if (cancelRequested) ...[
             const SizedBox(height: TSpace.x2),
@@ -111,5 +92,63 @@ class ProgressScreen extends StatelessWidget {
         ],
       ],
     );
+  }
+}
+
+/// 서버가 완료한 단계만 막대에 채운다. 후속 단계로 넘어간 기록으로 건너뜀을 구분한다.
+class StageProgress extends StatelessWidget {
+  const StageProgress({super.key, required this.state});
+
+  final JobState state;
+  static const stages = [
+    ('preprocessing', '영상 확인 · Gate'),
+    ('waverep', '화질 신호'),
+    ('motionphys', '움직임'),
+    ('syncnet', '입과 소리'),
+  ];
+
+  String _status(String stage) {
+    if (state.completedStages.contains(stage)) return '끝남';
+    final current = state.stage;
+    if (state.jobStatus == JobStatus.processing &&
+        (current == stage || (stage == 'preprocessing' && ['validating', 'access_check'].contains(current)))) {
+      return '진행 중';
+    }
+    final position = stageOrder.indexOf(stage);
+    if (state.jobStatus == JobStatus.finished ||
+        (current != null && stageOrder.indexOf(current) > position) ||
+        state.completedStages.any((s) => stageOrder.indexOf(s) > position)) {
+      return '건너뜀';
+    }
+    if (state.jobStatus == JobStatus.cancelled || state.jobStatus == JobStatus.failed) return '중단';
+    return '대기';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      ExcludeSemantics(child: Row(children: [
+        for (final (stage, _) in stages)
+          Expanded(child: Container(
+            height: 10, margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: p.soft,
+              gradient: _status(stage) == '끝남' ? const LinearGradient(
+                colors: [Color(0xFF7C6CFF), Color(0xFF3D7BFF)]) : null,
+            ),
+          )),
+      ])),
+      const SizedBox(height: TSpace.x3),
+      for (final (stage, label) in stages)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Wrap(alignment: WrapAlignment.spaceBetween, spacing: TSpace.x2, children: [
+            Text(label, style: TText.bodyStrong.copyWith(color: p.ink)),
+            Text(_status(stage), style: TText.body.copyWith(color: p.muted)),
+          ]),
+        ),
+    ]));
   }
 }

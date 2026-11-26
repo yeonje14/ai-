@@ -1,5 +1,12 @@
 # HANDOFF
 
+## 3단계 웹과 Pages 녹화 재생 (2026-11-27, feat/web-redesign)
+
+- 링크 입력, 단계 막대, 증거 세 구역과 원시 점수 없는 상세, 움직임 설정을 적용했다. 서버 API 추가 변경은 없다.
+- PR #45 다음에 merge. Pages용 녹화 목록은 비었다. 실행과 사용자 녹화는 [재생 절차](replay.md)를 따른다.
+- flutter analyze 통과, flutter test 202개 통과, release 웹 빌드 성공. Chrome 360px·1280px에서 빈 녹화 목록을 확인했다. 가로 넘침과 런타임 예외가 없었다. VoiceOver와 실제 배포는 확인 필요.
+- 통합 pytest 1070 passed, 1 skipped(lightgbm 없음). 실제 다운로드는 [2단계 확인 절차](research-download.md)를 따른다.
+
 ## 2단계 연구용 다운로드와 분석 창 (2026-11-26, feat/research-download)
 
 - Worker는 등록부를 우선 확인한다. 미등록 ID의 다운로드는 명시적으로 켠 연구용 어댑터에서만 수행한다. 네트워크 오류만 큐의 제한 횟수 안에서 재시도한다.

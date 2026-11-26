@@ -1,6 +1,5 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api/mock_api.dart';
 import '../design/tokens.dart';
@@ -31,15 +30,10 @@ class InputScreen extends StatefulWidget {
   final MockScenario? mockScenario;
   final ValueChanged<MockScenario>? onMockScenarioChanged;
 
-  static const tagline = '영상 속 단서, 차분히 확인하세요.';
+  static const tagline = '영상 속 단서,\n차분히 확인하세요.';
   static const lead = '말하는 사람이 나오는 YouTube 영상에서 AI 생성·조작 의심 신호를 살펴봅니다.';
-  static const submitLabel = '분석 요청';
+  static const submitLabel = '확인하기';
   static const exampleLabel = '예시로 둘러보기';
-  static const permissionShort = '허가된 영상만 확인합니다';
-  static const permissionLong = '분석이 허가된 영상만 다룹니다. 확인할 수 없는 영상은 그 이유를 알려드려요.';
-  static const helpTitle = '무엇을 분석하나요?';
-  static const noUpload = '영상 파일은 받지 않습니다. YouTube 주소만 입력할 수 있어요.';
-
   /// mock 모드의 예시 주소. 실제 영상이 아니다.
   static const exampleUrl = 'https://youtu.be/TRINITYdemo';
 
@@ -50,9 +44,12 @@ class InputScreen extends StatefulWidget {
 class _InputScreenState extends State<InputScreen> {
   final _controller = TextEditingController();
   String? _localError;
+  String? _pasteHint;
+  final _fieldFocus = FocusNode();
 
   @override
   void dispose() {
+    _fieldFocus.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -74,82 +71,66 @@ class _InputScreenState extends State<InputScreen> {
 
   bool get _mock => widget.mockScenario != null;
 
-  Widget _field(BuildContext context, {required bool pill}) {
-    final p = context.palette;
-    OutlineInputBorder border(Color c, [double w = 1]) => OutlineInputBorder(
-          borderRadius: BorderRadius.circular(TRadius.pill),
-          borderSide: BorderSide(color: c, width: w),
-        );
-    return TextField(
-      controller: _controller,
-      enabled: !widget.busy,
-      keyboardType: TextInputType.url,
-      autocorrect: false,
-      style: TText.body.copyWith(color: p.ink),
-      minLines: 1,
-      maxLines: 3,
-      decoration: InputDecoration(
-        hintText: 'https://youtu.be/…',
-        errorText: _localError ?? widget.errorText,
-        prefixIcon: const Icon(Icons.link, size: 20),
-        contentPadding: pill ? const EdgeInsets.symmetric(horizontal: TSpace.x4, vertical: 18) : null,
-        enabledBorder: pill ? border(p.controlLine) : null,
-        focusedBorder: pill ? border(p.ink, 2) : null,
-        disabledBorder: pill ? border(p.line) : null,
-        errorBorder: pill ? border(p.warning) : null,
-        focusedErrorBorder: pill ? border(p.warning, 2) : null,
-      ),
-      onSubmitted: (_) => _submit(),
-    );
+  Future<void> _paste() async {
+    String? text;
+    try {
+      text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+    } catch (_) {
+      // 브라우저·운영체제에서 읽기를 허용하지 않으면 입력란의 기본 붙여넣기를 쓴다.
+    }
+    if (!mounted || widget.busy) return;
+    if (text == null || text.trim().isEmpty) {
+      setState(() => _pasteHint = '주소 칸을 길게 눌러 붙여넣거나 키보드의 붙여넣기를 사용해 주세요.');
+      _fieldFocus.requestFocus();
+      return;
+    }
+    _controller.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
+    setState(() { _localError = null; _pasteHint = null; });
   }
 
-  Widget _label(BuildContext context, {bool centered = false}) => Text(
-        'YouTube 영상 주소',
-        textAlign: centered ? TextAlign.center : TextAlign.start,
-        style: TText.small.copyWith(color: context.palette.muted, fontWeight: FontWeight.w700),
-      );
+  Widget _field(BuildContext context) => Semantics(
+    label: 'YouTube 영상 주소',
+    child: TextField(
+      controller: _controller,
+      focusNode: _fieldFocus,
+      enabled: !widget.busy,
+      keyboardType: TextInputType.url,
+      textInputAction: TextInputAction.done,
+      autocorrect: false,
+      maxLength: null,
+      minLines: 1,
+      maxLines: 3,
+      style: TText.body.copyWith(color: context.palette.ink),
+      decoration: InputDecoration(
+        hintText: 'https://youtu.be/…',
+        prefixIcon: const Icon(Icons.link_rounded),
+        errorText: _localError ?? widget.errorText,
+      ),
+      onSubmitted: (_) => _submit(),
+    ),
+  );
 
-  Widget _lenses(BuildContext context, {required bool row}) {
-    final p = context.palette;
-    Widget lens(IconData icon, String title, String body) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 18, color: p.ink),
-                const SizedBox(width: TSpace.x2),
-                Expanded(child: Text(title, style: TText.h3.copyWith(color: p.ink))),
-              ],
-            ),
-            const SizedBox(height: TSpace.x1),
-            Text(body, style: TText.secondary.copyWith(color: p.muted)),
-          ],
-        );
+  Widget _lenses(BuildContext context, bool wide) {
     final items = [
-      lens(Icons.center_focus_weak, '영상의 미세한 신호', '프레임 속 생성·조작 관련 특징을 살펴봅니다.'),
-      lens(Icons.open_with, '움직임의 패턴', '영상에서 추적한 점들의 움직임을 살펴봅니다.'),
-      lens(Icons.graphic_eq, '입술과 음성의 타이밍', '소리와 입 움직임이 맞는지 보는 보조 지표입니다.'),
+      ('얼굴 화질 신호', '얼굴 영상의 각 프레임에서 생성·조작과 관련된 특징을 살펴봅니다.'),
+      ('움직임', '화면에서 여러 점을 추적해 움직임의 변화를 살펴봅니다.'),
+      ('입과 소리', '입술의 움직임과 목소리가 같은 시점에 나타나는지 살펴봅니다.'),
     ];
-    if (row) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const SizedBox(width: TSpace.x4),
-            Expanded(child: items[i]),
-          ],
-        ],
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) const SizedBox(height: TSpace.x4),
-          items[i],
-        ],
+    final cards = [for (final (title, body) in items) Panel(child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(width: 30, height: 3, decoration: const BoxDecoration(
+          gradient: LinearGradient(colors: [Color(0xFF7C4DFF), Color(0xFF3D7BFF)]))),
+        const SizedBox(height: TSpace.x3),
+        Text(title, style: TText.h3.copyWith(color: context.palette.ink)),
+        const SizedBox(height: TSpace.x2),
+        Text(body, style: TText.secondary.copyWith(color: context.palette.muted)),
       ],
-    );
+    ))];
+    if (wide) {
+      return Row(crossAxisAlignment: CrossAxisAlignment.start, spacing: TSpace.x3,
+      children: [for (final card in cards) Expanded(child: card)]);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, spacing: TSpace.x3, children: cards);
   }
 
   Widget _scenarios(BuildContext context) => Column(
@@ -170,148 +151,43 @@ class _InputScreenState extends State<InputScreen> {
       );
 
   @override
-  Widget build(BuildContext context) => isAppLayout(context) ? _buildApp(context) : _buildWeb(context);
-
-  /// 앱형: 왼쪽 정렬 두 줄 제목, 짧은 설명, 주소 입력 카드, 폭을 채우는 버튼.
-  Widget _buildApp(BuildContext context) {
+  Widget build(BuildContext context) {
     final p = context.palette;
+    final width = MediaQuery.sizeOf(context).width;
+    final wide = !isAppLayout(context) && MediaQuery.textScalerOf(context).scale(18) <= 26;
     return TrinityScaffold(
+      topGap: wide ? 52 : 16,
       children: [
-        const Overline('YOUTUBE VIDEO CHECK'),
-        const SizedBox(height: TSpace.x2),
-        Semantics(
-          header: true,
-          child: Text('영상 속 단서,\n차분히 확인하세요.', style: TText.display.copyWith(color: p.ink)),
-        ),
+        Semantics(header: true, child: Text(InputScreen.tagline, style: TText.display.copyWith(
+          color: p.ink, fontSize: (width * 0.06).clamp(40.0, 64.0), height: 1.15, letterSpacing: -1.5,
+        ))),
         const SizedBox(height: TSpace.x3),
         Text(InputScreen.lead, style: TText.body.copyWith(color: p.muted)),
         const SizedBox(height: TSpace.x4),
-        Panel(
-          padding: const EdgeInsets.all(TSpace.screen),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _label(context),
-              const SizedBox(height: TSpace.x2),
-              _field(context, pill: false),
-              const SizedBox(height: TSpace.x3),
-              PrimaryButton(
-                label: widget.busy ? '요청하는 중…' : InputScreen.submitLabel,
-                icon: widget.busy ? null : Icons.north_east,
-                onPressed: widget.busy ? null : _submit,
-              ),
-              const SizedBox(height: TSpace.x2),
-              Text('공유한 링크를 여기에 붙여넣어 주세요.', style: TText.small.copyWith(color: p.muted)),
-              if (widget.onJobs != null)
-                TextButton(onPressed: widget.busy ? null : widget.onJobs, child: const Text('내 작업')),
-              if (_mock)
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: TextLinkButton(
-                    label: InputScreen.exampleLabel,
-                    trailing: Icons.arrow_forward,
-                    onPressed: widget.busy ? null : _example,
-                  ),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: TSpace.x3),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Icon(Icons.lock_outline, size: 16, color: p.muted),
-            ),
-            const SizedBox(width: TSpace.x2),
-            Expanded(child: Text(InputScreen.permissionLong, style: TText.secondary.copyWith(color: p.muted))),
-          ],
-        ),
-        const SizedBox(height: TSpace.x1),
-        Text(InputScreen.noUpload, style: TText.secondary.copyWith(color: p.muted)),
+        Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('YouTube 영상 주소', style: TText.label.copyWith(color: p.ink)),
+          const SizedBox(height: TSpace.x2),
+          _field(context),
+          if (_pasteHint != null) Semantics(liveRegion: true, child: Text(_pasteHint!, style: TText.secondary)),
+          const SizedBox(height: TSpace.x3),
+          Wrap(spacing: TSpace.x2, runSpacing: TSpace.x2, children: [
+            SecondaryButton(label: '붙여넣기', onPressed: widget.busy ? null : _paste),
+            PrimaryButton(label: widget.busy ? '요청하는 중…' : InputScreen.submitLabel,
+              onPressed: widget.busy ? null : _submit),
+          ]),
+        ])),
+        if (widget.onJobs != null || _mock)
+          Wrap(spacing: TSpace.x3, children: [
+            if (widget.onJobs != null) TextLinkButton(label: '내 작업', onPressed: widget.busy ? null : widget.onJobs),
+            if (_mock) TextLinkButton(label: InputScreen.exampleLabel, onPressed: widget.busy ? null : _example),
+          ]),
+        if (_mock) Disclosure(title: '가상 결과 고르기', child: _scenarios(context)),
         const SectionTitle('이런 단서를 살펴봐요'),
-        _lenses(context, row: false),
-        if (_mock) ...[
-          const SizedBox(height: TSpace.x4),
-          Disclosure(title: '가상 결과 고르기', child: _scenarios(context)),
-        ],
+        _lenses(context, wide),
       ],
     );
   }
 
-  /// 웹형: 가운데보다 조금 위에 워드마크, 한 줄 소개, 캡슐 입력창, 버튼 두 개.
-  Widget _buildWeb(BuildContext context) {
-    final p = context.palette;
-    final size = MediaQuery.sizeOf(context);
-    return TrinityScaffold(
-      header: HeaderStyle.guideOnly,
-      maxWidth: TSize.searchMax,
-      topGap: math.max(TSpace.x5, size.height * 0.12),
-      children: [
-        Semantics(
-          header: true,
-          child: Text(
-            'TRINITY',
-            textAlign: TextAlign.center,
-            style: TText.display.copyWith(
-              fontSize: (size.width * 0.05).clamp(40.0, 66.0),
-              height: 1.15,
-              letterSpacing: 7,
-              color: p.ink,
-            ),
-          ),
-        ),
-        const SizedBox(height: TSpace.x3),
-        Text(
-          InputScreen.tagline,
-          textAlign: TextAlign.center,
-          style: TText.title.copyWith(color: p.ink),
-        ),
-        const SizedBox(height: TSpace.x5),
-        Semantics(label: 'YouTube 영상 주소', child: _field(context, pill: true)),
-        const SizedBox(height: TSpace.x4),
-        Wrap(
-          alignment: WrapAlignment.center,
-          spacing: TSpace.x3,
-          runSpacing: TSpace.x2,
-          children: [
-            PrimaryButton(
-              label: widget.busy ? '요청하는 중…' : InputScreen.submitLabel,
-              onPressed: widget.busy ? null : _submit,
-            ),
-            if (widget.onJobs != null)
-              SecondaryButton(label: '내 작업', onPressed: widget.busy ? null : widget.onJobs),
-            if (_mock)
-              SecondaryButton(label: InputScreen.exampleLabel, onPressed: widget.busy ? null : _example),
-          ],
-        ),
-        const SizedBox(height: TSpace.x4),
-        Text(
-          InputScreen.permissionShort,
-          textAlign: TextAlign.center,
-          style: TText.small.copyWith(color: p.muted),
-        ),
-        Disclosure(
-          title: InputScreen.helpTitle,
-          centered: true,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(InputScreen.lead, style: TText.secondary.copyWith(color: p.muted)),
-              Text(
-                '${InputScreen.permissionLong} ${InputScreen.noUpload}',
-                style: TText.secondary.copyWith(color: p.muted),
-              ),
-              const SizedBox(height: TSpace.x4),
-              _lenses(context, row: true),
-            ],
-          ),
-        ),
-        if (_mock) Disclosure(title: '가상 결과 고르기', centered: true, child: _scenarios(context)),
-      ],
-    );
-  }
 }
 
 class _ScenarioOption extends StatelessWidget {

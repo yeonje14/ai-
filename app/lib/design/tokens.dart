@@ -3,7 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-/// 역할 이름으로 부르는 색. 밝은 테마가 기본이고 어두운 테마는 시스템 설정을 따른다.
+/// 역할 이름으로 부르는 색. 짙은 남색의 단일 테마를 사용한다.
 @immutable
 class TPalette extends ThemeExtension<TPalette> {
   const TPalette({
@@ -58,43 +58,28 @@ class TPalette extends ThemeExtension<TPalette> {
   final Color low;
   final Color lowBg;
 
-  static const light = TPalette(
-    brightness: Brightness.light,
-    bg: Color(0xFFF5F5F0),
-    paper: Color(0xFFFFFFFF),
-    soft: Color(0xFFE9ECE4),
-    line: Color(0xFFD7DBD2),
-    controlLine: Color(0xFF7C857C),
-    ink: Color(0xFF202923),
-    muted: Color(0xFF626A63),
-    // 기존 #FF3D00(흰 배경 3.55:1)과 #FACC15(1.53:1)는 밝은 배경에서 글자로 읽을 수 없어 진한 색을 따로 둔다
-    suspicious: Color(0xFFB63A13),
-    suspiciousBg: Color(0xFFFFF0E9),
-    warning: Color(0xFF805B05),
-    warningBg: Color(0xFFFBF0CD),
-    low: Color(0xFF2B2B2B),
-    lowBg: Color(0xFFE8E8E8),
-  );
+  Color get bg2 => const Color(0xFF121A45);
+  Color get accent => const Color(0xFFB9A8FF);
+  Color get primary => const Color(0xFF4B3BD6);
 
   static const dark = TPalette(
     brightness: Brightness.dark,
-    bg: Color(0xFF171918),
-    paper: Color(0xFF222523),
-    soft: Color(0xFF303831),
-    line: Color(0xFF414942),
-    controlLine: Color(0xFF829083),
-    ink: Color(0xFFEEF0E9),
-    muted: Color(0xFFAAB3AA),
-    suspicious: Color(0xFFFF9671),
-    suspiciousBg: Color(0xFF422920),
-    warning: Color(0xFFF4D26D),
-    warningBg: Color(0xFF3B3422),
-    low: Color(0xFFE6E6E6),
-    lowBg: Color(0xFF333333),
+    bg: Color(0xFF070A1A),
+    paper: Color(0xFF252C54),
+    soft: Color(0xFF191F40),
+    line: Color(0x47FFFFFF),
+    controlLine: Color(0xFF8A90B8),
+    ink: Color(0xFFF4F5FF),
+    muted: Color(0xFFC3C8E6),
+    suspicious: Color(0xFFFFB59E),
+    suspiciousBg: Color(0xFF392932),
+    warning: Color(0xFFFFD98A),
+    warningBg: Color(0xFF383044),
+    low: Color(0xFFE3E6F5),
+    lowBg: Color(0xFF292D42),
   );
 
-  static const all = [light, dark];
-
+  static const all = [dark];
   @override
   TPalette copyWith() => this;
 
@@ -103,7 +88,7 @@ class TPalette extends ThemeExtension<TPalette> {
 }
 
 extension TPaletteContext on BuildContext {
-  TPalette get palette => Theme.of(this).extension<TPalette>() ?? TPalette.light;
+  TPalette get palette => Theme.of(this).extension<TPalette>() ?? TPalette.dark;
 }
 
 /// 상태의 색조. 색만으로 뜻을 전하지 않는다. 항상 글자 라벨이 함께 있다.
@@ -139,23 +124,23 @@ abstract final class TSpace {
   static const double x5 = 32;
 
   /// 화면 좌우 여백.
-  static const double screen = 20;
+  static const double screen = 24;
 }
 
 /// 모서리 반경. 기존의 0에서 바꿨다(docs/design-system.md "변경 기록").
 abstract final class TRadius {
-  static const double panel = 14;
+  static const double panel = 20;
   static const double control = 8;
   static const double chip = 6;
   static const double bar = 4;
 
   /// 웹 홈의 캡슐형 주소 입력창.
-  static const double pill = 32;
+  static const double pill = 999;
 }
 
 abstract final class TSize {
   /// 최소 터치 영역.
-  static const double touch = 48;
+  static const double touch = 56;
 
   /// 본문 최대 너비.
   static const double contentMax = 760;
@@ -173,13 +158,13 @@ abstract final class TFont {
   static const korean = 'NotoSansKR';
   static const fallback = <String>[korean];
 
-  static const double body = 16;
-  static const double secondary = 14;
-  static const double small = 13;
-  static const double h3 = 17;
-  static const double title = 20;
-  static const double display = 30;
-  static const double lineHeight = 1.5;
+  static const double body = 18;
+  static const double secondary = 18;
+  static const double small = 16;
+  static const double h3 = 20;
+  static const double title = 24;
+  static const double display = 36;
+  static const double lineHeight = 1.6;
 }
 
 /// 글자 스타일. 색은 넣지 않는다(테마의 기본 글자색을 따르고, 필요한 곳에서 팔레트 색을 준다).
@@ -193,13 +178,13 @@ abstract final class TText {
   );
   static final bodyStrong = body.copyWith(fontWeight: FontWeight.w700);
   static final secondary = body.copyWith(fontSize: TFont.secondary);
-  static final small = body.copyWith(fontSize: TFont.small);
-  static final label = body.copyWith(fontSize: TFont.secondary, fontWeight: FontWeight.w700);
+  static final small = body.copyWith(fontSize: TFont.small, height: 1.5);
+  static final label = body.copyWith(fontSize: TFont.secondary, height: 1.4, fontWeight: FontWeight.w700);
   static final overline = body.copyWith(fontSize: TFont.small, fontWeight: FontWeight.w700, letterSpacing: 1.1);
-  static final h3 = body.copyWith(fontSize: TFont.h3, fontWeight: FontWeight.w700, height: 1.45);
-  static final title = body.copyWith(fontSize: TFont.title, fontWeight: FontWeight.w700, height: 1.4);
+  static final h3 = body.copyWith(fontSize: TFont.h3, fontWeight: FontWeight.w700, height: 1.4);
+  static final title = body.copyWith(fontSize: TFont.title, fontWeight: FontWeight.w700, height: 1.35);
   static final display =
-      body.copyWith(fontSize: TFont.display, fontWeight: FontWeight.w700, height: 1.4, letterSpacing: -0.6);
+      body.copyWith(fontSize: TFont.display, fontWeight: FontWeight.w700, height: 1.3, letterSpacing: -0.6);
   static const mono = TextStyle(
     fontFamily: TFont.mono,
     fontFamilyFallback: TFont.fallback,
