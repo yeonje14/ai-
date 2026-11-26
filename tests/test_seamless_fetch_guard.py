@@ -103,3 +103,30 @@ def test_expected_hash_matches_committed_doc():
     assert fp.EXPECTED_RESERVATION_SHA256 in doc
     assert fp.EXPECTED_FILELIST_BLOB in doc
     assert hashlib.sha256(b"").hexdigest() != fp.EXPECTED_RESERVATION_SHA256
+
+
+def test_range_role_selects_only_its_role(tmp_path):
+    res, fl, rs, blob = _write(tmp_path, [("range_fit", 0, "00", K, A, B)],
+                               [(A, "naturalistic", "train", "0", "1"), (B, "naturalistic", "train", "0", "1")])
+    assert fp.select_pilot(res, fl, 0, rs, blob, role="range_fit")["file_id_b"] == B
+    with pytest.raises(fp.GuardError, match="range_check order 0"):
+        fp.select_pilot(res, fl, 0, rs, blob, role="range_check")
+    with pytest.raises(fp.GuardError, match="pilot order 0"):
+        fp.select_pilot(res, fl, 0, rs, blob)
+
+
+def test_range_ids_must_not_touch_existing_reservation(tmp_path):
+    prior = tmp_path / "reservation.csv"
+    prior.write_text("role,order,vendor,interaction_key,file_id_a,file_id_b\n"
+                     f"test,0,00,{T},{T}_P0003,{T}_P0004\n")
+    fp.check_not_reserved([A, B], prior)
+    with pytest.raises(fp.GuardError, match="겹치는"):
+        fp.check_not_reserved([A, "V00_S0009_I00000001_P03"], prior)     # 앞자리 0만 다른 같은 사람
+    with pytest.raises(fp.GuardError, match="겹치는"):
+        fp.check_not_reserved([f"{T[:9]}_I00000009_P0100"], prior)         # 같은 세션
+
+
+def test_range_list_hashes_match_plan():
+    plan = (ROOT / "docs/superpowers/plans/2026-11-27-evidence-range.md").read_text(encoding="utf-8")
+    for role, (path, sha) in fp.RANGE_LISTS.items():
+        assert sha in plan and path.name == f"{role}_v2.csv"
