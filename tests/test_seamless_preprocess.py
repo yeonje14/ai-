@@ -121,3 +121,27 @@ def test_encode_cuts_both_streams_on_same_timeline(tmp_path):
     assert abs(lag["lag_sec"]) < 0.002 and lag["peak_ncc"] > 0.8
     assert enc["bytes"] == out.stat().st_size and len(enc["sha256"]) == 64
     assert "v.mp4" in enc["args"] and str(tmp_path) not in " ".join(enc["args"])
+
+
+def test_timeline_from_probe_uses_video_and_wav_streams():
+    mp4 = {"streams": [{"codec_type": "audio", "start_time": 0.0, "duration": 9.0},
+                       {"codec_type": "video", "start_time": 0.033, "duration": 320.0}]}
+    wav = {"streams": [{"codec_type": "audio", "start_time": None, "duration": 320.04}]}
+    assert pp.timeline_from_probe(mp4, wav) == {"video_start_sec": 0.033, "video_duration_sec": 320.0,
+                                                "wav_duration_sec": 320.04}
+
+
+def test_pick_reads_order_specific_fetch_record(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(fp, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(fp, "SEAMLESS", tmp_path / "seamless")
+    rec = {"pilot": {"file_id_a": "X", "file_id_b": "Y"},
+           "downloads": {fid: {"status": "ok", "files": {e: {"path": f"m/{fid}.{e}", "sha256": "h"}
+                                                          for e in ("mp4", "wav", "json", "npz")}}
+                         for fid in ("X", "Y")}}
+    d = tmp_path / "seamless/pilot/pilot-02"
+    d.mkdir(parents=True)
+    (d / "fetch.json").write_text(json.dumps(rec))
+    p = fp.pick(2)
+    assert p["A"]["file_id"] == "X" and p["B"]["files"]["wav"] == tmp_path / "m/Y.wav"
+    assert fp.pilot_dir(2) == d

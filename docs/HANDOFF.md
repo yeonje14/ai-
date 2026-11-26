@@ -1,5 +1,26 @@
 # HANDOFF
 
+## Gate 작은 얼굴 입 측정 비교 (2026-11-26, 브랜치 `fix/gate-small-face`, 서버 코드 변경 없음)
+
+- **한 일**
+  - 계획: `docs/superpowers/plans/2026-11-26-gate-small-face.md`. 기준은 확인용 영상을 받기 전에 커밋·push했다(`cd8175f`).
+  - 확인용 영상: 예약 파일럿 1~3번 쌍을 받아 전처리 규칙대로 6개를 만들었다. `seamless_preprocess.py`는 이제 `--order`를 받는다. pilot#0을 다시 만들면 SHA-256이 기존과 같다.
+  - 비교: `scripts/gate_small_face_compare.py`로 V0(현행)와 Va((a) crop 배율 3)를 영상 13개에서 3회씩 비교했다. 결과는 `docs/gate.md` "작은 얼굴 입 측정 비교"에 있다.
+- **결과: (a)는 사전 기준 미달이다.**
+  - 개발용 B 측정률은 13.1% → 72.5%로, 기준 80%에 못 미쳤다.
+  - 확인용 저측정 영상 5개는 모두 80% 미만이다.
+  - 소형 얼굴 영상 2개에서 \|Δopening\| 중앙값이 0.018로, 기준 0.01을 넘었다.
+  - 나빠진 곳은 없다. 측정률 하락이 없고, A~E와 C·D 결과가 유지되고, Gate 시간도 늘지 않았다.
+  - 확인용 6개 중 4개는 얼굴 검출기 자체가 대부분 놓쳤다(0~32%). Va는 검출 누락을 고치지 못한다.
+- **(c) `mouth_unmeasurable`:** §15.3 문안만 썼다(수치 포함, `docs/gate.md`). API 계약 변경이므로 승인 전에는 구현하지 않는다.
+- **승인 대기 / 남은 결정**
+  - (c) 문안 승인 여부
+  - (a)를 기준 미달을 알고 채택할지 여부
+  - (b) full-range 검출 모델을 측정할지 여부. 이용 조건과 Tasks API 호환은 아직 확인하지 않았다.
+  - 범위 축소 기준 12-03(Gate 수정 실패 시 통과한 영상만 사용)이 적용될 수 있다.
+- **디스크:** Seamless 미디어 합계 2.4GB(pilot#0 0.9GB 포함). 여유 공간은 28GiB다.
+- **테스트:** `pytest -q` 1015 passed, 1 skipped. `git diff --check` 통과.
+
 ## Seamless 전처리 적용 결과와 B `no_mouth_movement` 원인 (2026-11-26, 브랜치 `research/seamless-preprocess`)
 
 - **한 일 — 전처리 적용.** 규칙(`6bc3493`)을 pilot#0에 적용했다(`scripts/seamless_preprocess.py`). A·B 25초 창을 1080×1920 CRF 20으로 인코딩했다. 출력 오디오는 원본 WAV 같은 창과 시간차 0이고, 영상은 원본 프레임과 −2.7ms / +11.2ms(한 프레임 미만)다.
