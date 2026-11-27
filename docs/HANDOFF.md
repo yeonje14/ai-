@@ -1,5 +1,12 @@
 # HANDOFF
 
+## 4단계 기준 범위 통계 (2026-11-27, feat/range-stats)
+
+- 봉인된 예약 순서에서 정지 지점까지 읽는다. 합성 세션으로 신호별 세션 최댓값, 기관 층 부트스트랩, 독립 검증과 공개 상태를 검사했다.
+- 검증 결과는 합성 통계 테스트 10개 통과, 전체 pytest 1,121개 통과·1개 건너뜀(LightGBM 미설치)이다.
+- 실제 analyze 종료 후 저장소 루트의 trinity 환경(NumPy 필요)에서 `python -m scripts.evidence_range_stats`를 실행한다. 결과는 Git 제외 경로 `data/research/seamless/range_v2/stats/{stats.json,summary.md}`에 쓴다.
+- WaveRep는 현재 요약의 프레임 시간 원점과 인덱스 기준을 확인할 수 없어 대응 미검증(보류)이다. 실행기 기록 보완안과 실제 한 세션 대조 절차는 [계획의 백분위와 불확실성](superpowers/plans/2026-11-27-evidence-range.md#백분위와-불확실성)에 있다. 이번 작업은 실제 fetch·analyze와 실제 데이터 통계를 실행하지 않았다.
+
 ## 4단계 fetch 사람 단위 수용과 재처리 (2026-11-27)
 
 - 사용자 결정 문구는 **다운로드 결과를 본 뒤, 분석 결과를 보기 전에 정한 규칙 보완**이다. 아래 PR #47 시점 이후 최초 fetch 완료(fit 272/311, check 174/185). 사람별 필수 파일을 갖추면 전처리하고 한 명 이상 성공하면 세션을 수용한다. 전처리 규칙, 예약 목록·해시, Gate 정지 조건은 기존과 같다.
