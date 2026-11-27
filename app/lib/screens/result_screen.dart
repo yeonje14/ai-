@@ -75,14 +75,14 @@ class ResultScreen extends StatelessWidget {
         ),
       _ => ('판단을\n보류했어요.', noJudgement, '판단을 보류한 이유', reasonText(code) ?? noReason),
     };
-    final showCoverage =
-        kind == ScreenKind.suspicious || kind == ScreenKind.low || kind == ScreenKind.abstained;
     final c = result.coverage;
 
     final main = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        StatusLabel(text: analysisFailed ? '분석하지 못함' : labels[kind]!, tone: tone),
+        Semantics(header: true, child: StatusLabel(text: analysisFailed ? '분석하지 못함' : labels[kind]!, tone: tone)),
+        const SizedBox(height: TSpace.x1),
+        Text('참고 정보, 진위 단정 아님', style: TText.secondary.copyWith(color: p.muted)),
         const SizedBox(height: TSpace.x3),
         Semantics(header: true, child: Text(headline, style: TText.display.copyWith(color: p.ink))),
         const SizedBox(height: TSpace.x3),
@@ -95,7 +95,7 @@ class ResultScreen extends StatelessWidget {
         ],
         // 서버 설명 가운데 위의 이유와 같은 원인 코드는 되풀이하지 않는다
         for (final e in result.explanations)
-          if (e.message.isNotEmpty && (e.templateId == 'ANALYSIS_WINDOW' || !(reasonTitle != null && e.reasonCode == code && reasonText(code) != null))) ...[
+          if (e.message.isNotEmpty && !isWindowEvidence(e) && !(reasonTitle != null && e.reasonCode == code && reasonText(code) != null)) ...[
             const SizedBox(height: TSpace.x3),
             Text(e.message, style: TText.body.copyWith(color: p.ink)),
           ],
@@ -139,15 +139,22 @@ class ResultScreen extends StatelessWidget {
               SizedBox(width: 250, child: summary),
             ],
           ),
-        if (showCoverage) ...[
-          const SizedBox(height: TSpace.x4),
+        const SectionTitle('분석한 구간'),
+        for (final e in result.explanations.where(isWindowEvidence))
+          Padding(padding: const EdgeInsets.only(bottom: TSpace.x2), child: Text(e.message, style: TText.body.copyWith(color: p.ink))),
+        if (c?.videoDurationSec != null)
           CoverageBar(
-            videoDurationSec: c?.videoDurationSec,
-            segments: c?.segments ?? const [],
+            videoDurationSec: c!.videoDurationSec,
+            segments: c.segments,
             caption: coverageCaption(c),
-            endLabel: c?.videoDurationSec == null ? null : formatClock(c!.videoDurationSec!),
-          ),
-        ],
+            endLabel: formatClock(c.videoDurationSec!),
+          )
+        else
+          Text('분석한 구간이 기록되지 않았습니다.', style: TText.body.copyWith(color: p.muted)),
+        const SectionTitle('신호별 확인 내용'),
+        SignalCards(result: result),
+        const SectionTitle('진짜 영상 범위와 비교'),
+        const InfoBox(body: '비교 기준 준비 중 → 판단 보류', tone: StatusTone.warning),
         const SizedBox(height: TSpace.x4),
         Wrap(
           spacing: TSpace.x3,
@@ -205,5 +212,40 @@ class _StatusSummary extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+bool isWindowEvidence(Explanation explanation) => const {
+  'ANALYSIS_WINDOW', 'GATE_ELIGIBLE_SEGMENT', 'GATE_EXCLUDED_SEGMENT',
+}.contains(explanation.templateId);
+
+class SignalCards extends StatelessWidget {
+  const SignalCards({super.key, required this.result, this.includeReasons = false});
+  final AnalysisResult result;
+  final bool includeReasons;
+
+  static const signals = [
+    ('signal', '얼굴의 화질 신호', 'WaveRep · 얼굴 영상에 남은 화질과 질감의 특징을 확인합니다.'),
+    ('physics', '얼굴의 움직임', 'MotionPhys · 얼굴에서 추적한 점들이 어떻게 움직이는지 살펴봅니다.'),
+    ('alignment', '입과 소리', 'SyncNet · 입술 움직임과 소리의 시점이 맞는지 살펴봅니다.'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      for (final (key, title, description) in signals) ...[
+        Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Semantics(header: true, child: Text(title, style: TText.h3.copyWith(color: p.ink))),
+          Text(description, style: TText.body.copyWith(color: p.muted)),
+          const SizedBox(height: TSpace.x2),
+          Text('확인 상태 · ${axisStatusText[result.axes[key]?.status] ?? "결과 없음"}',
+            style: TText.bodyStrong.copyWith(color: p.ink)),
+          if (includeReasons && reasonText(result.axes[key]?.reasonCode) != null)
+            Text(reasonText(result.axes[key]?.reasonCode)!, style: TText.body.copyWith(color: p.muted)),
+        ])),
+        const SizedBox(height: TSpace.x2),
+      ],
+    ]);
   }
 }

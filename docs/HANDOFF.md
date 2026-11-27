@@ -1,5 +1,11 @@
 # HANDOFF
 
+## PR #46 웹 개편 통합 (2026-11-28)
+
+- main의 #47~#49 위에 #46을 병합했다. 남은 작업은 main 대상 PR 검토다.
+- Flutter 정적 분석 이슈 0건, Flutter 테스트 202개 통과. 전체 pytest 1,124개 통과, LightGBM 미설치로 1개 건너뜀.
+- 앱 디렉터리에서 `flutter run -d chrome --dart-define=TRINITY_API_MODE=replay`로 실행한다. 설정에서 replay 선택을 확인했다.
+
 ## 4단계 기준 범위 통계 (2026-11-27, feat/range-stats)
 
 - 봉인된 예약 순서에서 정지 지점까지 읽는다. 합성 세션으로 신호별 세션 최댓값, 기관 층 부트스트랩, 독립 검증과 공개 상태를 검사했다.
@@ -25,6 +31,13 @@
 - **실행하지 않음:** 실제 fetch·analyze. 사용자가 터미널에서 돌린다(`caffeinate -i python scripts/evidence_range_run.py fetch`, 예상 33시간, 440.8GB 전송, 25초본 약 11GB 누적).
 - **확인 필요:** 재압축 인코딩 시간(예산에 없음), WaveRep 프레임 번호와 Gate 구간 경계 대응, 공식 패키지 로그(`logs/seamless_interaction_fs.log`)에 URL이 남는지(파일럿 4쌍 뒤에는 "http" 0건), 실효 50Mbps 가정.
 - **남은 일:** 12-03 Gate 결정 → analyze. 통계 계산 스크립트(백분위·부트스트랩·Wilson)는 아직 없다.
+
+## 3단계 웹과 Pages 녹화 재생 (2026-11-27, feat/web-redesign)
+
+- 링크 입력, 단계 막대, 증거 세 구역과 원시 점수 없는 상세, 움직임 설정을 적용했다. 서버 API 추가 변경은 없다.
+- PR #45 다음에 merge. Pages용 녹화 목록은 비었다. 실행과 사용자 녹화는 [재생 절차](replay.md)를 따른다.
+- flutter analyze 통과, flutter test 202개 통과, release 웹 빌드 성공. Chrome 360px·1280px에서 빈 녹화 목록을 확인했다. 가로 넘침과 런타임 예외가 없었다. VoiceOver와 실제 배포는 확인 필요.
+- 통합 pytest 1070 passed, 1 skipped(lightgbm 없음). 실제 다운로드는 [2단계 확인 절차](research-download.md)를 따른다.
 
 ## 2단계 연구용 다운로드와 분석 창 (2026-11-26, feat/research-download)
 

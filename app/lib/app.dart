@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'api/analysis_api.dart';
 import 'api/mock_api.dart';
 import 'api/models.dart';
+import 'api/replay_api.dart';
 import 'config.dart';
 import 'design/theme.dart';
 import 'design/widgets.dart';
@@ -27,10 +28,8 @@ class TrinityApp extends StatelessWidget {
     return MaterialApp(
       title: 'TRINITY',
       debugShowCheckedModeBanner: false,
-      // 밝은 테마가 기본이다. 시스템이 어두운 모드면 어두운 테마를 쓴다.
-      theme: buildTrinityTheme(Brightness.light),
-      darkTheme: buildTrinityTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
+      theme: buildTrinityTheme(),
+      builder: (context, child) => MotionPreferences(child: child!),
       home: config.mode == ApiMode.server && api is HttpAnalysisApi
           ? SessionScreen(api: api as HttpAnalysisApi, flow: (id, back) =>
               AnalysisFlow(config: config, api: api, initialId: id, onJobs: back))
@@ -71,6 +70,9 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
   bool _cancelRequested = false;
   String? _cancelError;
 
+  ReplayApi? get _replay => widget.api is ReplayApi ? widget.api as ReplayApi : null;
+  late final _recordings = _replay?.recordings();
+
   MockAnalysisApi? get _mock => widget.api is MockAnalysisApi ? widget.api as MockAnalysisApi : null;
 
   @override
@@ -110,7 +112,11 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
         _cancelError = null;
       });
       _timer?.cancel();
-      _timer = Timer.periodic(widget.config.pollInterval, (_) => _poll());
+      if (_replay != null) {
+        await _poll();
+      } else {
+        _timer = Timer.periodic(widget.config.pollInterval, (_) => _poll());
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -134,6 +140,8 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
           _job = job;
           _pollWarning = null;
         });
+        final replay = _replay;
+        if (replay != null) _timer = Timer(replay.untilNextState, _poll);
         return;
       }
       // 작업이 끝났다(finished·failed·cancelled). 결과를 받아 화면을 정한다.
@@ -225,6 +233,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
       onGuide: () => setState(() => _guide = true),
       inGuide: _guide,
       serverMode: widget.config.mode == ApiMode.server,
+      replayMode: widget.config.mode == ApiMode.replay,
       child: _guide ? GuideScreen(onStart: () => setState(() => _guide = false)) : _screen(context),
     );
   }
@@ -233,6 +242,28 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
     final result = _result;
     switch (_phase) {
       case _Phase.input:
+        if (_replay != null) {
+          return TrinityScaffold(children: [
+            const SectionTitle('녹화 선택'),
+            FutureBuilder<List<RecordingEntry>>(
+              future: _recordings,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) return const Text('녹화 목록을 불러올 수 없습니다.');
+                if (!snapshot.hasData) return const Text('녹화 목록을 불러오는 중입니다.');
+                if (snapshot.data!.isEmpty) return const Text('아직 등록된 녹화가 없습니다.');
+                return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  for (final item in snapshot.data!)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: PrimaryButton(label: item.label,
+                          onPressed: _busy ? null : () => _submit(item.filename)),
+                    ),
+                  if (_inputError != null) Text(_inputError!),
+                ]);
+              },
+            ),
+          ]);
+        }
         return InputScreen(
           onSubmit: _submit,
           onJobs: widget.onJobs,
@@ -245,7 +276,7 @@ class _AnalysisFlowState extends State<AnalysisFlow> {
         return ProgressScreen(
           state: _job,
           pollWarning: _pollWarning,
-          onCancel: _cancel,
+          onCancel: _replay == null ? _cancel : _restart,
           cancelRequested: _cancelRequested,
           cancelError: _cancelError,
           failureReasonCode: result?.reasonCode,

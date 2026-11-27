@@ -29,6 +29,8 @@ void main() {
       ({'analysis_status': 'out_of_scope', 'verdict_status': 'not_applicable'}, ScreenKind.outOfScope),
       ({'analysis_status': 'unsupported', 'verdict_status': 'not_applicable'}, ScreenKind.outOfScope),
       ({'analysis_status': 'insufficient_quality', 'verdict_status': 'not_applicable'}, ScreenKind.outOfScope),
+      ({'analysis_status': 'unsupported', 'verdict_status': 'abstained', 'reason_code': 'live_not_supported'}, ScreenKind.abstained),
+      ({'analysis_status': 'insufficient_quality', 'verdict_status': 'abstained', 'reason_code': 'mouth_unmeasurable'}, ScreenKind.abstained),
       ({'job_status': 'failed', 'reason_code': 'timeout'}, ScreenKind.jobFailed),
       ({'job_status': 'cancelled'}, ScreenKind.jobFailed),
     ];
