@@ -155,7 +155,12 @@ def check_downloaded(target: Path, file_id: str) -> dict:
     meta_keys: list[str] = []
     jp = target / f"{file_id}.json"
     if jp.exists():
-        meta_keys = sorted(json.loads(jp.read_text(encoding="utf-8")).keys())
+        try:
+            metadata = json.loads(jp.read_text(encoding="utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            metadata = None
+        if isinstance(metadata, dict):
+            meta_keys = sorted(metadata)
     if "metadata:vad" not in meta_keys:
         missing.append("metadata:vad")
     return {"files": files, "json_keys": meta_keys, "missing_required": missing}

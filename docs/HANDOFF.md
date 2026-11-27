@@ -1,5 +1,11 @@
 # HANDOFF
 
+## 4단계 fetch 사람 단위 수용과 재처리 (2026-11-27)
+
+- 사용자 결정 문구는 **다운로드 결과를 본 뒤, 분석 결과를 보기 전에 정한 규칙 보완**이다. 아래 PR #47 시점 이후 최초 fetch 완료(fit 272/311, check 174/185). 사람별 필수 파일을 갖추면 전처리하고 한 명 이상 성공하면 세션을 수용한다. 전처리 규칙, 예약 목록·해시, Gate 정지 조건은 기존과 같다.
+- 다음 실행은 저장소 루트에서 `conda activate trinity` 후 `caffeinate -i python scripts/evidence_range_run.py fetch --retry-incomplete`. 최초 reachable 실패 45세션과 traceback 진단용 fit 4세션만 한 번씩 다시 받는다. 이후 `python scripts/evidence_range_run.py status`로 확인한다. 원래 실패와 다운로드 상세 기록은 세션별 attempts에 보존한다.
+- 기존 StopIteration 8명 중 최초 traceback 보존 0명. 최초 MP4 크기는 261바이트 2명·708바이트 6명. 실제 스트림 원인은 재실행 뒤 진단 집계에서 확인한다. 이번 구현에서 실제 재다운로드·analyze는 실행하지 않았다.
+
 ## 4단계 기준 범위 예약 v2와 실행기 (2026-11-27, 브랜치 `design/evidence-range`, PR #47)
 
 - **이어받은 것:** Codex가 남긴 커밋 안 된 `tests/test_evidence_range_reserve_v2.py`(구현 없이 테스트 2개)를 그대로 살려 쓰고 패턴 테스트 1개를 더했다.

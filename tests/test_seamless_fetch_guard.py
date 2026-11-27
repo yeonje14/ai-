@@ -96,6 +96,8 @@ def test_check_downloaded_requires_mp4_wav_vad(tmp_path):
     (tmp_path / f"{fid}.wav").write_bytes(b"x")
     (tmp_path / f"{fid}.json").write_text(json.dumps({"id": fid, "metadata:vad": []}))
     assert fp.check_downloaded(tmp_path, fid)["missing_required"] == []
+    (tmp_path / f"{fid}.json").write_text("{")
+    assert fp.check_downloaded(tmp_path, fid)["missing_required"] == ["metadata:vad"]
 
 
 def test_expected_hash_matches_committed_doc():
