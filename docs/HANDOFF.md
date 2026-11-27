@@ -4,6 +4,7 @@
 
 - 사용자 결정 문구는 **다운로드 결과를 본 뒤, 분석 결과를 보기 전에 정한 규칙 보완**이다. 아래 PR #47 시점 이후 최초 fetch 완료(fit 272/311, check 174/185). 사람별 필수 파일을 갖추면 전처리하고 한 명 이상 성공하면 세션을 수용한다. 전처리 규칙, 예약 목록·해시, Gate 정지 조건은 기존과 같다.
 - 다음 실행은 저장소 루트에서 `conda activate trinity` 후 `caffeinate -i python scripts/evidence_range_run.py fetch --retry-incomplete`. 최초 reachable 실패 45세션과 traceback 진단용 fit 4세션만 한 번씩 다시 받는다. 이후 `python scripts/evidence_range_run.py status`로 확인한다. 원래 실패와 다운로드 상세 기록은 세션별 attempts에 보존한다.
+- PR #48 검토 후 추가한 **다운로드 결과를 본 뒤, 분석 결과를 보기 전에 정한 규칙 보완**. MP4와 WAV 각각 1,000,000바이트 이상이고 ffprobe에서 MP4 영상·WAV 오디오가 각각 1개 이상이어야 한다. 최초 ok 446세션 양쪽 892명 중 전처리 실패 0명(fit 0/544, check 0/348). 사람 단위 추가 대상은 0명으로 이번 명령의 총 대상은 49세션·98명이다. 정상 입력의 창 선택 실패는 대상에서 제외한다.
 - 기존 StopIteration 8명 중 최초 traceback 보존 0명. 최초 MP4 크기는 261바이트 2명·708바이트 6명. 실제 스트림 원인은 재실행 뒤 진단 집계에서 확인한다. 이번 구현에서 실제 재다운로드·analyze는 실행하지 않았다.
 
 ## 4단계 기준 범위 예약 v2와 실행기 (2026-11-27, 브랜치 `design/evidence-range`, PR #47)

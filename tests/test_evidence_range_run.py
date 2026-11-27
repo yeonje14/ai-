@@ -443,3 +443,45 @@ def test_one_time_retry_finalizes_network_failure_and_respects_seal(tmp_path):
     w.fetch(retry_incomplete=True)
     assert w.downloads == [("range_check", 0)] * 2
     assert w.state("range_check", 0)["fetch"]["status"] == er.FAILED
+
+@pytest.mark.parametrize("target,ext,size,streams,eligible", [
+    ("A", "mp4", 708, {}, True),
+    ("B", "wav", 1_000_000, {"required_stream_count": 0}, True),
+    ("A", "mp4", 1_000_000, {}, False),
+])
+def test_retry_only_damaged_person_in_successful_pair(tmp_path, target, ext, size, streams, eligible):
+    role = "range_fit"
+    w = World(tmp_path, {role: _rows(role, 1)})
+    w.pre_fail.add((role, 0, target))
+    w.fetch()
+    sdir = er.session_dir(w.root, role, 0)
+    state = w.state(role, 0)
+    original = state["fetch"]
+    original["people"][target]["reason_code"] = "preprocess_StopIteration" if eligible else "window_unavailable"
+    er.write_json(sdir / "state.json", state)
+    fid = w.rows[role][0]["file_id_" + target.lower()]
+    er.write_json(sdir / "fetch.json", {"downloads": {fid: {"files": {ext: {"bytes": size, **streams}}}}})
+    other = "A" if target == "B" else "B"
+    sibling = sdir / "pre" / f"{other}.mp4"
+    sibling_stat = sibling.stat()
+    calls = []
+
+    def single(role_arg, order, person):
+        calls.append((role_arg, order, person))
+        for path in er.original_paths(fid, _index([fid])[fid], w.media):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"x")
+        return {"record": {"downloads": {fid: {"status": er.OK}}}}
+
+    w.download = single
+    w.pre_fail.clear()
+    w.fetch(retry_incomplete=True)
+    w.fetch(retry_incomplete=True)
+    assert calls == ([(role, 0, target)] if eligible else [])
+    current = w.state(role, 0)
+    assert current["fetch"]["status"] == er.OK
+    assert current["fetch"]["people"][other] == original["people"][other]
+    assert sibling.stat().st_mtime_ns == sibling_stat.st_mtime_ns
+    if eligible:
+        assert current["fetch"]["people"][target]["status"] == er.OK
+        assert current["attempts"][0]["fetch"] == original

@@ -9,6 +9,8 @@ import hashlib
 import importlib.util
 import json
 import socket
+import shutil
+import wave
 import urllib.error
 from pathlib import Path
 
@@ -87,13 +89,14 @@ def test_classify_url(monkeypatch):
     assert fp.classify_url("https://x/y")["kind"] == "network_error"
 
 
-def test_check_downloaded_requires_mp4_wav_vad(tmp_path):
+def test_check_downloaded_requires_mp4_wav_vad(tmp_path, monkeypatch):
+    monkeypatch.setattr(fp, "required_stream_count", lambda path, kind: 1)
     fid = A
-    (tmp_path / f"{fid}.mp4").write_bytes(b"x")
+    (tmp_path / f"{fid}.mp4").write_bytes(b"x" * fp.MIN_MEDIA_BYTES)
     (tmp_path / f"{fid}.json").write_text(json.dumps({"id": fid}))
     c = fp.check_downloaded(tmp_path, fid)
     assert c["missing_required"] == ["wav", "metadata:vad"]
-    (tmp_path / f"{fid}.wav").write_bytes(b"x")
+    (tmp_path / f"{fid}.wav").write_bytes(b"x" * fp.MIN_MEDIA_BYTES)
     (tmp_path / f"{fid}.json").write_text(json.dumps({"id": fid, "metadata:vad": []}))
     assert fp.check_downloaded(tmp_path, fid)["missing_required"] == []
     (tmp_path / f"{fid}.json").write_text("{")
@@ -132,3 +135,29 @@ def test_range_list_hashes_match_plan():
     plan = (ROOT / "docs/superpowers/plans/2026-11-27-evidence-range.md").read_text(encoding="utf-8")
     for role, (path, sha) in fp.RANGE_LISTS.items():
         assert sha in plan and path.name == f"{role}_v2.csv"
+
+@pytest.mark.parametrize("ext,kind", [("mp4", "video"), ("wav", "audio")])
+@pytest.mark.parametrize("size,count,valid", [(999_999, 1, False), (1_000_000, 0, False),
+                                               (1_000_000, None, False), (1_000_000, 1, True)])
+def test_media_size_and_stream(tmp_path, monkeypatch, ext, kind, size, count, valid):
+    (tmp_path / f"{A}.{ext}").write_bytes(b"x" * size)
+
+    def probe(path, expected):
+        assert path.suffix == "." + ext and expected == kind
+        return count
+
+    monkeypatch.setattr(fp, "required_stream_count", probe)
+    checked = fp.check_downloaded(tmp_path, A)
+    assert (ext not in checked["missing_required"]) == valid
+    assert checked["files"][ext]["required_stream_count"] == count
+
+@pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe 필요")
+def test_probe_counts_audio_and_absent_video_without_network(tmp_path):
+    path = tmp_path / "local.wav"
+    with wave.open(str(path), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        wav.writeframes(bytes(1_000_000))
+    assert fp.required_stream_count(path, "audio") == 1
+    assert fp.required_stream_count(path, "video") == 0
+    path.write_bytes(b"invalid")
+    assert fp.required_stream_count(path, "audio") is None

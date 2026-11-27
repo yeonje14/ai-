@@ -27,6 +27,7 @@ import json
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import time
 import urllib.error
@@ -144,6 +145,23 @@ def classify_url(url: str, timeout: float = 20.0) -> dict:
         return {"kind": "network_error", "detail": f"timeout: {e}"}
 
 
+MIN_MEDIA_BYTES = 1_000_000
+REQUIRED_STREAM = {"mp4": "video", "wav": "audio"}
+
+
+def required_stream_count(path: Path, kind: str) -> int | None:
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", str(path)],
+            capture_output=True, check=False, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode:
+        return None
+    return sum(stream.get("codec_type") == kind for stream in json.loads(result.stdout).get("streams", []))
+
+
 def check_downloaded(target: Path, file_id: str) -> dict:
     """공식 함수가 만든 파일을 확인한다. 필수: mp4, wav, json의 metadata:vad."""
     files = {}
@@ -151,7 +169,16 @@ def check_downloaded(target: Path, file_id: str) -> dict:
         p = target / f"{file_id}.{ext}"
         files[ext] = {"path": str(p.relative_to(REPO_ROOT)) if p.is_relative_to(REPO_ROOT) else str(p),
                       "bytes": p.stat().st_size if p.exists() else None}
-    missing = [ext for ext in ("mp4", "wav") if not files[ext]["bytes"]]
+    missing = []
+    for ext, kind in REQUIRED_STREAM.items():
+        size = files[ext]["bytes"]
+        if not size:
+            missing.append(ext)
+            continue
+        count = required_stream_count(target / f"{file_id}.{ext}", kind)
+        files[ext]["required_stream_count"] = count
+        if size < MIN_MEDIA_BYTES or count is None or count == 0:
+            missing.append(ext)
     meta_keys: list[str] = []
     jp = target / f"{file_id}.json"
     if jp.exists():
@@ -176,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--role", choices=(ALLOWED_ROLE, *RANGE_LISTS), default=ALLOWED_ROLE)
     ap.add_argument("--order", type=int, default=0)
     ap.add_argument("--num-workers", type=int, default=4)
+    ap.add_argument("--person", choices=("A", "B"), help="지정된 한 사람의 원본만 받는다")
     opt = ap.parse_args(argv)
 
     if opt.role == ALLOWED_ROLE:
@@ -196,7 +224,8 @@ def main(argv: list[str] | None = None) -> int:
     fs = SeamlessInteractionFS(local_dir=str(MEDIA), filelist_path=str(FILELIST), num_workers=opt.num_workers)
     # 키 이름 "pilot"은 이전 기록과 같게 둔다(range 역할도 같은 키)
     record = {"pilot": pick, "disk_before": disk(MEDIA), "downloads": {}}
-    for fid in (pick["file_id_a"], pick["file_id_b"]):
+    for who in ((opt.person,) if opt.person else ("A", "B")):
+        fid = pick[f"file_id_{who.lower()}"]
         idx = pick["index"][fid]
         target = MEDIA / idx["label"] / idx["split"] / f"{int(idx['batch_idx']):04d}" / f"{int(idx['archive_idx']):04d}"
         t0 = time.monotonic()
