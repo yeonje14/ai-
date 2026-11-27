@@ -95,3 +95,7 @@ flutter build web --no-web-resources-cdn
 - 웹(Chrome)에서만 확인했다. iOS·Android 빌드 설정이 없다.
 - 영상 제목·썸네일을 보여 주는 미디어 확인 화면, 끝난 결과의 삭제가 없다.
 - 실제 서버 모드는 2026-11-16에 Chrome에서 테스트 ID 한 건(본인 촬영 영상 A, WaveRep·SyncNet 실제 실행)을 끝까지 눌러 확인했다(`docs/HANDOFF.md`). 실제 YouTube ID, 앱에서 누른 취소 버튼의 실제 서버 동작은 미검증이다.
+
+## 공개 웹 시연
+
+Pages 빌드는 `TRINITY_API_MODE=replay`로 실행한다. 공개 녹화가 없으면 빈 목록과 안내가 표시된다. 녹화 절차는 [본인 촬영 결과 녹화](../docs/replay.md)를 따른다.

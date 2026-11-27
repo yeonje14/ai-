@@ -7,98 +7,26 @@ import 'package:trinity_app/design/widgets.dart';
 import 'helpers.dart';
 
 void main() {
-  test('밝은 테마의 색 토큰이 정한 값과 같다', () {
-    const p = TPalette.light;
-    expect(p.bg, const Color(0xFFF5F5F0));
-    expect(p.paper, const Color(0xFFFFFFFF));
-    expect(p.ink, const Color(0xFF202923));
-    expect(p.muted, const Color(0xFF626A63));
-    expect(p.suspicious, const Color(0xFFB63A13));
-    expect(p.warning, const Color(0xFF805B05));
-    expect(p.low, const Color(0xFF2B2B2B));
-    expect(p.lowBg, const Color(0xFFE8E8E8));
-  });
-
-  test('예전 다크용 상태 색은 흰 배경에서 4.5:1에 못 미친다(밝은 테마용 색을 따로 둔 이유)', () {
-    const white = Color(0xFFFFFFFF);
-    expect(contrastRatio(const Color(0xFFFF3D00), white), lessThan(4.5));
-    expect(contrastRatio(const Color(0xFFFACC15), white), lessThan(4.5));
-    expect(TPalette.light.suspicious, isNot(const Color(0xFFFF3D00)));
-    expect(TPalette.light.warning, isNot(const Color(0xFFFACC15)));
-  });
-
-  for (final p in TPalette.all) {
-    final name = p.brightness.name;
-
-    test('$name: 상태 색은 글자·라벨로 놓이는 모든 배경에서 대비 4.5:1 이상이다', () {
-      for (final tone in StatusTone.values) {
-        // 라벨 바탕(색조별), 카드, 화면 배경
-        for (final bg in [tone.bg(p), p.paper, p.bg]) {
-          expect(contrastRatio(tone.fg(p), bg), greaterThanOrEqualTo(4.5),
-              reason: '$name ${tone.name} ${tone.fg(p)} on $bg');
-        }
-      }
-    });
-
-    test('$name: 본문·보조 글자와 버튼 글자의 대비가 4.5:1 이상이다', () {
-      // 본문색은 안내 박스의 옅은 바탕 위에도 놓인다
-      for (final bg in [p.bg, p.paper, p.soft, p.suspiciousBg, p.warningBg, p.lowBg]) {
-        expect(contrastRatio(p.ink, bg), greaterThanOrEqualTo(4.5), reason: '$name ink on $bg');
-      }
-      for (final bg in [p.bg, p.paper, p.soft]) {
-        expect(contrastRatio(p.muted, bg), greaterThanOrEqualTo(4.5), reason: '$name muted on $bg');
-      }
-      expect(contrastRatio(p.paper, p.ink), greaterThanOrEqualTo(4.5), reason: '기본 버튼 글자');
-      expect(contrastRatio(p.paper, p.muted), greaterThanOrEqualTo(4.5), reason: '꺼진 기본 버튼 글자');
-    });
-
-    test('$name: 조작 요소의 테두리는 3:1 이상이다', () {
-      for (final bg in [p.bg, p.paper]) {
-        expect(contrastRatio(p.controlLine, bg), greaterThanOrEqualTo(3.0), reason: '$name controlLine on $bg');
-      }
-    });
-
-    test('$name: "의심 신호 낮음"은 완전한 무채색이고, 어떤 상태 색도 초록 계열이 아니다', () {
-      expect(isAchromatic(p.low), isTrue);
-      expect(isAchromatic(p.lowBg), isTrue);
-      for (final c in [p.suspicious, p.suspiciousBg, p.warning, p.warningBg]) {
-        expect(c.g > c.r && c.g > c.b, isFalse, reason: '$c');
-      }
-    });
-
-    test('$name: 테마가 팔레트를 쓴다', () {
-      final theme = buildTrinityTheme(p.brightness);
-      expect(theme.extension<TPalette>(), same(p));
-      expect(theme.scaffoldBackgroundColor, p.bg);
-      expect(theme.brightness, p.brightness);
-    });
-  }
-
-  test('기본 테마는 밝은 테마다', () {
-    expect(buildTrinityTheme().brightness, Brightness.light);
-  });
-
-  test('글자 크기와 줄간격, 간격·반경 토큰', () {
-    expect(TText.body.fontSize, 16);
-    expect(TText.secondary.fontSize, greaterThanOrEqualTo(13));
-    expect(TText.small.fontSize, greaterThanOrEqualTo(13));
-    expect(TText.label.fontSize, greaterThanOrEqualTo(13));
-    expect(TText.overline.fontSize, greaterThanOrEqualTo(13));
-    expect(TText.body.height, 1.5);
-    expect(TText.secondary.height, 1.5);
-    expect(TText.small.height, 1.5);
-    expect([TSpace.x1, TSpace.x2, TSpace.x3, TSpace.x4, TSpace.x5], [4, 8, 16, 24, 32]);
-    expect(TSpace.screen, 20);
-    expect([TRadius.panel, TRadius.control, TRadius.chip, TRadius.pill], [14, 8, 6, 32]);
-    expect(TSize.appLayoutMax, 768);
-    expect(TSize.searchMax, 680);
-    expect(TText.body.fontFamily, 'InterTight');
-    expect(TText.body.fontFamilyFallback, contains('NotoSansKR'));
-    expect(TText.mono.fontFamily, 'JetBrainsMono');
-    // 번들한 굵기(400, 700)만 쓴다
-    for (final s in [TText.body, TText.bodyStrong, TText.secondary, TText.small, TText.label, TText.overline, TText.h3, TText.title, TText.display, TText.mono]) {
-      expect([FontWeight.w400, FontWeight.w700], contains(s.fontWeight));
+  test('시스템 밝기와 관계없이 별빛 배경과 유리 카드에서 글자를 읽을 수 있다', () {
+    const p = TPalette.dark;
+    for (final brightness in Brightness.values) {
+      expect(buildTrinityTheme(brightness).brightness, Brightness.dark);
     }
+    expect(p.bg, const Color(0xFF070A1A));
+    for (final background in [p.bg, p.bg2, p.paper]) {
+      for (final foreground in [p.ink, p.muted, p.accent, p.warning, p.suspicious, p.low]) {
+        expect(contrastRatio(foreground, background), greaterThanOrEqualTo(4.5));
+      }
+      expect(contrastRatio(p.controlLine, background), greaterThanOrEqualTo(3));
+    }
+    expect(contrastRatio(Colors.white, p.primary), greaterThanOrEqualTo(4.5));
+    for (final tone in StatusTone.values) {
+      expect(contrastRatio(tone.fg(p), tone.bg(p)), greaterThanOrEqualTo(4.5));
+    }
+    expect(TText.body.fontSize, 18);
+    expect(TText.secondary.fontSize, 18);
+    expect(TText.small.fontSize, 16);
+    expect(TSize.touch, 56);
   });
 
   testWidgets('버튼의 터치 영역은 48 이상이고 눌린다', (tester) async {
@@ -114,7 +42,7 @@ void main() {
     );
     for (final label in ['기본', '보조', '글자', '꺼짐']) {
       final box = tester.getSize(find.ancestor(of: find.text(label), matching: find.byType(InkWell)));
-      expect(box.height, greaterThanOrEqualTo(48), reason: label);
+      expect(box.height, greaterThanOrEqualTo(56), reason: label);
     }
     for (final label in ['기본', '보조', '글자', '꺼짐']) {
       await tester.tap(find.text(label));
@@ -126,9 +54,9 @@ void main() {
     await pumpScreen(tester, TrinityScaffold(children: [PrimaryButton(label: '기본', onPressed: () {})]));
     final material = tester.widget<Material>(
         find.ancestor(of: find.text('기본'), matching: find.byType(Material)).first);
-    expect(material.color, TPalette.light.ink);
-    expect(colorOfText(tester, '기본'), TPalette.light.paper);
-    expect((material.shape as RoundedRectangleBorder).borderRadius, BorderRadius.circular(8));
+    expect(material.color, TPalette.dark.primary);
+    expect(colorOfText(tester, '기본'), Colors.white);
+    expect((material.shape as RoundedRectangleBorder).borderRadius, BorderRadius.circular(TRadius.pill));
   });
 
   for (final p in TPalette.all) {
@@ -171,7 +99,7 @@ void main() {
     expect(find.text('진행 중'), findsOneWidget);
     expect(find.text('대기'), findsOneWidget);
     for (final row in tester.widgetList(find.byType(StageRow))) {
-      expect(tester.getSize(find.byWidget(row)).height, greaterThanOrEqualTo(48));
+      expect(tester.getSize(find.byWidget(row)).height, greaterThanOrEqualTo(56));
     }
   });
 
@@ -212,7 +140,7 @@ void main() {
     await pumpScreen(tester, const TrinityScaffold(children: [Disclosure(title: '더 보기', child: Text('숨은 내용'))]));
     expect(find.text('숨은 내용'), findsNothing);
     expect(tester.getSize(find.ancestor(of: find.text('더 보기'), matching: find.byType(InkWell))).height,
-        greaterThanOrEqualTo(48));
+        greaterThanOrEqualTo(56));
     await tester.tap(find.text('더 보기'));
     await tester.pump();
     expect(find.text('숨은 내용'), findsOneWidget);
