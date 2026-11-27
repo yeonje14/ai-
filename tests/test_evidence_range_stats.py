@@ -26,7 +26,9 @@ def test_reference_and_bootstrap():
     assert ref.threshold is None
     assert stats.BOUNDARY == 97.5
     assert stats.classify(11, 10, 97.5, 100) == "rare"
-    assert stats.classify(10, 10, 98, 100) == "within_range"
+    assert stats.classify(10, 10, 98, 100) == "abstained"
+    assert stats.classify(9.999, 10, 97.5, 100) == "abstained"
+    assert stats.classify(9.999, 10, 97, 97.5) == "abstained"
     assert stats.classify(11, 10, 96, 99) == "abstained"
     assert stats.classify(9, 10, 94, 97.49) == "within_range"
 
@@ -121,3 +123,25 @@ def test_order_statistic_and_missing_fit():
     assert report["n_fit"] == 100 and report["missing_fit"] == 1
     assert report["upper_reference_value"] == 98
     assert stats.classify(98.01, 98, 97.49, 97.499) == "within_range"
+
+def test_wave_frame_times_and_legacy():
+    gate = {"eligible_segments": [{"start_sec": 1, "end_sec": 2}, {"start_sec": 2, "end_sec": 3}]}
+    wave = dict(status="completed", frames=[dict(index=i, clip_pts_sec=t, logit=x)
+                for i, t, x in [(30, 1, -4), (53, 1.8, 2), (60, 2, 8), (90, 3, 99)]])
+    result = {"gate": gate, "axis_raw": {"waverep": wave}}
+    assert stats.measurements(result)["waverep"] == {(1, 2): -1, (2, 3): 8}
+    del wave["frames"][0]["clip_pts_sec"]
+    assert stats.measurements(result)["waverep"] == {}
+
+
+def test_wave_summary_uses_decoded_index_and_clip_origin(monkeypatch, tmp_path):
+    from scripts import seamless_first_pair as pair
+
+    raw = dict(status="completed", video={"frame_count": 4},
+               frames=[dict(index=2, time_sec=0.2, logit=-1.25)])
+    monkeypatch.setattr(pair, "_frame_pts", lambda src, n: [3, 3.09, 3.21, 3.29])
+    summary = pair._summ_waverep(raw, tmp_path / "synthetic")
+    assert summary["first_frame_pts_sec"] == 3
+    assert summary["frames"] == [dict(index=2, clip_pts_sec=0.21, logit=-1.25)]
+    monkeypatch.setattr(pair, "_frame_pts", lambda src, n: [])
+    assert "clip_pts_sec" not in pair._summ_waverep(raw, tmp_path / "synthetic")["frames"][0]

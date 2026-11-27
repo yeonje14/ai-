@@ -23,7 +23,7 @@ SIGNALS = ("waverep", "syncnet")
 
 
 def measurements(result):
-    """현재 WaveRep 요약에는 index 기준·시간 원점이 없어 구간값을 만들 수 없다."""
+    """Gate 구간에서 성공한 트랙과 시간 대응이 기록된 프레임만 집계한다."""
     gate = {(s["start_sec"], s["end_sec"]) for s in
             (result.get("gate") or {}).get("eligible_segments", [])}
     sync = (result.get("axis_raw") or {}).get("syncnet") or {}
@@ -35,7 +35,18 @@ def measurements(result):
         offsets = [t.get("offset_frames") for t in row.get("tracks") or []]
         if offsets and all(type(x) is int for x in offsets):
             values[bounds] = median(abs(x) for x in offsets) / 25
-    return {"syncnet": values, "waverep": {}}
+    wave = (result.get("axis_raw") or {}).get("waverep") or {}
+    frames = wave.get("frames") or []
+    wave_values = {}
+    if wave.get("status") == "completed" and frames and all(
+        type(frame.get(key)) in (int, float) and math.isfinite(frame[key])
+        for frame in frames for key in ("clip_pts_sec", "logit")
+    ):
+        for start, end in gate:
+            logits = [f["logit"] for f in frames if start <= f["clip_pts_sec"] < end]
+            if logits:
+                wave_values[start, end] = median(logits)
+    return {"syncnet": values, "waverep": wave_values}
 
 
 def read_sessions(root, role, rows):
@@ -44,6 +55,7 @@ def read_sessions(root, role, rows):
     stopped = False
     warnings = []
     institutions = {}
+    mapping = {"mapped": 0, "unverified": 0}
     gate_by_condition = {c: {"observed": 0, "passed": 0} for c in run.CONDITIONS}
     for row in rows:
         order = int(row["order"])
@@ -68,7 +80,11 @@ def read_sessions(root, role, rows):
                     result = run.read_json(directory / "results" / f"{who}.{condition}.json")
                     if isinstance(result.get("gate"), dict):
                         gate_flags[condition].append(run.gate_passed(result))
-                    for signal, segments in measurements(result).items():
+                    signals = measurements(result)
+                    wave = (result.get("axis_raw") or {}).get("waverep") or {}
+                    if wave.get("status") == "completed":
+                        mapping["mapped" if signals["waverep"] else "unverified"] += 1
+                    for signal, segments in signals.items():
                         values[condition, signal].update({(who, *k): v for k, v in segments.items()})
         for condition, flags in gate_flags.items():
             gate_by_condition[condition]["observed"] += 1
@@ -78,7 +94,7 @@ def read_sessions(root, role, rows):
         counts["passed"] += bool(state.get("session_passed"))
         sessions.append((row["vendor"], values))
     return sessions, dict(reserved=len(rows), processed=len(sessions), passed=passed,
-                          target=run.TARGETS[role], institutions=institutions, gate_by_condition=gate_by_condition,
+                          target=run.TARGETS[role], waverep_mapping_counts=mapping, institutions=institutions, gate_by_condition=gate_by_condition,
                           excluded_after_stop_orders=warnings)
 
 
@@ -96,9 +112,9 @@ def bootstrap_weights(vendors):
 def classify(x, threshold, low, high):
     if x > threshold and low >= BOUNDARY:
         return "rare"
-    if low < BOUNDARY <= high:
-        return "abstained"
-    return "within_range"
+    if high < BOUNDARY:
+        return "within_range"
+    return "abstained"
 
 
 class Reference:
@@ -245,7 +261,12 @@ def generate(root, rows):
                    targets=run.TARGETS, window_sec=25, upper_percentile=BOUNDARY,
                    min_fit=MIN_FIT, min_check=MIN_CHECK, max_session_fpr=MAX_FPR,
                    signals=SIGNALS, stats_sha256=run.sha256_file(Path(__file__)))
-    report = dict(reference_version=version, stopping=stops, waverep_mapping="대응 미검증(보류)",
+    mapped = sum(s["waverep_mapping_counts"]["mapped"] for s in stops.values())
+    unverified = sum(s["waverep_mapping_counts"]["unverified"] for s in stops.values())
+    mapping_status = "대응 미검증(보류)"
+    if mapped:
+        mapping_status = "일부 대응 미검증(보류)" if unverified else "프레임 PTS 대응"
+    report = dict(reference_version=version, stopping=stops, waverep_mapping=mapping_status,
                   conditions=compute(samples["range_fit"], samples["range_check"]))
     incomplete = any(s["passed"] < s["target"] and s["processed"] < s["reserved"] for s in stops.values())
     report["analysis_prefix_complete"] = not incomplete
@@ -256,7 +277,7 @@ def generate(root, rows):
     dest = root / "stats"
     run.write_json(dest / "stats.json", report)
     lines = ["# 25초 구간 기준 검증", "", f"Gate {version['gate_version']} · 시드 {SEED}",
-             "", "WaveRep 프레임 시간 대응 미검증(보류).", ""]
+             "", f"WaveRep 시간 대응 · {mapping_status}", ""]
     for role, stop in stops.items():
         lines.append(f"- {role} 예약 {stop['reserved']}, 처리 {stop['processed']}, 원본 통과 {stop['passed']}")
         if stop["excluded_after_stop_orders"]:
