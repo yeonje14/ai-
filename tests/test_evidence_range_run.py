@@ -325,7 +325,163 @@ def test_reference_version_is_sealed_once(tmp_path):
         er.seal_reference(tmp_path, "gate-v3", {})
 
 
-def test_analyze_requires_matching_gate_version(monkeypatch):
+def test_analyze_requires_matching_gate_version(monkeypatch, tmp_path):
+    monkeypatch.setattr(er, "RANGE_DIR", tmp_path)
     monkeypatch.setattr(er, "load_role", lambda role: _rows(role, 1))
     with pytest.raises(SystemExit, match="GATE_VERSION"):
         er.main(["analyze", "--gate-version", "gate-v0"])
+
+
+def test_retry_partial_acceptance_and_history(tmp_path):
+    w = World(tmp_path, {"range_fit": _rows("range_fit", 3)})
+    w.diag = {("range_fit", 0): "reachable", ("range_fit", 1): "http_404"}
+    w.fetch()
+    before = w.state("range_fit", 0)["fetch"]
+    w.diag.clear()
+    original = w.download
+
+    def partial(role, order):
+        result = original(role, order)
+        fid = w.rows[role][order]["file_id_a"]
+        result["record"]["downloads"][fid] = {"status": "incomplete", "missing_required": ["metadata:vad"]}
+        return result
+
+    w.download = partial
+    w.fetch(retry_incomplete=True)
+    w.fetch(retry_incomplete=True)
+    state = w.state("range_fit", 0)
+    assert w.downloads[3:] == [("range_fit", 0)]
+    assert state["attempts"][0]["fetch"] == before
+    assert state["fetch"]["status"] == er.OK
+    assert state["fetch"]["people"]["A"]["missing_required"] == ["metadata:vad"]
+    assert state["fetch"]["people"]["B"]["status"] == er.OK
+
+
+def test_interrupted_retry_never_redownloads(tmp_path):
+    w = World(tmp_path, {"range_fit": _rows("range_fit", 1)})
+    w.diag = {("range_fit", 0): "reachable"}
+    w.fetch()
+
+    def interrupt(role, order):
+        w.downloads.append((role, order))
+        raise KeyboardInterrupt
+
+    w.download = interrupt
+    with pytest.raises(KeyboardInterrupt):
+        w.fetch(retry_incomplete=True)
+    w.fetch(retry_incomplete=True)
+    w.fetch()
+    assert len(w.downloads) == 2
+    assert w.state("range_fit", 0)["fetch"]["reason_code"] == "retry_interrupted"
+
+
+def test_diagnostic_retry_records_next_and_numeric_counts(tmp_path, monkeypatch):
+    from scripts import seamless_first_pair as fp
+    from scripts import seamless_preprocess as pre
+
+    w = World(tmp_path, {"range_fit": _rows("range_fit", 43)})
+    order = 42
+    sdir = er.session_dir(w.root, "range_fit", order)
+    original = {"status": er.FAILED, "reason_code": "no_person_preprocessed", "attempts": 1,
+                "people": {who: {"reason_code": "preprocess_StopIteration"} for who in er.WHO}}
+    er.write_json(sdir / "state.json", {"fetch": original})
+    er.write_json(sdir / "fetch.json", {"first_attempt": 1})
+    monkeypatch.setattr(pre, "load_vad", lambda path: [])
+    monkeypatch.setattr(fp, "ffprobe", lambda path: {"streams": [{"codec_type": "audio"}]})
+    w.preprocess = er.preprocess_person
+    w.fetch(retry_incomplete=True)
+    w.fetch(retry_incomplete=True)
+    assert w.downloads == [("range_fit", order)]
+    state = w.state("range_fit", order)
+    assert er.read_json(sdir / state["attempts"][0]["download_record"]) == {"first_attempt": 1}
+    for person in state["fetch"]["people"].values():
+        assert person["traceback"][-1]["function"] == "timeline_from_probe"
+        assert person["traceback"][-1]["line"] > 0
+        assert person["stream_counts"] == {"mp4_video": 0, "mp4_total": 1, "wav_total": 1}
+    counts = er.status_report(w.root, w.rows)["range_fit"]["stop_iteration_diagnosis_people"]
+    assert counts["mp4_video_stream_absent"] == 2
+
+
+def test_retry_resumes_recorded_download_and_then_cleanup(tmp_path, monkeypatch):
+    w = World(tmp_path, {"range_fit": _rows("range_fit", 1)})
+    w.diag = {("range_fit", 0): "reachable"}
+    w.fetch()
+    w.diag.clear()
+    sdir = er.session_dir(w.root, "range_fit", 0)
+    download = w.download
+
+    def interrupted(role, order):
+        result = download(role, order)
+        er.write_json(sdir / "fetch.json", result["record"])
+        raise KeyboardInterrupt
+
+    w.download = interrupted
+    with pytest.raises(KeyboardInterrupt):
+        w.fetch(retry_incomplete=True)
+    with monkeypatch.context() as m:
+        m.setattr(er, "remove_files", lambda paths: False)
+        with pytest.raises(SystemExit, match="원본"):
+            w.fetch(retry_incomplete=True)
+    assert w.fetch(retry_incomplete=True) == "complete"
+    assert w.originals() == [] and w.downloads == [("range_fit", 0)] * 2
+    assert w.state("range_fit", 0)["fetch"]["status"] == er.OK
+    assert (sdir / "pre/A.mp4").is_file()
+
+
+def test_one_time_retry_finalizes_network_failure_and_respects_seal(tmp_path):
+    w = World(tmp_path, {"range_check": _rows("range_check", 1)})
+    w.diag = {("range_check", 0): "reachable"}
+    w.fetch()
+    w.diag = {("range_check", 0): "dns_error"}
+    seal = w.root / "reference_version.json"
+    er.write_json(seal, {"gate_version": "fixture"})
+    with pytest.raises(SystemExit, match="봉인"):
+        w.fetch(retry_incomplete=True)
+    seal.unlink()
+    w.fetch(retry_incomplete=True)
+    w.fetch()
+    w.fetch(retry_incomplete=True)
+    assert w.downloads == [("range_check", 0)] * 2
+    assert w.state("range_check", 0)["fetch"]["status"] == er.FAILED
+
+@pytest.mark.parametrize("target,ext,size,streams,eligible", [
+    ("A", "mp4", 708, {}, True),
+    ("B", "wav", 1_000_000, {"required_stream_count": 0}, True),
+    ("A", "mp4", 1_000_000, {}, False),
+])
+def test_retry_only_damaged_person_in_successful_pair(tmp_path, target, ext, size, streams, eligible):
+    role = "range_fit"
+    w = World(tmp_path, {role: _rows(role, 1)})
+    w.pre_fail.add((role, 0, target))
+    w.fetch()
+    sdir = er.session_dir(w.root, role, 0)
+    state = w.state(role, 0)
+    original = state["fetch"]
+    original["people"][target]["reason_code"] = "preprocess_StopIteration" if eligible else "window_unavailable"
+    er.write_json(sdir / "state.json", state)
+    fid = w.rows[role][0]["file_id_" + target.lower()]
+    er.write_json(sdir / "fetch.json", {"downloads": {fid: {"files": {ext: {"bytes": size, **streams}}}}})
+    other = "A" if target == "B" else "B"
+    sibling = sdir / "pre" / f"{other}.mp4"
+    sibling_stat = sibling.stat()
+    calls = []
+
+    def single(role_arg, order, person):
+        calls.append((role_arg, order, person))
+        for path in er.original_paths(fid, _index([fid])[fid], w.media):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"x")
+        return {"record": {"downloads": {fid: {"status": er.OK}}}}
+
+    w.download = single
+    w.pre_fail.clear()
+    w.fetch(retry_incomplete=True)
+    w.fetch(retry_incomplete=True)
+    assert calls == ([(role, 0, target)] if eligible else [])
+    current = w.state(role, 0)
+    assert current["fetch"]["status"] == er.OK
+    assert current["fetch"]["people"][other] == original["people"][other]
+    assert sibling.stat().st_mtime_ns == sibling_stat.st_mtime_ns
+    if eligible:
+        assert current["fetch"]["people"][target]["status"] == er.OK
+        assert current["attempts"][0]["fetch"] == original

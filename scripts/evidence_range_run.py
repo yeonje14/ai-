@@ -2,12 +2,13 @@
 
     conda activate trinity                     # 저장소 루트
     caffeinate -i python scripts/evidence_range_run.py fetch
+    caffeinate -i python scripts/evidence_range_run.py fetch --retry-incomplete   # v2 보완 45+4세션
     caffeinate -i python scripts/evidence_range_run.py analyze --gate-version gate-v2   # 12-03 Gate 결정 뒤
     python scripts/evidence_range_run.py status
 
 fetch   두 역할을 5:3(F F C F F C F C 반복)으로 번갈아, 역할 안 order 순서로 한 세션씩
         공식 S3 방법(research/seamless/fetch_pilot.py, 별도 venv)으로 두 사람을 받는다
-        → 전처리 규칙(6bc3493, scripts/seamless_preprocess.py)으로 두 사람의 25초본을 만든다
+        → 전처리 규칙(6bc3493, scripts/seamless_preprocess.py)으로 필수 입력을 갖춘 사람마다 25초본을 만든다
         → 길이·스트림·오디오 일치·해시를 확인하고 즉시 원본(mp4·wav·json·npz)을 지운다.
         디스크에 두는 원본은 한 번에 1세션이다. 여유 공간이 --min-free-gb(기본 10) 아래면 멈춘다.
         Gate 결과를 모르는 단계라 정지 규칙을 적용하지 않고 예약 전체를 받는다(--max-sessions로 줄일 수 있다).
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -36,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -158,10 +161,13 @@ def remove_files(paths: list[Path]) -> bool:
     return not any(p.exists() for p in paths)
 
 
-def download_session(role: str, order: int) -> dict:
+def download_session(role: str, order: int, person: Optional[str] = None) -> dict:
     """별도 venv에서 공식 S3 래퍼를 부른다. stdout·stderr는 남기지 않는다(URL이 들어갈 수 있다)."""
+    args = [str(VENV_PYTHON), "-I", str(FETCH_SCRIPT), "--role", role, "--order", str(order)]
+    if person:
+        args.extend(["--person", person])
     try:
-        proc = subprocess.run([str(VENV_PYTHON), "-I", str(FETCH_SCRIPT), "--role", role, "--order", str(order)],
+        proc = subprocess.run(args,
                               cwd=str(REPO_ROOT), capture_output=True, timeout=FETCH_TIMEOUT_SEC)
         rc = proc.returncode
     except subprocess.TimeoutExpired:
@@ -196,7 +202,15 @@ def preprocess_person(mp4: Path, wav: Path, vad_json: Path, out: Path) -> dict:
     from scripts import seamless_preprocess as pre
 
     vad = pre.load_vad(vad_json)
-    tl = pre.timeline_from_probe(fp.ffprobe(mp4), fp.ffprobe(wav))
+    video_probe, audio_probe = fp.ffprobe(mp4), fp.ffprobe(wav)
+    try:
+        tl = pre.timeline_from_probe(video_probe, audio_probe)
+    except StopIteration as exc:
+        exc.stream_counts = {
+            "mp4_video": sum(s["codec_type"] == "video" for s in video_probe["streams"]),
+            "mp4_total": len(video_probe["streams"]), "wav_total": len(audio_probe["streams"]),
+        }
+        raise
     face = pre.face_window(vad, tl["video_start_sec"], tl["video_start_sec"] + tl["video_duration_sec"],
                            tl["wav_duration_sec"])
     if face is None:
@@ -226,59 +240,159 @@ def verify_preprocessed(rec: dict) -> dict:
 
 @dataclass
 class FetchDeps:
-    download: Callable[[str, int], dict] = download_session
+    download: Callable[..., dict] = download_session
     preprocess: Callable[[Path, Path, Path, Path], dict] = preprocess_person
     index: Callable[[set], dict] = official_index
     free_bytes: Callable[[], int] = lambda: shutil.disk_usage(SEAMLESS).free
     media: Path = fetch_pilot.MEDIA
 
 
-def fetch_one(root: Path, role: str, row: dict, deps: FetchDeps) -> dict:
+DIAGNOSTIC_ORDERS = {42, 119, 169, 180}
+
+
+def retry_target(role: str, order: int, fetch: dict) -> bool:
+    if fetch.get("status") != FAILED or fetch.get("one_time_retry"):
+        return False
+    if fetch.get("reason_code") == "download_incomplete+reachable":
+        return True
+    return (role == "range_fit" and order in DIAGNOSTIC_ORDERS
+            and fetch.get("reason_code") == "no_person_preprocessed"
+            and all(fetch["people"][who]["reason_code"] == "preprocess_StopIteration" for who in WHO))
+
+
+def damaged_person(sdir: Path, row: dict, fetch: dict) -> Optional[str]:
+    """성공 세션의 실패자에게만 최초 원본의 객관적 결함을 확인한다."""
+    if fetch.get("status") != OK or fetch.get("one_time_retry"):
+        return None
+    for who, person in fetch["people"].items():
+        if person["status"] != FAILED:
+            continue
+        path = sdir / "fetch.json"
+        if not path.exists():  # 최초 기록 보관 뒤 상태 쓰기 전에 중단된 경우
+            path = sdir / "attempts" / f"{fetch['attempts']}.json"
+        entry = read_json(path).get("downloads", {}).get(row[f"file_id_{who.lower()}"], {})
+        for ext in fetch_pilot.REQUIRED_STREAM:
+            file = entry.get("files", {}).get(ext, {})
+            size = file.get("bytes")
+            if (("bytes" in file and (size is None or size < fetch_pilot.MIN_MEDIA_BYTES))
+                    or ("required_stream_count" in file and not file["required_stream_count"])):
+                return who
+        if person.get("stream_counts", {}).get("mp4_video") == 0:
+            return who
+    return None
+
+
+def fetch_one(root: Path, role: str, row: dict, deps: FetchDeps, one_time_retry: bool = False,
+              person: Optional[str] = None) -> dict:
     order = int(row["order"])
     sdir = session_dir(root, role, order)
     state = read_json(sdir / "state.json")
     fetch = state.get("fetch") or {"status": PENDING, "attempts": 0}
     ids = {"A": row["file_id_a"], "B": row["file_id_b"]}
+    person = fetch.get("retry_person", person)
+    if person:
+        ids = {person: ids[person]}
     index = deps.index(set(ids.values()))
     originals = [p for fid in ids.values() for p in original_paths(fid, index[fid], deps.media)]
 
-    # 끝나지 않은 이전 시도의 부분 파일을 지우고 처음부터 한다
-    remove_files(originals)
-    shutil.rmtree(sdir / "pre", ignore_errors=True)
-    (sdir / "fetch.json").unlink(missing_ok=True)
+    def finish_cleanup():
+        if not remove_files(originals):
+            raise SystemExit("원본을 지우지 못했다. 디스크 규칙(1세션) 때문에 멈춘다.")
+        fetch["originals_removed"] = True
+        fetch["free_bytes_after"] = deps.free_bytes()
+        write_json(sdir / "state.json", state)
+        return state
 
-    fetch = {"status": PENDING, "attempts": fetch.get("attempts", 0) + 1, "started": time.time()}
-    state.update({"role": role, "order": order, "interaction_key": row["interaction_key"],
-                  "vendor": row["vendor"], "fetch": fetch})
-    write_json(sdir / "state.json", state)
+    if fetch.get("originals_removed") is False:
+        return finish_cleanup()
 
+    interrupted = fetch.get("one_time_retry") and fetch.get("status") == PENDING
+    record_path = sdir / "fetch.json"
+    if not interrupted:
+        if one_time_retry:
+            # 원본 기록과 현재 상태를 보존한 뒤 한 번의 다운로드 권한을 소비한다.
+            archive = sdir / "attempts" / f"{fetch['attempts']}.json"
+            if record_path.exists():
+                write_json(archive, read_json(record_path))
+            state.setdefault("attempts", []).append({
+                "fetch": fetch, "download_record": str(archive.relative_to(sdir)) if archive.exists() else None,
+            })
+        remove_files(originals)
+        record_path.unlink(missing_ok=True)
+        fetch = {"status": PENDING, "attempts": fetch.get("attempts", 0) + 1, "started": time.time()}
+        if one_time_retry:
+            fetch["one_time_retry"] = True
+            if person:
+                fetch["retry_person"] = person
+        state.update({"role": role, "order": order, "interaction_key": row["interaction_key"],
+                      "vendor": row["vendor"], "fetch": fetch})
+        write_json(sdir / "state.json", state)
+    if person:
+        (sdir / "pre" / f"{person}.mp4").unlink(missing_ok=True)
+    else:
+        shutil.rmtree(sdir / "pre", ignore_errors=True)
     t0 = time.monotonic()
-    result = deps.download(role, order)
+    if interrupted:
+        # 완료된 다운로드 기록과 필수 원본이 남아 있으면 전처리만 재개한다.
+        try:
+            record = read_json(record_path)
+        except (ValueError, UnicodeError):
+            record = {}
+        for fid, entry in record.get("downloads", {}).items():
+            if fid in index and entry.get("status") == OK:
+                required = original_paths(fid, index[fid], deps.media)[:3]
+                if not all(p.is_file() and p.stat().st_size for p in required):
+                    record = {}
+                    break
+        result = {"record": record, "returncode": None}
+    else:
+        result = deps.download(role, order, person) if person else deps.download(role, order)
     status, reason = classify_download(result, list(ids.values()))
+    if interrupted and not result["record"]:
+        status, reason = FAILED, "retry_interrupted"
     fetch["download_sec"] = round(time.monotonic() - t0, 1)
     fetch["download_bytes"] = sum(p.stat().st_size for p in originals if p.exists())
     people = {}
-    if status == OK:
-        (sdir / "pre").mkdir(parents=True, exist_ok=True)
+    if person:
+        people = {who: value for who, value in state["attempts"][-1]["fetch"]["people"].items() if who != person}
+        people[person] = {"status": FAILED, "reason_code": reason}
+    downloads = (result.get("record") or {}).get("downloads") or {}
+    if downloads:
         for who, fid in ids.items():
+            person_download = downloads.get(fid, {})
+            if person_download.get("status") != OK:
+                people[who] = {"status": FAILED, "reason_code": "download_incomplete" if person_download
+                               else "download_record_missing", "missing_required": person_download.get("missing_required")}
+                files = person_download.get("files", {})
+                people[who]["media_checks"] = {
+                    ext: {k: files[ext][k] for k in ("bytes", "required_stream_count") if k in files[ext]}
+                    for ext in fetch_pilot.REQUIRED_STREAM if ext in files
+                }
+                continue
+            (sdir / "pre").mkdir(parents=True, exist_ok=True)
             mp4, wav, vad_json, _ = original_paths(fid, index[fid], deps.media)
             try:
                 people[who] = deps.preprocess(mp4, wav, vad_json, sdir / "pre" / f"{who}.mp4")
             except Exception as e:   # 한 사람이 실패해도 다른 사람은 계속한다
                 people[who] = {"status": FAILED, "reason_code": f"preprocess_{type(e).__name__}"}
+                if isinstance(e, StopIteration):
+                    people[who]["traceback"] = [
+                        {"file": Path(frame.filename).name, "function": frame.name, "line": frame.lineno}
+                        for frame in traceback.extract_tb(e.__traceback__)
+                    ]
+                    people[who]["stream_counts"] = getattr(e, "stream_counts", {})
             if people[who]["status"] != OK:
                 (sdir / "pre" / f"{who}.mp4").unlink(missing_ok=True)
-    fetch["originals_removed"] = remove_files(originals)
-    if not fetch["originals_removed"]:
-        raise SystemExit("원본을 지우지 못했다. 디스크 규칙(1세션) 때문에 멈춘다.")
-    if status == RETRY and fetch["attempts"] >= MAX_ATTEMPTS:
+    if status == RETRY and (fetch.get("one_time_retry") or fetch["attempts"] >= MAX_ATTEMPTS):
         status = FAILED
-    if status == OK and not any(p["status"] == OK for p in people.values()):
+    if any(p["status"] == OK for p in people.values()):
+        status, reason = OK, None
+    elif status == OK:
         status, reason = FAILED, "no_person_preprocessed"
     fetch.update({"status": status, "reason_code": reason, "people": people, "finished": time.time(),
-                  "free_bytes_after": deps.free_bytes()})
+                  "originals_removed": False})
     write_json(sdir / "state.json", state)
-    return state
+    return finish_cleanup()
 
 
 FETCH_RATIO = (("range_fit", 5), ("range_check", 3))
@@ -306,24 +420,33 @@ def fetch_sequence(roles, rows_by_role: dict) -> list[tuple[str, dict]]:
 
 
 def run_fetch(root: Path, roles, rows_by_role: dict, deps: FetchDeps, progress: Progress,
-              min_free_bytes: int, max_sessions: Optional[int] = None) -> str:
+              min_free_bytes: int, max_sessions: Optional[int] = None, retry_incomplete: bool = False) -> str:
     """반환: 멈춘 이유(complete | low_disk | network | max_sessions)."""
+    if retry_incomplete and (root / "reference_version.json").exists():
+        raise SystemExit("analyze 기준 버전 봉인 뒤에는 재처리할 수 없다")
     handled = 0
     consecutive_network = 0
     for role, row in fetch_sequence(roles, rows_by_role):
         rows = rows_by_role[role]
         order = int(row["order"])
         prev = (read_json(session_dir(root, role, order) / "state.json").get("fetch") or {})
-        if prev.get("status") in (OK, FAILED):
+        cleanup_pending = prev.get("originals_removed") is False
+        person = None
+        if retry_incomplete:
+            person = damaged_person(session_dir(root, role, order), row, prev)
+            resume = prev.get("one_time_retry") and (cleanup_pending or prev["status"] == PENDING)
+            if not person and not resume and not retry_target(role, order, prev):
+                continue
+        elif not cleanup_pending and prev.get("status") in (OK, FAILED):
             continue
         if max_sessions is not None and handled >= max_sessions:
             return "max_sessions"
         free = deps.free_bytes()
-        if free < min_free_bytes:
+        if free < min_free_bytes and not cleanup_pending:
             progress.line("fetch", role, order, "stop_low_disk", *_fetch_counts(root, role, rows),
                           len(rows), free)
             return "low_disk"
-        state = fetch_one(root, role, row, deps)
+        state = fetch_one(root, role, row, deps, retry_incomplete, person)
         handled += 1
         st = state["fetch"]
         progress.line("fetch", role, order, f"{st['status']}" + (f":{st['reason_code']}" if st["reason_code"]
@@ -512,12 +635,29 @@ def status_report(root: Path, rows_by_role: dict) -> dict:
             r = (st.get("fetch") or {}).get("reason_code")
             if r:
                 reasons[r] = reasons.get(r, 0) + 1
-            pre_left += (sdir / "pre").exists()
+            pre_left += any((sdir / "pre" / f"{who}.mp4").is_file() for who in WHO)
+        diagnostic_counts = {}
+        if role == "range_fit":
+            for order in sorted(DIAGNOSTIC_ORDERS):
+                fetch = read_json(session_dir(root, role, order) / "state.json").get("fetch", {})
+                for who in WHO:
+                    person = fetch.get("people", {}).get(who, {})
+                    if not fetch.get("one_time_retry") or fetch.get("status") == PENDING:
+                        code = "awaiting_diagnosis"
+                    elif (person.get("stream_counts", {}).get("mp4_video") == 0 or
+                          person.get("media_checks", {}).get("mp4", {}).get("required_stream_count") == 0):
+                        code = "mp4_video_stream_absent"
+                    else:
+                        code = person.get("reason_code") or ("preprocessed" if person.get("status") == OK
+                                                            else fetch.get("reason_code") or "diagnosis_unavailable")
+                    diagnostic_counts[code] = diagnostic_counts.get(code, 0) + 1
         processed, passed, nxt = analyze_counts(root, role, rows)
         out[role] = {"reserved": len(rows), "fetch": f_counts, "fetch_reasons": reasons,
                      "sessions_with_preprocessed_media": pre_left,
                      "analyze": {"processed": processed, "passed_sessions": passed, "target": TARGETS[role],
                                  "next_order": nxt}}
+        if diagnostic_counts:
+            out[role]["stop_iteration_diagnosis_people"] = diagnostic_counts
     return out
 
 
@@ -529,6 +669,8 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--role", choices=(*ROLES, "all"), default="all")
         if name != "status":
             p.add_argument("--min-free-gb", type=float, default=10.0)
+    sub.choices["fetch"].add_argument("--retry-incomplete", action="store_true",
+                                      help="reachable 실패·지정 진단 쌍과 성공 세션 내 원본 결함이 확인된 실패자만 한 번 재처리")
     sub.choices["fetch"].add_argument("--max-sessions", type=int, default=None)
     sub.choices["analyze"].add_argument("--gate-version", required=True,
                                         help="12-03에 확정한 Gate 버전. 코드의 GATE_VERSION과 같아야 한다")
@@ -540,11 +682,22 @@ def main(argv: list[str] | None = None) -> int:
     if opt.cmd == "status":
         print(json.dumps(status_report(RANGE_DIR, rows_by_role), ensure_ascii=False, indent=2))
         return 0
+    RANGE_DIR.mkdir(parents=True, exist_ok=True)
+    with (RANGE_DIR / ".runner.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit("fetch 또는 analyze가 이미 실행 중이다")
+        return run_command(opt, roles, rows_by_role, progress)
+
+
+def run_command(opt, roles, rows_by_role, progress) -> int:
     min_free = int(opt.min_free_gb * 1e9)
     if opt.cmd == "fetch":
         if not VENV_PYTHON.exists():
             raise SystemExit("data/research/seamless/.venv가 없다(docs/seamless-first-pair.md)")
-        why = run_fetch(RANGE_DIR, roles, rows_by_role, FetchDeps(), progress, min_free, opt.max_sessions)
+        why = run_fetch(RANGE_DIR, roles, rows_by_role, FetchDeps(), progress, min_free, opt.max_sessions,
+                        opt.retry_incomplete)
     else:
         from training.features.extract import GATE_VERSION
         if opt.gate_version != GATE_VERSION:
