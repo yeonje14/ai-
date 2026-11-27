@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -258,12 +259,35 @@ class DiskSampler(threading.Thread):
         self.sample()
 
 
-def _summ_waverep(out: dict) -> dict:
+def _frame_pts(src: Path, expected_count: int) -> list[float]:
+    """표시 순서의 첫 영상 스트림 PTS. OpenCV 디코딩 순번과 프레임 수가 맞아야 사용한다."""
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames",
+             "-show_entries", "frame=best_effort_timestamp_time", "-of", "json", str(src)],
+            capture_output=True, check=True, timeout=120)
+        pts = [float(row["best_effort_timestamp_time"]) for row in json.loads(probe.stdout)["frames"]]
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return []
+    if (len(pts) != expected_count or not all(map(math.isfinite, pts))
+            or any(b <= a for a, b in zip(pts, pts[1:]))):
+        return []
+    return pts
+
+
+def _summ_waverep(out: dict, src: Path) -> dict:
     keep = {k: out.get(k) for k in ("status", "reason_code", "video", "timing", "memory")}
     keep["device_used"] = (out.get("model") or {}).get("device_used")
     keep["frame_logit"] = (out.get("raw_metrics") or {}).get("frame_logit")
     # 구간별 통계용: 프레임 번호와 logit 숫자만 남긴다(영상 내용 없음)
     keep["frames"] = [{"index": f.get("index"), "logit": f.get("logit")} for f in out.get("frames") or []]
+    frames = keep["frames"]
+    if out.get("status") == "completed" and frames:
+        pts = _frame_pts(src, (out.get("video") or {}).get("frame_count"))
+        if pts and all(type(f["index"]) is int and 0 <= f["index"] < len(pts) for f in frames):
+            keep["first_frame_pts_sec"] = pts[0]
+            for f in frames:
+                f["clip_pts_sec"] = round(pts[f["index"]] - pts[0], 6)
     keep["sampling"] = out.get("sampling")
     return keep
 
@@ -342,7 +366,7 @@ def run_job(prepare, result: dict, work_root: Path | None = None, *, gate_only: 
             return out
         return wrapped
 
-    signal_axis.run_waverep = rec("waverep", orig_w, _summ_waverep)
+    signal_axis.run_waverep = rec("waverep", orig_w, lambda out: _summ_waverep(out, media))
     syncnet_mod.run_syncnet = rec("syncnet", orig_s, _summ_syncnet)
     motionphys_mod.run_motionphys = rec("motionphys", orig_m, _summ_motionphys)
 
